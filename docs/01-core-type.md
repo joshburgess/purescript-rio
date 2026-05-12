@@ -71,8 +71,9 @@ shape determines all the typeclass instances:
   * `pure a` ignores the environment and produces `Right a`.
   * `bind` runs the first action, short-circuits on `Left`, otherwise
     threads the environment through the continuation.
-  * `liftEffect` and `liftAff` ignore the environment and produce `Right`,
-    so effects raised through them never become typed failures. Uncaught
+  * `liftEffect` (from `Effect.Class`) and `liftAff` (from
+    `Effect.Aff.Class`) ignore the environment and produce `Right`, so
+    effects raised through them never become typed failures. Uncaught
     runtime exceptions surface as `Aff` defects, exposed by `sandbox`
     (Phase 3.3).
 
@@ -93,6 +94,12 @@ shape carry more information than the bare transformer stack would.
 | Empty services / errors    | `r = ()` / `e = ()`                    | `Any` / `Nothing`         | `never` / `never`           |
 | IO base                    | `Aff`                                  | runtime fibers            | runtime fibers              |
 | Run with full discharge    | `runRIO' :: RIO () () a -> Aff a`      | `unsafeRun(io)`           | `Effect.runPromise(eff)`    |
+
+A third runner, `unsafeRunRIO :: RIO r e a -> Record r -> Aff (Either (Variant e) a)`,
+is the raw inverse of the newtype. It is exported for advanced cases
+(custom runners, test harnesses, FFI shims) and bypasses the discharge
+checks `runRIO` and `runRIO'` provide; reach for it only when neither of
+those fits.
 
 Two practical differences are worth flagging:
 
