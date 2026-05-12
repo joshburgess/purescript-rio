@@ -1,0 +1,10 @@
+package:
+  name: spike-row-inference
+  dependencies:
+    - aff
+    - console
+    - effect
+    - either
+    - prelude
+    - record
+    - variant
