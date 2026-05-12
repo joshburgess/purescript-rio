@@ -1,0 +1,18 @@
+{
+  "name": "purescript-rio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ZIO/Effect-style library for PureScript",
+  "license": "MIT",
+  "scripts": {
+    "build": "spago build",
+    "test": "spago test",
+    "format": "purs-tidy format-in-place \"src/**/*.purs\" \"test/**/*.purs\" \"spikes/**/*.purs\"",
+    "format:check": "purs-tidy check \"src/**/*.purs\" \"test/**/*.purs\" \"spikes/**/*.purs\""
+  },
+  "devDependencies": {
+    "purescript": "0.15.15",
+    "spago": "next",
+    "purs-tidy": "^0.10.0"
+  }
+}

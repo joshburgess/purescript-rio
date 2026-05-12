@@ -1,0 +1,28 @@
+package:
+  name: rio
+  publish:
+    version: 0.0.0
+    license: MIT
+  dependencies:
+    - aff
+    - console
+    - effect
+    - either
+    - exceptions
+    - maybe
+    - prelude
+    - record
+    - refs
+    - transformers
+    - tuples
+    - variant
+  test:
+    main: Test.Main
+    dependencies:
+      - aff
+      - spec
+      - spec-node
+workspace:
+  packageSet:
+    registry: 77.0.0
+  extraPackages: {}
