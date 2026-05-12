@@ -20,8 +20,11 @@ package:
     main: Test.Main
     dependencies:
       - aff
+      - either
+      - prelude
       - spec
       - spec-node
+      - variant
 workspace:
   packageSet:
     registry: 77.0.0
