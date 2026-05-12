@@ -7,8 +7,8 @@
   "scripts": {
     "build": "spago build",
     "test": "spago test",
-    "format": "purs-tidy format-in-place \"src/**/*.purs\" \"test/**/*.purs\" \"spikes/**/*.purs\"",
-    "format:check": "purs-tidy check \"src/**/*.purs\" \"test/**/*.purs\" \"spikes/**/*.purs\""
+    "format": "purs-tidy format-in-place src test spikes",
+    "format:check": "purs-tidy check src test spikes"
   },
   "devDependencies": {
     "purescript": "0.15.15",

@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: build / node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install npm deps (purs, spago, purs-tidy)
+        run: npm ci
+
+      - name: Verify pinned tool versions
+        run: |
+          npx purs --version
+          npx spago --version
+          npx purs-tidy --version
+
+      - name: Format check
+        run: npx purs-tidy check src test spikes
+
+      - name: Build (main package)
+        run: npx spago build -p rio
+
+      - name: Test (main package)
+        run: npx spago test -p rio
+
+      - name: Build (spike-row-inference)
+        run: npx spago build -p spike-row-inference
+
+      - name: Build (spike-aff-interruption)
+        run: npx spago build -p spike-aff-interruption
+
+      - name: Run spike-aff-interruption harness
+        run: npx spago run -p spike-aff-interruption

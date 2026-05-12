@@ -82,7 +82,9 @@ scenario2 = do
   _ <- attempt (joinFiber fib)
   finalCount <- liftEffect $ Ref.read counter
   note $ "counter after kill: " <> show finalCount <> " (of 1000000)"
-  note $ if finalCount < 1000000 then "stopped early -> interruption works between binds" else "ran to completion -> no interruption"
+  note $
+    if finalCount < 1000000 then "stopped early -> interruption works between binds"
+    else "ran to completion -> no interruption"
 
 -- ---------------------------------------------------------------------------
 -- Scenario 2b: same loop, but with an explicit `delay 0` yield every 100
@@ -106,7 +108,9 @@ scenario2b = do
   _ <- attempt (joinFiber fib)
   finalCount <- liftEffect $ Ref.read counter
   note $ "counter after kill: " <> show finalCount <> " (of 1000000)"
-  note $ if finalCount < 1000000 then "stopped early -> yields make loops interruptible" else "ran to completion -> kill missed even with yields"
+  note $
+    if finalCount < 1000000 then "stopped early -> yields make loops interruptible"
+    else "ran to completion -> kill missed even with yields"
 
 -- ---------------------------------------------------------------------------
 -- Scenario 3: bracket release runs when fiber is killed mid-use.
@@ -122,7 +126,7 @@ scenario3 = do
   fib <- forkAff $ bracket
     (liftEffect (Ref.write true acquired) *> pure "resource")
     (\_ -> liftEffect (Ref.write true released))
-    (\_ -> do
+    ( \_ -> do
         liftEffect (Ref.write true used)
         delay (Milliseconds 5000.0)
         pure unit
@@ -187,7 +191,7 @@ scenario6 = do
   releaseFinished <- liftEffect $ Ref.new false
   fib <- forkAff $ bracket
     (pure "resource")
-    (\_ -> do
+    ( \_ -> do
         liftEffect (Ref.write true releaseStarted)
         delay (Milliseconds 200.0)
         liftEffect (Ref.write true releaseFinished)
