@@ -1,0 +1,13 @@
+package:
+  name: rio-example-logger
+  dependencies:
+    - aff
+    - console
+    - effect
+    - either
+    - prelude
+    - refs
+    - rio
+    - variant
+  run:
+    main: Example.Logger.Main

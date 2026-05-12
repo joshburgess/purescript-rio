@@ -22,6 +22,7 @@ import Data.Either (Either(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Aff (Aff)
+import RIO.Env (ask, asks, provide, provideAll) as Exports
 import RIO.Error (fail) as Exports
 import RIO.Internal (RIO, unRIO)
 import RIO.Internal (RIO) as Exports

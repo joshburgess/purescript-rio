@@ -23,3 +23,28 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   from `RIO.Core` (Phase 1.3).
 - `docs/01-core-type.md`: walkthrough of the three type parameters and a
   comparison with ZIO and Effect-TS (Phase 1.4).
+- `RIO.Env` module with `ask` and `asks` for reading services out of the
+  environment row (Phase 2.1).
+- `provide` in `RIO.Env`: single-service injection that shrinks the
+  required row by one field. The `Lacks` constraint from the original
+  draft is dropped, per the Phase 0.4 spike's LE-1 finding; the internal
+  insertion uses `Record.Unsafe.unsafeSet`, which is safe under the
+  `Cons` relation (Phase 2.2).
+- `provideAll` in `RIO.Env`: full-environment injection that produces a
+  `RIO () e a` runnable directly via `runRIO` or `runRIO'` (Phase 2.3).
+- `examples/logger/`: a complete `Logger` service plus a runnable
+  example demonstrating the idiomatic service shape (record of
+  `Aff`-valued operations + smart constructors lifting into `RIO`)
+  (Phase 2.4).
+- `docs/02-services.md`: the service convention, including two traps to
+  avoid (polymorphic operation fields, and using `asks` to project an
+  operation function) (Phase 2.4).
+- Row-inference regression test asserting that a do-block with two
+  disjoint `ask`s infers a row covering both services with the
+  environment-row variable kept open (Phase 2.5).
+- `RIO.Test` module with `mockService` (a more readable alias for
+  `provide`) and `recording` (a small helper for capturing service-call
+  histories into a `Ref` for test assertions) (Phase 2.6).
+- `compile-fail/` test driver and the first negative case: providing a
+  service whose value type doesn't match the required service. CI now
+  runs the driver alongside the regular test suite.

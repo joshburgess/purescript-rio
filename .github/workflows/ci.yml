@@ -40,7 +40,7 @@ jobs:
           npx purs-tidy --version
 
       - name: Format check
-        run: npx purs-tidy check src test spikes
+        run: npx purs-tidy check src test spikes examples
 
       - name: Build (main package)
         run: npx spago build -p rio
@@ -56,3 +56,9 @@ jobs:
 
       - name: Run spike-aff-interruption harness
         run: npx spago run -p spike-aff-interruption
+
+      - name: Build and run logger example
+        run: npx spago run -p rio-example-logger
+
+      - name: Compile-fail tests
+        run: bash compile-fail/run.sh

@@ -7,8 +7,8 @@
   "scripts": {
     "build": "spago build",
     "test": "spago test",
-    "format": "purs-tidy format-in-place src test spikes",
-    "format:check": "purs-tidy check src test spikes"
+    "format": "purs-tidy format-in-place src test spikes examples",
+    "format:check": "purs-tidy check src test spikes examples"
   },
   "devDependencies": {
     "purescript": "0.15.15",

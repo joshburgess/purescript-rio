@@ -1,0 +1,13 @@
+package:
+  name: rio-compile-fail-scratch
+  dependencies:
+    - aff
+    - effect
+    - either
+    - exceptions
+    - prelude
+    - record
+    - refs
+    - rio
+    - tuples
+    - variant
