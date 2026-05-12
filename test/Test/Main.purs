@@ -3,13 +3,13 @@ module Test.Main where
 import Prelude
 
 import Effect (Effect)
-import Test.Spec (describe, it)
-import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
+import Test.RIO.CoreSpec as CoreSpec
+import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
+
 main :: Effect Unit
 main = runSpecAndExitProcess [ consoleReporter ] do
-  describe "rio scaffold" do
-    it "is wired up" do
-      shouldEqual (1 + 1) 2
+  CoreSpec.spec
+  EffectAndFailSpec.spec
