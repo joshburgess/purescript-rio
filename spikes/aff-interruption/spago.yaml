@@ -1,0 +1,13 @@
+package:
+  name: spike-aff-interruption
+  dependencies:
+    - aff
+    - console
+    - effect
+    - either
+    - exceptions
+    - prelude
+    - refs
+    - transformers
+  run:
+    main: Spike.AffInterruption.Main
