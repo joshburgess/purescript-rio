@@ -69,3 +69,7 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   error row down to `()`, with the compiler's actual inferred type
   quoted at each step from
   `spikes/phase-2-review/src/Spike/ErrorsDocFixture.purs` (Phase 3.4).
+- Phase 3 review cycle: two new compile-fail cases (`runRIO'` with a
+  leftover error tag; `catchTag` with a wrong payload type) plus
+  `compile-fail/FINDINGS.md` rating the readability of each compiler
+  message and listing candidates for v0.2 custom `Fail` instances.
