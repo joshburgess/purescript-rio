@@ -11,7 +11,7 @@ layer above `Aff` is required.**
 
 ## Method
 
-A small harness in `src/Spike/AffInterruption/Main.purs` exercises seven
+A small harness in `src/Spike/AffInterruption/Main.purs` exercises eight
 scenarios against `Effect.Aff`'s `forkAff`, `killFiber`, `joinFiber`,
 `bracket`, and `attempt`. Run with:
 
@@ -127,6 +127,33 @@ did not stop it. This is precisely the semantics ZIO calls
 "uninterruptible finalizers" and is what makes `acquireRelease`
 safe under concurrent cancellation.
 
+### S7: kill issued on the same tick as `forkAff`
+
+Fork a fiber whose first action is a synchronous `Ref.write`, immediately
+followed by a long sleep. Kill on the same tick as the fork, with no
+`delay` between.
+
+```
+fiber body executed: true
+join: threw S7-pre-start
+NOTE: fiber ran one step before kill
+```
+
+**Result: PARTIAL.** The fiber's *first synchronous step* executed before
+the kill took effect. The kill is honoured at the next async boundary (the
+`delay 5000.0`), and the join surfaces the kill exception as in S1, but the
+fiber is **not** killable strictly pre-start. This matches `Aff`'s
+documented behaviour: `forkAff` synchronously runs the fiber up to its
+first async boundary before returning the `Fiber` handle. There is no
+opportunity to kill in between.
+
+**Implication for RIO:** the contract for `fork` followed immediately by
+`interrupt` is "the fiber will execute its initial synchronous prefix; any
+async work is cancelled." Phase 6.1's `interrupt` documentation must state
+this. If a user genuinely needs "do nothing on fork until I explicitly
+start," they should build a fiber whose body is `delay 0 *> body`, which
+yields before any user code runs.
+
 ## Summary
 
 | Property                                                       | Status  | Notes |
@@ -138,6 +165,7 @@ safe under concurrent cancellation.
 | Kill of completed fiber is a no-op                             | PASS    | S4    |
 | Double kill is idempotent                                      | PASS    | S5    |
 | Release/finalizer phase is uninterruptible by default          | PASS    | S6    |
+| Fiber sync prefix runs before pre-start kill can land          | PARTIAL | S7    |
 
 \* The "gap" is the standard cooperative-cancellation property shared with
 ZIO and Effect-TS. It is not a defect; it is a property to document and to
@@ -187,6 +215,13 @@ provide a `yield` escape hatch for.
 7. **Document the no-yield-no-interrupt rule** in Phase 6.4's
    "Interruption semantics doc". Cite this spike for the underlying
    evidence.
+
+8. **`fork`-then-`interrupt` always runs the fiber's initial sync prefix.**
+   Per S7, `Aff.forkAff` executes the fiber synchronously up to its first
+   async boundary before returning. Phase 6.1's `interrupt` documentation
+   must state that "the fiber will execute its initial synchronous prefix;
+   any async work is cancelled." Users who need a strictly-cancellable
+   pre-start should wrap their body in `liftAff (delay (Milliseconds 0.0)) *> body`.
 
 ## Reproducing the Findings
 

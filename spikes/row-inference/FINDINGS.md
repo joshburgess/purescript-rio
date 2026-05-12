@@ -22,9 +22,14 @@ Three deliberate-mistake cases were exercised in `src/Spike/RowInference/Negativ
 to inspect compiler error quality. (Cases are currently commented out; uncomment
 one at a time to reproduce.)
 
-The package builds clean: `npx spago build -p spike-row-inference` exits 0
-with only `MissingTypeDeclaration` and `WildcardInferredType` warnings (both
-intentional, both surface inferred types).
+The package builds successfully (`npx spago build -p spike-row-inference`
+exits 0). On a fresh build (i.e. after `rm -rf output`) it emits 41
+warnings, all intentional: 10 `MissingTypeDeclaration` (one per top-level
+example), 1 for `allExamples`, and 30 `WildcardInferredType` (the three
+wildcards in `RIO _ _ _` for each of the 10 examples inside `allExamples`).
+The compiler's reports of inferred types in those warnings are the
+deliverables of this spike and are reproduced verbatim below. Incremental
+builds emit no warnings because modules aren't recompiled.
 
 ## Inferred Types for Each Example
 
@@ -360,11 +365,20 @@ the docs.
 
 ## Reproducing the Findings
 
+The compiler only emits `MissingTypeDeclaration` warnings on a fresh build,
+so wipe the output directory first:
+
 ```sh
-npx spago build -p spike-row-inference        # green
+rm -rf output
 npx spago build -p spike-row-inference 2>&1 \
-  | grep -A 2 "inferred type of example"      # see every example's inferred type
+  | grep -A 16 "inferred type of example"
 ```
 
+This prints all 10 examples with their full inferred types, including the
+de Bruijn-style unification variable names used in this document. Subsequent
+incremental builds will exit clean (`Warnings 0 0 0`) without re-emitting
+the warnings because no modules are recompiled.
+
 To reproduce a negative case, edit `src/Spike/RowInference/Negative.purs` to
-uncomment one of the three blocks, then `npx spago build -p spike-row-inference`.
+uncomment one of the three blocks (and the imports at the top), then run
+`npx spago build -p spike-row-inference`.

@@ -81,6 +81,10 @@ fail
   -> RIO r e b
 fail sym v = RIO \_ -> pure (Left (Variant.inj sym v))
 
+-- The `Lacks sym r'` constraint is preserved here verbatim from the
+-- pre-spike API draft, so the spike documents what its inferred-type
+-- behaviour actually is. The spike's FINDINGS.md (LE-1) recommends
+-- dropping `Lacks` for the production API in Phase 2.2.
 provide
   :: forall sym a r' r e b
    . IsSymbol sym

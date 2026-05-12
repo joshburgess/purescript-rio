@@ -27,6 +27,7 @@ main = launchAff_ do
   scenario4
   scenario5
   scenario6
+  scenario7
   Console.log "=== Done ==="
 
 note :: String -> Aff Unit
@@ -209,6 +210,33 @@ scenario6 = do
   rf <- liftEffect $ Ref.read releaseFinished
   note $ "releaseFinished=" <> show rf
   note $ if rf then "PASS: release was uninterruptible" else "FAIL: release was interrupted"
+
+-- ---------------------------------------------------------------------------
+-- Scenario 7: kill BEFORE the fiber has had a chance to start.
+--
+-- Aff is CPS, so `forkAff` schedules the computation but does not run any of
+-- its body synchronously. If we issue `killFiber` on the same tick as the
+-- fork, before yielding, does the fiber execute a step or is the kill
+-- effective pre-start?
+-- ---------------------------------------------------------------------------
+scenario7 :: Aff Unit
+scenario7 = do
+  header "S7: kill before fiber starts"
+  ran <- liftEffect $ Ref.new false
+  fib <- forkAff do
+    liftEffect (Ref.write true ran)
+    delay (Milliseconds 5000.0)
+  -- No `delay` here: kill in the same Aff turn as the fork.
+  killFiber (error "S7-pre-start") fib
+  r <- attempt (joinFiber fib)
+  observed <- liftEffect $ Ref.read ran
+  note $ "fiber body executed: " <> show observed
+  case r of
+    Left e -> note $ "join: threw " <> message e
+    Right _ -> note "join: returned unit"
+  note $
+    if not observed then "PASS: kill landed pre-start, body never ran"
+    else "NOTE: fiber ran one step before kill"
 
 -- ---------------------------------------------------------------------------
 -- Tiny helpers.
