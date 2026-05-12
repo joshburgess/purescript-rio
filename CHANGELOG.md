@@ -54,3 +54,18 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   type verbatim. Confirms LE-1 (the `Lacks` leak from the Phase 0.4
   spike) is gone in the production API and surfaces no new regressions.
   CI builds the spike on every PR.
+- `catchTag` in `RIO.Error`: catch one named failure tag and remove it
+  from the error row, with the handler free to introduce new tags
+  (Phase 3.1).
+- `catchAll` and `mapError` in `RIO.Error`: replace the error row in
+  bulk via an effectful handler or a pure translation respectively;
+  `rethrow` as the identity handler for selective passthrough inside
+  `catchAll` (Phase 3.2).
+- `die`, `sandbox`, `unsandbox` in `RIO.Error`: distinguish typed
+  failures (in the row) from defects (`Aff` exceptions); `sandbox`
+  reifies defects into the success channel as `Either Error a`
+  without absorbing typed failures (Phase 3.3).
+- `docs/03-errors.md`: walked-through example narrowing a three-tag
+  error row down to `()`, with the compiler's actual inferred type
+  quoted at each step from
+  `spikes/phase-2-review/src/Spike/ErrorsDocFixture.purs` (Phase 3.4).
