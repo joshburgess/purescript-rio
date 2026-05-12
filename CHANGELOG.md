@@ -73,3 +73,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   leftover error tag; `catchTag` with a wrong payload type) plus
   `compile-fail/FINDINGS.md` rating the readability of each compiler
   message and listing candidates for v0.2 custom `Fail` instances.
+- `RIO.Resource` module with `acquireRelease`: bracket-style primitive
+  that guarantees the release action runs on every termination path of
+  the use phase (success, typed failure, defect, or external fiber
+  kill). The release path has an empty error row by construction; if
+  acquisition itself fails, release is not invoked. Builds directly on
+  `Effect.Aff.bracket`, whose release phase is uninterruptible by
+  default (Phase 0.5 spike, scenario S6) (Phase 4.1).
+- `Scope`, `addFinalizer`, and `scoped` in `RIO.Resource`: introduce a
+  scope under the `scope` service label, push `Aff` finalizers onto its
+  stack, and run them LIFO on exit on every termination path. A
+  finalizer that throws does not stop subsequent finalizers from
+  running; exceptions are swallowed for now so a single leak cannot
+  cascade. Aggregating finalizer errors is deferred to a later phase
+  (Phase 4.2).
