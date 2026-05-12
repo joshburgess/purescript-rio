@@ -1,0 +1,11 @@
+package:
+  name: spike-phase-2-review
+  dependencies:
+    - aff
+    - console
+    - effect
+    - either
+    - prelude
+    - refs
+    - rio
+    - variant

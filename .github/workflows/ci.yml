@@ -54,6 +54,9 @@ jobs:
       - name: Build (spike-aff-interruption)
         run: npx spago build -p spike-aff-interruption
 
+      - name: Build (spike-phase-2-review)
+        run: npx spago build -p spike-phase-2-review
+
       - name: Run spike-aff-interruption harness
         run: npx spago run -p spike-aff-interruption
 

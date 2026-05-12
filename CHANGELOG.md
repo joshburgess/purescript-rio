@@ -48,3 +48,9 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 - `compile-fail/` test driver and the first negative case: providing a
   service whose value type doesn't match the required service. CI now
   runs the driver alongside the regular test suite.
+- `spikes/phase-2-review/`: Phase 2 review cycle. Ten realistic service
+  compositions written against the production `RIO.Core` API with no
+  user-supplied type signatures; `FINDINGS.md` reproduces each inferred
+  type verbatim. Confirms LE-1 (the `Lacks` leak from the Phase 0.4
+  spike) is gone in the production API and surfaces no new regressions.
+  CI builds the spike on every PR.
