@@ -15,6 +15,7 @@ import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.LocalSpec as LocalSpec
+import Test.RIO.LoggerSpec as LoggerSpec
 import Test.RIO.MetricsSpec as MetricsSpec
 import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
@@ -45,5 +46,6 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   TracerSpec.spec
   MetricsSpec.spec
   LocalSpec.spec
+  LoggerSpec.spec
   TestHelpersSpec.spec
   SpecHelpersSpec.spec

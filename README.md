@@ -125,6 +125,16 @@ Then `npx spago install`.
   `noopTracer` for production opt-out.
 - `RIO.Metrics`: counter / gauge / histogram service.
   `noopMetrics` plus `RIO.Test.Metrics` recording backend.
+- `RIO.Local`: ambient state with scoped overrides. `Local a`
+  cells with `get` / `set` / `update` and a `locally fl value
+  action` combinator whose restore is guaranteed by
+  `Aff.finally`. The v0.3 analogue of ZIO `FiberRef`.
+- `RIO.Logger`: structured logging service. Five levels, smart
+  constructors per level, and `withField` / `withFields` for
+  scoped ambient annotations attached to every emission inside
+  a block. Backends: `noopLogger`, `consoleLogger`, and
+  `RIO.Test.Logger.newRecordingLogger` for assertion-friendly
+  tests.
 - `RIO.Spec`: `itRIO` / `itRIO_` adapters for
   `purescript-spec`.
 - `RIO.Test`: `mockService`, `recording` for service-call
@@ -159,6 +169,10 @@ Walkthrough docs:
 - [`docs/11-fiber-local.md`](./docs/11-fiber-local.md): ambient
   state via `RIO.Local`, scoped overrides with `locally`, and
   the fork-inheritance trade-off relative to ZIO `FiberRef`.
+- [`docs/12-logging.md`](./docs/12-logging.md): structured
+  logging via `RIO.Logger`, scoped annotations with
+  `withFields`, the shipped backends, and the comparison to
+  ZIO `ZLogger` / Effect-TS `Effect.logAnnotations`.
 - [`docs/performance.md`](./docs/performance.md): benchmark
   baselines and dominant costs.
 
@@ -213,7 +227,9 @@ the CI step to required.
 
 v0.3 work in progress: `RIO.Local` (ambient state with scoped
 overrides via `locally`, the v0.3 analogue of ZIO `FiberRef`;
-see `docs/11-fiber-local.md`). See
+see `docs/11-fiber-local.md`) and `RIO.Logger` (structured
+logging with scoped annotations via `withFields`, console and
+in-memory backends; see `docs/12-logging.md`). See
 [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License

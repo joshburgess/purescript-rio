@@ -11,6 +11,27 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added (v0.3)
 
+- `RIO.Logger` module: structured logging service. `Logger` is a
+  record of `log` / `getAnnotations` / `setAnnotations`
+  operations carried in the environment row at the `logger`
+  field. Five levels: `LogTrace`, `LogDebug`, `LogInfo`,
+  `LogWarn`, `LogError` (no `LogFatal`; unrecoverable failures
+  belong on the defect channel). Smart constructors `logTrace`
+  / `logDebug` / `logInfo` / `logWarn` / `logError` emit at
+  each level. `withField key value action` and `withFields
+  fields action` scope a batch of `(key, value)` annotations to
+  a block; the previous annotation set is restored by
+  `Aff.finally` on every termination path. Annotation merging
+  shadows existing keys with their inner replacements and
+  preserves attach order so backends can render fields in input
+  order. Backends shipped: `noopLogger` (discards emissions,
+  retains annotation scoping), `consoleLogger` (writes
+  `[LEVEL] message  k1=v1, k2=v2` lines to
+  `Effect.Console.log`), and `RIO.Test.Logger.newRecordingLogger`
+  (in-memory recorder for tests). Annotations are stored in a
+  shared `Ref`; see `docs/12-logging.md` for the documented
+  fork-inheritance trade-off (the same one `RIO.Tracer` and
+  `RIO.Local` make).
 - `RIO.Local` module: ambient state with scoped overrides.
   `Local a` is a typed cell created by `newLocal` (or
   `newLocalEffect` for callers building their environment
