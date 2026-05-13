@@ -1,30 +1,30 @@
 -- | Service interfaces for the todo-api example.
 -- |
--- | Three services, each a record of `Aff`-valued operations per the
--- | convention in `docs/02-services.md`:
+-- | Two domain services plus re-exported library services:
 -- |
--- |   * `Logger` writes a string somewhere (stdout in production,
--- |     an in-memory buffer in tests).
 -- |   * `TodoStore` persists `Todo` rows. Multiple implementations
 -- |     in `Layers.purs` show off the layer-swap story.
+-- |   * `Logger` is `RIO.Logger.Logger`, re-exported here so the
+-- |     example reads against one namespace.
 -- |   * `Clock` is re-exported from `RIO.Clock` for timestamping.
+-- |   * `requestId` is a `Local String` carried in the env; the
+-- |     request middleware opens a scope on it per request so
+-- |     downstream code (handlers, persistence) can correlate
+-- |     anything they emit to the originating HTTP request.
 module Example.TodoApi.Services
-  ( Logger
-  , Todo
+  ( Todo
   , TodoStore
   , module RIO.Clock
+  , module RIO.Local
+  , module RIO.Logger
   ) where
-
-import Prelude (Unit)
 
 import Data.Maybe (Maybe)
 import Effect.Aff (Aff, Milliseconds)
 
 import RIO.Clock (Clock)
-
-type Logger =
-  { log :: String -> Aff Unit
-  }
+import RIO.Local (Local)
+import RIO.Logger (Logger)
 
 -- | A todo as stored. `createdAt` is a wall-clock timestamp set by
 -- | the handler at insert time so the response can echo it back.

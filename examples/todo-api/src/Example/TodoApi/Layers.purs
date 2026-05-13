@@ -2,14 +2,13 @@
 -- |
 -- | The store is an in-memory `Ref (Array Todo)` with an
 -- | auto-incrementing id counter, freshly allocated inside the
--- | layer. The logger writes to stdout via `Console.log`. The clock
+-- | layer. The logger is `RIO.Logger.consoleLogger`. The clock
 -- | is `liveClock` from `RIO.Clock`.
 -- |
 -- | A test rig could swap any of these via `provide` /
 -- | `provideLayer` without touching the handlers.
 module Example.TodoApi.Layers
   ( appLayer
-  , consoleLogger
   , inMemoryStore
   ) where
 
@@ -20,16 +19,13 @@ import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
-import Effect.Class.Console (log) as Console
 import Effect.Ref as Ref
 
-import RIO.Core (Layer, fromRIO, fromRecord)
+import RIO.Core (Layer, fromRIO)
 import RIO.Layer ((<+>))
+import RIO.Logger (consoleLogger)
 
 import Example.TodoApi.Services (Logger, Todo, TodoStore)
-
-consoleLogger :: Logger
-consoleLogger = { log: \s -> Console.log s }
 
 -- | The store is allocated inside `fromRIO` so the counter and rows
 -- | live as long as the surrounding scope. A handler-per-request
@@ -61,10 +57,13 @@ inMemoryStore = do
         pure present
     }
 
--- | The full app layer. Builds the store, then horizontally combines
--- | it with the static logger record. Clock is supplied as part of
--- | the layer's input row.
+loggerLayer :: forall e. Layer () e (logger :: Logger)
+loggerLayer = fromRIO (liftEffect consoleLogger <#> \l -> { logger: l })
+
+storeLayer :: forall e. Layer () e (todoStore :: TodoStore)
+storeLayer = fromRIO (liftAff inMemoryStore <#> \store -> { todoStore: store })
+
+-- | The full app layer. Builds the store and the logger; the clock
+-- | and request-id `Local` are supplied at startup in `Main.purs`.
 appLayer :: forall e. Layer () e (logger :: Logger, todoStore :: TodoStore)
-appLayer =
-  fromRecord { logger: consoleLogger }
-    <+> fromRIO (liftAff inMemoryStore <#> \store -> { todoStore: store })
+appLayer = loggerLayer <+> storeLayer

@@ -9,6 +9,35 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ## [Unreleased]
 
+### Changed (v0.3)
+
+- `examples/todo-api/`: migrated to `RIO.Logger` for structured
+  logging and demonstrates two `RIO`-native middleware
+  combinators built on the v0.3 services. A new
+  `Example.TodoApi.Middleware` module ships
+  `withRequestContext`, which opens a per-request
+  `withFields` block stamping `request.id` /
+  `request.method` / `request.path` on every emitted line
+  (including domain log lines), writes the request id into a
+  `Local String` so downstream code can correlate without
+  threading an argument, and emits a `request received` /
+  `request completed` (or `request failed`) pair around the
+  body with elapsed milliseconds and a success / failure
+  verdict; `requireAuth` is a bearer-token check that raises
+  the `unauthorized` typed failure on the existing error row.
+  The handlers stay domain-focused: logging correlation,
+  per-request id propagation, and auth are layered on by the
+  middleware in `Main.purs`, not threaded through every call.
+  Inbound `X-Request-Id` headers are honoured for trace
+  correlation; otherwise the server assigns a monotonic
+  `req-N`. The example's `ApiError` row picks up an
+  `unauthorized :: Unit` tag handled in `renderApiError`
+  alongside the existing `notFound` case. The walkthrough in
+  `examples/todo-api/README.md` is updated with the new
+  smoke-test curls (auth path, `X-Request-Id`, JSON 400,
+  method 405) and a sample of the resulting structured log
+  output.
+
 ### Added (v0.3)
 
 - `RIO.STM.THub` module: transactional publish/subscribe hub.
