@@ -9,6 +9,23 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ## [Unreleased]
 
+### Added (v0.3)
+
+- `RIO.Local` module: ambient state with scoped overrides.
+  `Local a` is a typed cell created by `newLocal` (or
+  `newLocalEffect` for callers building their environment
+  outside an `RIO` action) with `get` / `set` / `update`
+  operations and a `locally fl value action` combinator that
+  scopes a value to a block. The restore is guaranteed by
+  `Aff.finally` on every termination path (success, typed
+  failure, defect, interrupt). Backed by `Effect.Ref`, so a
+  forked child fiber observes the parent's current value and a
+  child's writes are visible to the parent; this is the same
+  implicit-context model `RIO.Tracer` uses. See
+  `docs/11-fiber-local.md` for use cases, the comparison to
+  ZIO `FiberRef`, and the documented fork-inheritance
+  trade-off.
+
 ### Added
 
 - `RIO.Concurrency.timeout :: Milliseconds -> RIO r e a -> RIO r e

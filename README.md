@@ -156,6 +156,9 @@ Walkthrough docs:
 - [`docs/10-tracing.md`](./docs/10-tracing.md): tracing and
   metrics services, parent / child span context, and the
   recording test backends.
+- [`docs/11-fiber-local.md`](./docs/11-fiber-local.md): ambient
+  state via `RIO.Local`, scoped overrides with `locally`, and
+  the fork-inheritance trade-off relative to ZIO `FiberRef`.
 - [`docs/performance.md`](./docs/performance.md): benchmark
   baselines and dominant costs.
 
@@ -206,7 +209,11 @@ informational mode), tracing / metrics (`RIO.Tracer`,
 OpenTelemetry adapter for `RIO.Tracer` (`rio-otel`). The only
 remaining v0.2 follow-up is capturing the `ci-ubuntu-latest`
 baseline from the first informational gate run and promoting
-the CI step to required. See
+the CI step to required.
+
+v0.3 work in progress: `RIO.Local` (ambient state with scoped
+overrides via `locally`, the v0.3 analogue of ZIO `FiberRef`;
+see `docs/11-fiber-local.md`). See
 [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License
