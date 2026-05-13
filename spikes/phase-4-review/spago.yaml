@@ -1,0 +1,19 @@
+package:
+  name: spike-phase-4-review
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - effect
+    - either
+    - exceptions
+    - integers
+    - maybe
+    - prelude
+    - random
+    - refs
+    - rio
+    - strings
+    - variant
+  run:
+    main: Spike.Phase4Review.Main

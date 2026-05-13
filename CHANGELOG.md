@@ -87,3 +87,13 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   running; exceptions are swallowed for now so a single leak cannot
   cascade. Aggregating finalizer errors is deferred to a later phase
   (Phase 4.2).
+- Phase 4 review cycle: `spikes/phase-4-review/` opens 1000 nested
+  scopes per iteration, picks a random depth and termination mode
+  (success, typed failure, defect), and asserts the resulting event
+  log shows every `register-k` matched by a `finalize-k` in LIFO
+  order. A second scenario forks the program and injects a random
+  `killFiber` during an innermost `Aff.delay` and applies the same
+  check. 100 iterations per invocation, replayed in CI. Across four
+  consecutive local runs (400 total iterations) the harness reports
+  zero leaks and zero LIFO violations. Findings live in
+  `spikes/phase-4-review/FINDINGS.md`.
