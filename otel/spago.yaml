@@ -1,0 +1,11 @@
+package:
+  name: rio-otel
+  dependencies:
+    - arrays
+    - effect
+    - foldable-traversable
+    - maybe
+    - ordered-collections
+    - prelude
+    - refs
+    - rio

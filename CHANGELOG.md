@@ -127,6 +127,18 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   service plus a `snapshot` action returning every emission
   with its kind (`Counter` / `Gauge` / `Histogram`), name, and
   value.
+- `rio-otel` package (`otel/`): OpenTelemetry adapter for
+  `RIO.Tracer`. `RIO.Tracer.OTel.makeOTelTracer name` returns a
+  `Tracer` record that forwards every span lifecycle, attribute
+  write, and parent / child relationship to an
+  `@opentelemetry/api` tracer; call sites that use `withSpan`,
+  `addAttribute`, or `currentSpan` keep working verbatim. Status
+  maps `SpanOk -> OK`, `SpanFailed -> ERROR`,
+  `SpanInterrupted -> ERROR` with message `"interrupted"`. With
+  no OTel SDK registered the adapter is silent (the global API
+  returns a no-op tracer). An end-to-end demo wiring the adapter
+  to `BasicTracerProvider` + `InMemorySpanExporter` lives at
+  `examples/otel-demo/`.
 
 ### Changed
 

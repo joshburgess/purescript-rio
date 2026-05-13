@@ -1,0 +1,17 @@
+package:
+  name: rio-example-otel-demo
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - effect
+    - either
+    - foldable-traversable
+    - integers
+    - maybe
+    - prelude
+    - rio
+    - rio-otel
+    - variant
+  run:
+    main: Example.OTelDemo.Main

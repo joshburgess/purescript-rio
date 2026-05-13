@@ -7,12 +7,16 @@
   "scripts": {
     "build": "spago build",
     "test": "spago test",
-    "format": "purs-tidy format-in-place src test spikes examples",
-    "format:check": "purs-tidy check src test spikes examples"
+    "format": "purs-tidy format-in-place src test spikes examples benchmarks otel",
+    "format:check": "purs-tidy check src test spikes examples benchmarks otel"
   },
   "devDependencies": {
     "purescript": "0.15.15",
-    "spago": "0.93.45",
-    "purs-tidy": "0.10.1"
+    "purs-tidy": "0.10.1",
+    "spago": "0.93.45"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/sdk-trace-base": "^2.7.1"
   }
 }

@@ -92,9 +92,19 @@ preserves that order so tests can assert on it.
   starts at 0 and advances by 1 on every `startSpan` / `endSpan`,
   so tests can assert on the start/end order without depending
   on wall-clock timing.
+- `RIO.Tracer.OTel.makeOTelTracer` (from the `rio-otel`
+  package): forwards every span lifecycle, attribute write,
+  and parent / child relationship to an `@opentelemetry/api`
+  tracer. Install an OpenTelemetry SDK (`sdk-node`,
+  `sdk-trace-base`, etc.) and register a tracer provider at
+  application startup; the adapter delegates from there. With
+  no SDK registered the OTel API returns a no-op tracer and
+  the adapter is silent (the `Tracer` row is still satisfied,
+  so program structure is unaffected). See
+  `examples/otel-demo/` for a worked end-to-end wiring.
 
-A production backend (OTel, Honeycomb, etc.) implements the
-same `Tracer` record. The call sites do not change.
+Any backend (Honeycomb, Jaeger, custom) implements the same
+`Tracer` record. The call sites do not change.
 
 ## Metrics
 
