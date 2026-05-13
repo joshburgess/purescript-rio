@@ -159,6 +159,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   actions complete in ~100ms rather than ~200ms. `parallel`,
   `arrays`, `datetime`, `integers`, `newtype`, and `now` added to
   the package's dependency manifest.
+- `docs/06-concurrency.md`: walkthrough of the interruption model
+  (citing `spikes/aff-interruption/FINDINGS.md` scenarios S1, S2,
+  S2b, S3, S4, S5), uninterruptible regions, the cooperative
+  cancellation caveat and its `liftAff (delay (Milliseconds 0.0))`
+  mitigation, how `race` interacts with `acquireRelease` and
+  `Scope`, `parTraverse` failure semantics, and a "what RIO does
+  not give you" section calling out the deliberate omissions of
+  structured concurrency, interrupt-with-cause, and fiber-local
+  state (Phase 6.4).
 - `race` and `raceAll` in `RIO.Concurrency` (Phase 6.3). `race`
   uses `Aff`'s `ParAff` `Alt` instance to run two actions
   concurrently, returns whichever completes first (success or
