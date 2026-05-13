@@ -40,26 +40,30 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added (v0.3)
 
-- `spikes/phase-9-review/`: v0.3 review cycle. Four randomised
-  stress scenarios drive the new modules: a `RIO.Logger`
-  scenario nests `withFields` up to eight levels deep under
-  random typed failures and fork/join, then asserts the
-  annotation set is empty after the program returns; a
-  `RIO.Local` scenario does the same shape on a `Local Int`
-  with an added kill path that interrupts a forked child
-  mid-flight; a `RIO.STM.TQueue` scenario runs up to four
-  producers in parallel against up to four forked consumers
-  and asserts count and sum match across the queue; a
-  `RIO.STM.THub` scenario fans out random publish counts to
-  random subscribers and asserts every subscriber dequeues
-  every value. 250 iterations per scenario per invocation
-  (1000 total). Across four consecutive local runs (4000
-  total iterations) the harness reports zero invariant
-  violations: every `withFields` and `locally` restored on
-  every termination path, and no value was lost, duplicated,
-  or reordered by the STM structures. See
-  `spikes/phase-9-review/FINDINGS.md`. CI builds and runs
-  the spike on every PR.
+- `spikes/phase-9-review/`: randomised stress harness covering
+  the recently-added modules. Eight scenarios, one invariant
+  each: `RIO.Logger` nests `withFields` up to eight levels
+  deep under random typed failures and fork/join, then asserts
+  the annotation set is empty after the program returns;
+  `RIO.Local` does the same shape on a `Local Int` with an
+  added kill path that interrupts a forked child mid-flight;
+  `RIO.STM.TQueue` runs up to four producers in parallel
+  against up to four forked consumers and asserts count and
+  sum match across the queue; `RIO.STM.THub` covers all four
+  back-pressure strategies (Unbounded fan-out with multiple
+  subscribers; Bounded back-pressure with a forked publisher
+  forced to retry while a single consumer drains; Sliding
+  drop-oldest with a non-draining subscriber checking the last
+  `buffer` values survive in order; Dropping drop-new with a
+  non-draining subscriber checking the first `buffer` values
+  survive and overflowing publishes return `false`);
+  `RIO.STM.TSemaphore` exercises `withTSemaphore` with random
+  typed failures and mid-hold fiber kills and asserts every
+  permit is returned. 250 iterations per scenario per
+  invocation (2000 total). Across four consecutive local runs
+  (8000 total iterations) the harness reports zero invariant
+  violations. See `spikes/phase-9-review/FINDINGS.md`. CI
+  builds and runs the spike on every PR.
 - `RIO.STM.THub` module: transactional publish/subscribe hub.
   Each published value fans out to every active subscriber's
   private buffer; subscribers consume independently. Four

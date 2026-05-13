@@ -1,17 +1,21 @@
-# Phase 9 (v0.3) Review: Logger, Local, and STM Stress Test
+# Phase 9 Review: Logger, Local, and STM Stress Test
 
 **Status:** Complete.
 
-**Recommendation:** **GO.** Across 4000 randomised iterations
-(four consecutive local runs of 1000 iterations each) the harness
-reports zero invariant violations across the four v0.3 modules
-exercised: `RIO.Logger` annotation restoration, `RIO.Local`
-scoped overrides under fork-and-kill, `RIO.STM.TQueue`
-producer/consumer correctness, and `RIO.STM.THub` fan-out with the
-Unbounded strategy. The `finally`-backed restore the documentation
-promises for `withFields` and `locally` holds under typed failures
-and forked-then-killed termination, and STM's atomicity under
-contention does not lose, duplicate, or drop values.
+**Recommendation:** **GO.** Across 8000 randomised iterations
+(four consecutive local runs of 2000 iterations each) the harness
+reports zero invariant violations across every recently-added
+module: `RIO.Logger` annotation restoration, `RIO.Local` scoped
+overrides under fork-and-kill, `RIO.STM.TQueue` producer/consumer
+correctness, all four `RIO.STM.THub` back-pressure strategies
+(Unbounded fan-out, Bounded back-pressure, Sliding drop-oldest,
+Dropping drop-new with boolean return), and `RIO.STM.TSemaphore`
+permit-return under typed failures and mid-hold fiber kills. The
+`finally`-backed restore the documentation promises for
+`withFields`, `locally`, and `withTSemaphore` holds on every
+termination path, and STM's atomicity under contention does not
+lose, duplicate, drop, or reorder values beyond each strategy's
+documented behaviour.
 
 ## Method
 
@@ -23,12 +27,16 @@ load-bearing invariant per iteration. Random parameters come from
 
 ### Scenarios
 
-| ID | Module           | Random parameters                                                                       | Invariant                                                                              |
-| -- | ---------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| A  | `RIO.Logger`     | depth `[1, 8]`, failPct `[0, 50]`, forkPct `[0, 50]`                                    | After the program returns, the logger's annotation set is empty.                       |
-| B  | `RIO.Local`      | depth `[1, 8]`, failPct `[0, 50]`, forkPct `[0, 50]`, killPct `[0, 50]`                 | After the program returns, the `Local Int` holds its initial value.                    |
-| C  | `RIO.STM.TQueue` | producers `[1, 4]`, consumers `[1, 4]`, perProducer `[4, 16]`                           | Sum and count of dequeued values match sum and count of enqueued values.               |
-| D  | `RIO.STM.THub`   | subscribers `[1, 5]`, publishCount `[4, 20]`                                            | Every subscriber dequeues exactly `publishCount` values; their sums match the source. |
+| ID | Module                          | Random parameters                                                                              | Invariant                                                                                                                |
+| -- | ------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| A  | `RIO.Logger`                    | depth `[1, 8]`, failPct `[0, 50]`, forkPct `[0, 50]`                                           | After the program returns, the logger's annotation set is empty.                                                          |
+| B  | `RIO.Local`                     | depth `[1, 8]`, failPct `[0, 50]`, forkPct `[0, 50]`, killPct `[0, 50]`                        | After the program returns, the `Local Int` holds its initial value.                                                       |
+| C  | `RIO.STM.TQueue`                | producers `[1, 4]`, consumers `[1, 4]`, perProducer `[4, 16]`                                  | Sum and count of dequeued values match sum and count of enqueued values.                                                  |
+| D  | `RIO.STM.THub` (Unbounded)      | subscribers `[1, 5]`, publishCount `[4, 20]`                                                   | Every subscriber dequeues exactly `publishCount` values; their sums match the source.                                     |
+| E  | `RIO.STM.THub` (Bounded)        | buffer `[2, 6]`, publishCount `[buffer+4, buffer*4]`                                           | A single consumer drains exactly `publishCount` values from a publisher forced to retry when the buffer fills.            |
+| F  | `RIO.STM.THub` (Sliding)        | buffer `[2, 6]`, publishCount `[buffer+2, buffer*3]`                                           | After publish completes, a non-draining subscriber holds exactly the last `buffer` values published, in publish order.    |
+| G  | `RIO.STM.THub` (Dropping)       | buffer `[2, 6]`, publishCount `[buffer+2, buffer*3]`                                           | First `buffer` publishes return `true`, remainder return `false`; subscriber drains the first `buffer` values, in order. |
+| H  | `RIO.STM.TSemaphore`            | permits `[2, 5]`, workers `[3, 12]`, failPct `[0, 40]`, killPct `[0, 40]`, holdMs `[1, 6]`     | `availableTSemaphore` returns to `permits` after all workers (some failed, some killed mid-hold) have settled.            |
 
 Scenarios A and B exit each iteration through `attempt`, so typed
 failures along the way do not abort the harness; the post-return
@@ -43,24 +51,25 @@ Scenarios C and D create their STM structures inside the same
 returning, so the harness's external invariant check (`expectedSum`
 / `publishCount`) is observed after every fiber has settled.
 
-The build plan's 10,000-run target is approximated by repeating
-the harness: each invocation is 1000 iterations (250 per scenario),
-and four consecutive local runs were performed for this review.
+Each invocation runs 2000 iterations (250 per scenario across
+eight scenarios), and four consecutive local runs were performed
+for this review.
 
 ## Results
 
 ```
 $ npx spago run -p spike-phase-9-review
-Phase 9 (v0.3) review: 250 iterations per scenario across Logger,
-Local, TQueue, and THub.
-OK: 1000 stress iterations, every invariant held.
+Phase 9 review: 250 iterations per scenario across Logger,
+Local, TQueue, THub (Unbounded / Bounded / Sliding / Dropping),
+and TSemaphore.
+OK: 2000 stress iterations, every invariant held.
 ```
 
 Repeated four times in succession, the harness reported the same
-"every invariant held" line every time. Total: 4000 iterations
-across 16,000 individual checks. No iteration produced a
-non-empty residual annotation set, a drifted `Local` value, or a
-mismatched STM count/sum.
+"every invariant held" line every time. Total: 8000 iterations.
+No iteration produced a non-empty residual annotation set, a
+drifted `Local` value, a mismatched STM count/sum/order, or a
+leaked semaphore permit.
 
 ## What This Validates
 
@@ -94,17 +103,41 @@ mismatched STM count/sum.
   publish). Each subscriber sees exactly the published count and
   the published sum. No subscriber misses a value, and no
   subscriber sees a value twice.
+- **THub Bounded back-pressure unblocks the publisher.** Scenario
+  E pushes `publishCount > buffer` values from a forked publisher
+  against a single consumer that drains in step. `publishTHub`
+  retries every time the buffer fills; the consumer's drain
+  releases the next slot; both fibers complete. Across 250
+  iterations the consumer always reaches `publishCount` and no
+  iteration hung past the harness's natural completion.
+- **THub Sliding drops oldest in publish order.** Scenario F
+  publishes `publishCount > buffer` values *without* the
+  subscriber draining, then drains. The drained array equals
+  `[publishCount - buffer + 1 .. publishCount]` exactly, so the
+  oldest entries were dropped and survivors kept their relative
+  order.
+- **THub Dropping returns false on overflow and keeps the
+  early arrivals.** Scenario G records every `publishTHub`
+  return alongside the drained values. The first `buffer`
+  returns are `true` and the rest are `false`; the drained
+  values are `[1 .. buffer]` in order, so the early arrivals
+  survived and the rest were rejected at publish time.
+- **TSemaphore returns permits on every termination path.**
+  Scenario H spins up to 12 workers against 2 to 5 permits and
+  exercises three exit modes randomly: clean success, typed
+  failure, fiber kill. After every worker has settled the
+  semaphore reports `availableTSemaphore == permits`, confirming
+  that `withTSemaphore`'s `acquireRelease` bracket releases the
+  permit even when the body is interrupted mid-hold.
 
 ## What This Does **Not** Validate
 
-- **Bounded / Sliding / Dropping THub strategies.** The harness
-  only exercises `Unbounded` because the invariant ("every
-  subscriber sees every value") is the strongest. The other three
-  strategies have their own invariants (Bounded: producer retries
-  rather than dropping; Sliding: oldest dropped first; Dropping:
-  returns `false` and drops the new value). Those are covered by
-  `test/Test/RIO/STM/THubSpec.purs`; a future randomised harness
-  could check them under contention.
+- **Cross-strategy THub contention.** Each THub scenario uses
+  exactly one strategy and (for the overflow tests) one
+  subscriber. Mixing subscribers with different drain cadences
+  on the same hub would exercise the per-subscriber-buffer
+  semantics more aggressively, but the publish-side decision is
+  the same code path either way.
 - **Logger annotation merging order.** The harness checks the
   residue (must be empty), not the in-block content of emissions.
   `LoggerSpec` covers key-shadowing and attach-order behaviour
@@ -169,7 +202,7 @@ granularity.
 - Scenarios:              `src/Spike/Phase9Review/Stress.purs`
 - Underlying primitives:  `src/RIO/Logger.purs`,
   `src/RIO/Local.purs`, `src/RIO/STM/TQueue.purs`,
-  `src/RIO/STM/THub.purs`
+  `src/RIO/STM/THub.purs`, `src/RIO/STM/TSemaphore.purs`
 - Documentation:          `docs/09-stm.md`,
   `docs/11-fiber-local.md`, `docs/12-logging.md`
 - Earlier review precedent: `spikes/phase-6-review/FINDINGS.md`

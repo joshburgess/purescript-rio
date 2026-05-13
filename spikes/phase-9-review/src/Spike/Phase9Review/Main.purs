@@ -28,10 +28,14 @@ import Effect.Random (randomInt)
 
 import Spike.Phase9Review.Stress
   ( ScenarioResult
+  , hubBoundedScenario
+  , hubDroppingScenario
   , hubScenario
+  , hubSlidingScenario
   , localScenario
   , loggerScenario
   , queueScenario
+  , semaphoreScenario
   )
 
 -- | Iterations per scenario. Picked to keep one full run well
@@ -42,18 +46,28 @@ iterations = 250
 main :: Effect Unit
 main = launchAff_ do
   log
-    ( "Phase 9 (v0.3) review: " <> show iterations
+    ( "Phase 9 review: " <> show iterations
         <> " iterations per scenario across Logger, Local, "
-        <> "TQueue, and THub."
+        <> "TQueue, THub (Unbounded / Bounded / Sliding / Dropping), "
+        <> "and TSemaphore."
     )
 
   loggerResults <- traverse runLogger range'
   localResults <- traverse runLocal range'
   queueResults <- traverse runQueue range'
   hubResults <- traverse runHub range'
+  hubBoundedResults <- traverse runHubBounded range'
+  hubSlidingResults <- traverse runHubSliding range'
+  hubDroppingResults <- traverse runHubDropping range'
+  semResults <- traverse runSem range'
 
   let
-    all = loggerResults <> localResults <> queueResults <> hubResults
+    all = loggerResults <> localResults <> queueResults
+      <> hubResults
+      <> hubBoundedResults
+      <> hubSlidingResults
+      <> hubDroppingResults
+      <> semResults
     failures = Array.filter (\r -> not r.result.ok) all
 
   if Array.length failures == 0 then
@@ -150,5 +164,70 @@ runHub i = do
         "subscribers=" <> show subscribers
           <> " publishCount="
           <> show publishCount
+    , result: r
+    }
+
+runHubBounded :: Int -> Aff Labeled
+runHubBounded i = do
+  buffer <- liftEffect (randomInt 2 6)
+  publishCount <- liftEffect (randomInt (buffer + 4) (buffer * 4))
+  r <- hubBoundedScenario { buffer, publishCount }
+  pure
+    { label: "hubBounded[" <> show i <> "]"
+    , params:
+        "buffer=" <> show buffer
+          <> " publishCount="
+          <> show publishCount
+    , result: r
+    }
+
+runHubSliding :: Int -> Aff Labeled
+runHubSliding i = do
+  buffer <- liftEffect (randomInt 2 6)
+  publishCount <- liftEffect (randomInt (buffer + 2) (buffer * 3))
+  r <- hubSlidingScenario { buffer, publishCount }
+  pure
+    { label: "hubSliding[" <> show i <> "]"
+    , params:
+        "buffer=" <> show buffer
+          <> " publishCount="
+          <> show publishCount
+    , result: r
+    }
+
+runHubDropping :: Int -> Aff Labeled
+runHubDropping i = do
+  buffer <- liftEffect (randomInt 2 6)
+  publishCount <- liftEffect (randomInt (buffer + 2) (buffer * 3))
+  r <- hubDroppingScenario { buffer, publishCount }
+  pure
+    { label: "hubDropping[" <> show i <> "]"
+    , params:
+        "buffer=" <> show buffer
+          <> " publishCount="
+          <> show publishCount
+    , result: r
+    }
+
+runSem :: Int -> Aff Labeled
+runSem i = do
+  permits <- liftEffect (randomInt 2 5)
+  workers <- liftEffect (randomInt 3 12)
+  failPct <- liftEffect (randomInt 0 40)
+  killPct <- liftEffect (randomInt 0 40)
+  holdMs <- liftEffect (randomInt 1 6)
+  r <- semaphoreScenario { permits, workers, failPct, killPct, holdMs }
+  pure
+    { label: "sem[" <> show i <> "]"
+    , params:
+        "permits=" <> show permits
+          <> " workers="
+          <> show workers
+          <> " failPct="
+          <> show failPct
+          <> " killPct="
+          <> show killPct
+          <> " holdMs="
+          <> show holdMs
     , result: r
     }

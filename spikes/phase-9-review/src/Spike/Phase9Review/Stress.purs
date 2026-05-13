@@ -1,9 +1,9 @@
--- | Phase 9 (v0.3) review stress scenarios.
+-- | Phase 9 stress scenarios for the recently-added modules.
 -- |
--- | Each scenario targets one v0.3 module and asserts a single
+-- | Each scenario targets one module and asserts a single
 -- | load-bearing invariant after random scheduling and random
 -- | termination modes (success, typed failure, fiber kill where
--- | applicable). The four modules under test are:
+-- | applicable). Modules under test:
 -- |
 -- |   * `RIO.Logger`: annotation stack is restored after every
 -- |     `withFields` block, including blocks that exit by typed
@@ -11,17 +11,22 @@
 -- |   * `RIO.Local`: `locally`'s value-restore is honoured on
 -- |     every termination path of the wrapped action.
 -- |   * `RIO.STM.TQueue`: producer/consumer correctness under
--- |     contention. Sum of dequeued values equals sum of enqueued
--- |     values; total count matches.
--- |   * `RIO.STM.THub` (Unbounded strategy): every subscribed
--- |     consumer receives every value published after it
--- |     subscribed; sums match across all subscribers.
+-- |     contention.
+-- |   * `RIO.STM.THub`: all four back-pressure strategies
+-- |     (Unbounded fan-out, Bounded back-pressure, Sliding drop-
+-- |     oldest, Dropping drop-new + boolean return).
+-- |   * `RIO.STM.TSemaphore`: `withTSemaphore` returns permits on
+-- |     every termination path including mid-hold fiber kills.
 module Spike.Phase9Review.Stress
   ( ScenarioResult
   , loggerScenario
   , localScenario
   , queueScenario
   , hubScenario
+  , hubBoundedScenario
+  , hubSlidingScenario
+  , hubDroppingScenario
+  , semaphoreScenario
   ) where
 
 import Prelude hiding (join)
@@ -29,6 +34,8 @@ import Prelude hiding (join)
 import Data.Array (length, range, snoc) as Array
 import Data.Either (Either(..))
 import Data.Foldable (all, for_, sum)
+import Data.Int (toNumber)
+import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff, Milliseconds(..), attempt, delay)
@@ -40,6 +47,7 @@ import Type.Proxy (Proxy(..))
 
 import RIO.Core
   ( RIO
+  , catchAll
   , fail
   , fork
   , interrupt
@@ -55,13 +63,23 @@ import RIO.Logger (Logger, logInfo, withFields)
 import RIO.STM (atomically)
 import RIO.STM.THub
   ( THub
+  , newBoundedTHub
+  , newDroppingTHub
+  , newSlidingTHub
   , newUnboundedTHub
   , publishTHub
   , subscribeTHub
   , takeSubscription
+  , tryTakeSubscription
   , unsubscribeTHub
   )
 import RIO.STM.TQueue (TQueue, newTQueue, readTQueue, writeTQueue)
+import RIO.STM.TSemaphore
+  ( TSemaphore
+  , availableTSemaphore
+  , newTSemaphore
+  , withTSemaphore
+  )
 import RIO.Test.Logger (newRecordingLogger)
 
 -- | Outcome of a single iteration: did the invariant hold, with
@@ -285,3 +303,193 @@ hubScenario opts = do
     ( if countOk && bodyOk then okResult
       else failResult (opts.subscribers - Array.length results)
     )
+
+-- | Bounded THub back-pressure. A single subscriber with buffer
+-- | size `buffer` reads `publishCount` values from a forked
+-- | publisher. `publishCount` is chosen well above `buffer` so
+-- | the publisher's `publishTHub` must retry every time the
+-- | buffer fills and the consumer must drain to unblock it. The
+-- | invariant: the consumer receives exactly `publishCount`
+-- | values and their sum matches `1 + 2 + ... + publishCount`.
+-- |
+-- | Random parameters: `buffer` (2..6), `publishCount`
+-- | (`buffer + 4`..`buffer * 4`).
+hubBoundedScenario
+  :: { buffer :: Int, publishCount :: Int }
+  -> Aff ScenarioResult
+hubBoundedScenario opts = do
+  countRef <- liftEffect (Ref.new 0)
+  sumRef <- liftEffect (Ref.new 0)
+  let
+    expectedSum = sum (Array.range 1 opts.publishCount)
+
+    program :: RIO () () Unit
+    program = do
+      hub :: THub Int <- atomically (newBoundedTHub opts.buffer)
+      sub <- atomically (subscribeTHub hub)
+      publisher <- fork do
+        for_ (Array.range 1 opts.publishCount) \v ->
+          atomically (publishTHub hub v)
+      let
+        drain n =
+          if n <= 0 then pure unit
+          else do
+            v <- atomically (takeSubscription sub)
+            liftEffect (Ref.modify_ (_ + 1) countRef)
+            liftEffect (Ref.modify_ (_ + v) sumRef)
+            drain (n - 1)
+      drain opts.publishCount
+      _ <- join publisher
+      atomically (unsubscribeTHub sub)
+
+  _ <- attempt (unsafeRunRIO program {})
+  obsCount <- liftEffect (Ref.read countRef)
+  obsSum <- liftEffect (Ref.read sumRef)
+  pure
+    ( if obsCount == opts.publishCount && obsSum == expectedSum then okResult
+      else failResult (obsCount - opts.publishCount)
+    )
+
+-- | Sliding THub overflow. A single subscriber with buffer size
+-- | `buffer` does not consume while the publisher pushes
+-- | `publishCount > buffer` values 1..K. After publishing
+-- | completes, the subscriber drains all available values via
+-- | `tryTakeSubscription`. The invariant: drained values are
+-- | exactly the last `buffer` values published, in publish
+-- | order (Sliding drops the oldest entry on overflow).
+-- |
+-- | Random parameters: `buffer` (2..6), `publishCount`
+-- | (`buffer + 2`..`buffer * 3`).
+hubSlidingScenario
+  :: { buffer :: Int, publishCount :: Int }
+  -> Aff ScenarioResult
+hubSlidingScenario opts = do
+  drainedRef <- liftEffect (Ref.new ([] :: Array Int))
+  let
+    expected =
+      Array.range (opts.publishCount - opts.buffer + 1) opts.publishCount
+
+    program :: RIO () () Unit
+    program = do
+      hub :: THub Int <- atomically (newSlidingTHub opts.buffer)
+      sub <- atomically (subscribeTHub hub)
+      for_ (Array.range 1 opts.publishCount) \v ->
+        atomically (publishTHub hub v)
+      let
+        drain = do
+          m <- atomically (tryTakeSubscription sub)
+          case m of
+            Nothing -> pure unit
+            Just v -> do
+              liftEffect (Ref.modify_ (\xs -> Array.snoc xs v) drainedRef)
+              drain
+      drain
+      atomically (unsubscribeTHub sub)
+
+  _ <- attempt (unsafeRunRIO program {})
+  drained <- liftEffect (Ref.read drainedRef)
+  pure
+    ( if drained == expected then okResult
+      else failResult (Array.length drained - Array.length expected)
+    )
+
+-- | Dropping THub overflow. A single subscriber with buffer
+-- | size `buffer` does not consume while the publisher pushes
+-- | `publishCount > buffer` values. Each publish records its
+-- | boolean return. After publishing completes, the subscriber
+-- | drains all available values. The invariant: the first
+-- | `buffer` publishes returned `true`, the rest returned
+-- | `false`; the drained values are exactly the first `buffer`
+-- | values published, in order (Dropping drops the new value
+-- | on overflow, the survivors are the early arrivals).
+-- |
+-- | Random parameters: `buffer` (2..6), `publishCount`
+-- | (`buffer + 2`..`buffer * 3`).
+hubDroppingScenario
+  :: { buffer :: Int, publishCount :: Int }
+  -> Aff ScenarioResult
+hubDroppingScenario opts = do
+  returnsRef <- liftEffect (Ref.new ([] :: Array Boolean))
+  drainedRef <- liftEffect (Ref.new ([] :: Array Int))
+  let
+    expectedReturns =
+      map (\i -> i <= opts.buffer) (Array.range 1 opts.publishCount)
+    expectedDrained = Array.range 1 opts.buffer
+
+    program :: RIO () () Unit
+    program = do
+      hub :: THub Int <- atomically (newDroppingTHub opts.buffer)
+      sub <- atomically (subscribeTHub hub)
+      for_ (Array.range 1 opts.publishCount) \v -> do
+        r <- atomically (publishTHub hub v)
+        liftEffect (Ref.modify_ (\xs -> Array.snoc xs r) returnsRef)
+      let
+        drain = do
+          m <- atomically (tryTakeSubscription sub)
+          case m of
+            Nothing -> pure unit
+            Just v -> do
+              liftEffect (Ref.modify_ (\xs -> Array.snoc xs v) drainedRef)
+              drain
+      drain
+      atomically (unsubscribeTHub sub)
+
+  _ <- attempt (unsafeRunRIO program {})
+  returns <- liftEffect (Ref.read returnsRef)
+  drained <- liftEffect (Ref.read drainedRef)
+  pure
+    ( if returns == expectedReturns && drained == expectedDrained then
+        okResult
+      else failResult (Array.length drained - opts.buffer)
+    )
+
+-- | TSemaphore permit return on every termination path. Allocate
+-- | a semaphore with `permits` permits; fork `workers` fibers
+-- | each holding one permit via `withTSemaphore` while doing a
+-- | small randomised body. Each body randomly succeeds, fails
+-- | with a typed error, or is killed mid-hold by the harness.
+-- | After every worker has settled (joined or interrupted), the
+-- | semaphore's available count must equal the original `permits`.
+-- |
+-- | Random parameters: `permits` (2..5), `workers` (3..12),
+-- | `failPct` (0..40), `killPct` (0..40), `holdMs` (1..6).
+semaphoreScenario
+  :: { permits :: Int
+     , workers :: Int
+     , failPct :: Int
+     , killPct :: Int
+     , holdMs :: Int
+     }
+  -> Aff ScenarioResult
+semaphoreScenario opts = do
+  let
+    worker :: TSemaphore -> RIO () (boom :: Unit) Unit
+    worker sem = withTSemaphore sem do
+      f <- liftEffect (randomInt 0 99)
+      liftAff (delay (Milliseconds (toNumber opts.holdMs)))
+      if f < opts.failPct then fail (Proxy :: Proxy "boom") unit
+      else pure unit
+
+    program :: RIO () () Int
+    program = do
+      sem <- atomically (newTSemaphore opts.permits)
+      fibers <- traverse (\_ -> fork (worker sem))
+        (Array.range 1 opts.workers)
+      _ <- traverse
+        ( \fib -> do
+            kk <- liftEffect (randomInt 0 99)
+            if kk < opts.killPct then interrupt fib
+            else catchAll (\_ -> pure unit) (void (join fib))
+        )
+        fibers
+      atomically (availableTSemaphore sem)
+
+  e <- attempt (unsafeRunRIO program {})
+  case e of
+    Right (Right available) ->
+      pure
+        ( if available == opts.permits then okResult
+          else failResult (opts.permits - available)
+        )
+    _ ->
+      pure (failResult (-1))
