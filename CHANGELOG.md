@@ -159,6 +159,43 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   actions complete in ~100ms rather than ~200ms. `parallel`,
   `arrays`, `datetime`, `integers`, `newtype`, and `now` added to
   the package's dependency manifest.
+- `RIO.Clock` module with the `Clock` service (`now :: Aff
+  Milliseconds`, `sleep :: Milliseconds -> Aff Unit`), smart
+  constructors `now` and `sleep` that read the service from the
+  environment row, and `liveClock` backed by `Effect.Now` and
+  `Effect.Aff.delay`. The service operations are `Aff`-valued
+  following the `docs/02-services.md` convention; the
+  cancellation guarantees of `liveClock.sleep` come from
+  `Aff.delay` and match the Phase 0.5 spike's S1 scenario
+  (Phase 7.1). `datetime` and `now` added to the package's
+  dependency manifest.
+- `RIO.Test.Clock` module with `newTestClock`: allocates a
+  virtual `Clock` whose `now` and `sleep` are driven by an
+  explicit `advance :: Milliseconds -> Aff Unit` controller.
+  Pending sleepers wake in deadline order within a single
+  `advance` call; an interrupted fiber's sleeper is removed
+  from the pending list by its canceler and does not fire on
+  later advances (Phase 7.1).
+- `RIO.Spec` module with `itRIO`, `itRIO_`, and `runSpecRIO`:
+  `purescript-spec` integration helpers so an `RIO` program
+  slots directly into a `Spec` suite without per-test
+  boilerplate. `itRIO` runs a fully-handled `RIO () () Unit`
+  via `runRIO'`; `itRIO_` accepts a service record and
+  `provideAll`s it before running; `runSpecRIO` pre-installs
+  the console reporter and exits the process with the suite's
+  result (Phase 7.2). `spec` and `spec-node` added to the
+  package's dependency manifest. The trade-off (transitive
+  spec dep for every consumer) is intentional for v0.1; we may
+  factor `RIO.Spec` out into a sibling workspace package in a
+  later phase.
+- `docs/07-testing.md`: end-to-end walkthrough of the testing
+  story, covering `mockService` and `recording` (from Phase
+  2.6), the `Clock` service plus `newTestClock` (Phase 7.1),
+  `purescript-spec` integration via `itRIO` / `itRIO_` /
+  `runSpecRIO` (Phase 7.2), how to structure tests for layered
+  programs (referencing `spikes/phase-5-review/`), and what is
+  intentionally absent from Phase 7 (generator-based property
+  tests, snapshot testing, per-fiber isolation) (Phase 7.3).
 - `spikes/phase-6-review/`: Phase 6 review cycle. Four randomised
   stress scenarios driven by `Effect.Random` parameters:
   `parTraverse` over up to eight actions with up to 60 percent

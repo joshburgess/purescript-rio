@@ -6,6 +6,7 @@ import Effect (Effect)
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
+import Test.RIO.ClockSpec as ClockSpec
 import Test.RIO.ConcurrencySpec as ConcurrencySpec
 import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
@@ -13,6 +14,7 @@ import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.ResourceSpec as ResourceSpec
+import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
 
 main :: Effect Unit
@@ -24,4 +26,6 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ResourceSpec.spec
   LayerSpec.spec
   ConcurrencySpec.spec
+  ClockSpec.spec
   TestHelpersSpec.spec
+  SpecHelpersSpec.spec

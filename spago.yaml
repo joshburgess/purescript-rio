@@ -8,15 +8,19 @@ package:
     - arrays
     - console
     - control
+    - datetime
     - effect
     - either
     - exceptions
     - foldable-traversable
     - maybe
+    - now
     - parallel
     - prelude
     - record
     - refs
+    - spec
+    - spec-node
     - transformers
     - tuples
     - variant
