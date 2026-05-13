@@ -40,6 +40,26 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added (v0.3)
 
+- `spikes/phase-9-review/`: v0.3 review cycle. Four randomised
+  stress scenarios drive the new modules: a `RIO.Logger`
+  scenario nests `withFields` up to eight levels deep under
+  random typed failures and fork/join, then asserts the
+  annotation set is empty after the program returns; a
+  `RIO.Local` scenario does the same shape on a `Local Int`
+  with an added kill path that interrupts a forked child
+  mid-flight; a `RIO.STM.TQueue` scenario runs up to four
+  producers in parallel against up to four forked consumers
+  and asserts count and sum match across the queue; a
+  `RIO.STM.THub` scenario fans out random publish counts to
+  random subscribers and asserts every subscriber dequeues
+  every value. 250 iterations per scenario per invocation
+  (1000 total). Across four consecutive local runs (4000
+  total iterations) the harness reports zero invariant
+  violations: every `withFields` and `locally` restored on
+  every termination path, and no value was lost, duplicated,
+  or reordered by the STM structures. See
+  `spikes/phase-9-review/FINDINGS.md`. CI builds and runs
+  the spike on every PR.
 - `RIO.STM.THub` module: transactional publish/subscribe hub.
   Each published value fans out to every active subscriber's
   private buffer; subscribers consume independently. Four

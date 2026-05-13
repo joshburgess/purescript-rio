@@ -1,0 +1,25 @@
+package:
+  name: spike-phase-9-review
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - effect
+    - either
+    - exceptions
+    - foldable-traversable
+    - integers
+    - lists
+    - maybe
+    - newtype
+    - ordered-collections
+    - prelude
+    - random
+    - refs
+    - rio
+    - strings
+    - transformers
+    - tuples
+    - variant
+  run:
+    main: Spike.Phase9Review.Main
