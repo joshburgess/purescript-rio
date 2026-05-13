@@ -1,6 +1,6 @@
 ## Fiber-local state
 
-`RIO.Local` is the v0.3 primitive for ambient state that is
+`RIO.Local` is the primitive for ambient state that is
 read by most callers and overridden for the duration of a block
 by a few. The classic use cases are:
 

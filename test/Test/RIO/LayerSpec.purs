@@ -294,7 +294,7 @@ spec = do
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "open", "log:before", "close" ]
 
-  describe "RIO.Layer (v0.2) passthrough" do
+  describe "RIO.Layer passthrough" do
     it "makes input services visible to downstream consumers" do
       let
         configLayer :: Layer () () (config :: { port :: Int })

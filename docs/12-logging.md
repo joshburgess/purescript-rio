@@ -1,6 +1,6 @@
 ## Structured logging
 
-`RIO.Logger` is the v0.3 service for emitting structured log
+`RIO.Logger` is the service for emitting structured log
 lines. A `Logger` value sits in the environment row at the
 `logger` field; the smart constructors (`logTrace`, `logDebug`,
 `logInfo`, `logWarn`, `logError`) pull it out, snapshot the

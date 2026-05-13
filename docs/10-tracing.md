@@ -7,9 +7,9 @@ that backends fill in, smart constructors on top that take an
 recording test backend that lets you assert on what a program
 emitted.
 
-This is the v0.2 cut. The surface area is deliberately small;
-the shape is stable so a production OTel / StatsD / Prometheus
-backend can sit on top without touching call sites.
+The surface area is deliberately small; the shape is stable so
+a production OTel / StatsD / Prometheus backend can sit on top
+without touching call sites.
 
 ## Tracing
 

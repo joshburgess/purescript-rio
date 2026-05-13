@@ -137,10 +137,10 @@ provideLayer (myLogger <+> myDb) program
 
 `provide` adds one service; `provideAll` adds an entire record
 at once; `provideLayer` runs a `Layer` and provides its output.
-See `docs/02-services.md` for the smaller helpers and
-`docs/04-layers.md` for the layer story (in v0.2; today, the
-in-source comments in `src/RIO/Layer.purs` and the worked
-example in `spikes/phase-5-review/` are the reference).
+See `docs/02-services.md` for the smaller helpers; for the
+layer story the in-source comments in `src/RIO/Layer.purs` and
+the worked example in `spikes/phase-5-review/` are the
+reference.
 
 ## Typed errors
 
@@ -199,15 +199,16 @@ direct RIO counterparts:
 | `program.race(other)`        | `race program other`               |
 | `ZIO.raceAll(programs)`      | `raceAll programs`                 |
 | `ZIO.foreachPar(xs)(f)`      | `parTraverse f xs`                 |
-| `ZIO.foreachParN(n)(xs)(f)`  | not in v0.1; sequence in batches manually |
+| `ZIO.foreachParN(n)(xs)(f)`  | `parTraverseN n f xs`              |
 | `Fiber.interrupt`            | `interrupt fiber`                  |
-| `ZIO.uninterruptible`        | `uninterruptible` (Phase 6.4)      |
+| `ZIO.uninterruptible`        | `uninterruptible`                  |
 
 Failure semantics:
 
-- `parTraverse` runs all branches to completion and surfaces
-  the first `Left` in array order. ZIO's `foreachPar` short-
-  circuits on the first failure; RIO does not, in v0.1.
+- `parTraverse` and `parSequence` short-circuit on the first
+  typed failure, cancelling sibling fibers, matching ZIO's
+  `foreachPar`. `Par.ado` runs every branch to completion and
+  returns the leftmost failure if you need that shape.
 - `race` returns the first completion (success or failure) and
   interrupts the loser, exactly as ZIO does.
 - `raceAll` ditto for any number of branches.
@@ -236,12 +237,11 @@ appLayer = configLayer >>> dbLayer >>> userServiceLayer
 provideLayer appLayer program
 ```
 
-One v0.1 caveat: RIO has no implicit passthrough operator. If
-layer `B` between `A` and `C` produces services that `C` needs
-but doesn't itself consume, `B` must re-emit them in its
-output row. (ZIO's `passthrough` covers this; we expect to add
-it in v0.2. The Phase 5 review documents the pattern as
-"DX-1".)
+Passthrough composition: if layer `B` between `A` and `C`
+produces services that `C` needs but doesn't itself consume,
+`B` must either re-emit them in its output row or be wrapped
+with `RIO.Layer.passthrough`, which extends the layer's output
+row with the labels it required as input.
 
 ## Testing
 
@@ -272,16 +272,19 @@ explicit `advance` controller, deterministic across forks. See
 
 ## Things ZIO has that RIO does not (yet)
 
-- **STM** (`ZSTM`, `ZRef.Synchronized`). Listed in the v0.2
-  backlog as `TRef` + `atomically`.
-- **Schedule combinators** (`Schedule.recurs`,
-  `Schedule.exponential`). v0.2 candidate.
-- **Tracing / metrics**. v0.2 candidate.
-- **`ZIO.foreachParN`**. Workaround: chunk and `parTraverse`
-  each chunk.
-- **`Fiber.children`, `ZIO.descriptor`, supervisor model**.
-  Out of scope for v0.1; `docs/06-concurrency.md` calls these
-  out under "what RIO does not give you".
+- **Streaming** (`ZStream`). No analogue yet; would live in a
+  separate `rio-streams` package.
+- **`Fiber.children`, `ZIO.descriptor`, full supervisor model.**
+  Out of scope; `docs/06-concurrency.md` calls these out under
+  "what RIO does not give you". `forkScoped` covers the
+  common "fiber bounded by enclosing scope" case.
+- **Interrupt-with-cause.** ZIO carries a structured `Cause`
+  through interruption (interrupted-by-whom,
+  interrupted-due-to-failure-elsewhere); RIO surfaces kills as
+  `Aff` exceptions with a string message.
+- **Property-test integration tuned for effectful programs.**
+  Plain `purescript-quickcheck` works, but RIO has no
+  Aff-aware generators or shrinkers yet.
 
 ## Things RIO has that ZIO does not
 

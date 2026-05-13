@@ -33,7 +33,7 @@ import RIO.Test.Clock (newTestClock)
 
 spec :: Spec Unit
 spec = do
-  describe "RIO.Schedule (v0.2)" do
+  describe "RIO.Schedule" do
     describe "repeat" do
       it "recurs n runs the action n+1 times" do
         counter <- liftEffect (Ref.new 0)

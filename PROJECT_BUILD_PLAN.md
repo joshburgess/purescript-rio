@@ -385,7 +385,7 @@ Concurrency bugs hide. Reviewer writes a property-based test suite that runs eac
 
 Reviewer ports one of the Phase 2/3/5 examples to use only test services and asserts the experience is at parity with running against real implementations.
 
-**Status:** Complete. See `spikes/phase-7-review/`. Ports the Phase 5 review's six-service layered application to a `Test.Spec` suite that uses only `RIO.Spec`, `RIO.Test`, and `RIO.Test.Clock`. Four scenarios (happy path, failing layer, program failure after use, time-sensitive forks) all pass on every run. DX is at parity: the test-helpers shape replaces a hand-rolled `ScenarioResult` harness with ordinary `it` / `itRIO_` bodies and `shouldEqual` assertions. Three small DX observations recorded in `FINDINGS.md` for a future v0.2 helper kit; none block v0.1.
+**Status:** Complete. See `spikes/phase-7-review/`. Ports the Phase 5 review's six-service layered application to a `Test.Spec` suite that uses only `RIO.Spec`, `RIO.Test`, and `RIO.Test.Clock`. Four scenarios (happy path, failing layer, program failure after use, time-sensitive forks) all pass on every run. DX is at parity: the test-helpers shape replaces a hand-rolled `ScenarioResult` harness with ordinary `it` / `itRIO_` bodies and `shouldEqual` assertions. Three small DX observations recorded in `FINDINGS.md` as candidates for a future helper kit; none block the production core.
 
 ---
 
@@ -398,7 +398,7 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
 - **Deliverables:** `examples/todo-api/`, a small HTTP service using HTTPure, with services for logging, persistence (in-memory + a SQLite-backed variant via `purescript-node-sqlite3` or similar), and request handling. Demonstrates layers, errors, and resource safety.
 - **Acceptance:** Reader can clone, `spago run`, hit endpoints, see logs.
 
-**Status:** Complete. See `examples/todo-api/`. Built on HTTPurple 4.0 (rather than HTTPure, which is unmaintained in registry 77.0.0). In-memory persistence only; the SQLite-backed variant is deferred to v0.2 since the layer-swap story is already demonstrated by the Phase 7 review and adding a second driver here would dilute rather than reinforce the tutorial. Four endpoints (GET / POST / DELETE / GET-by-id) verified end-to-end with `curl`; HTTP semantics (200, 204, 400, 404, 405) all behave correctly. README walks readers through the module layout and the bridging pattern (`runRIO` inside an HTTPurple router).
+**Status:** Complete. See `examples/todo-api/`. Built on HTTPurple 4.0 (rather than HTTPure, which is unmaintained in registry 77.0.0). In-memory persistence only; the SQLite-backed variant is deferred since the layer-swap story is already demonstrated by the Phase 7 review and adding a second driver here would dilute rather than reinforce the tutorial. Four endpoints (GET / POST / DELETE / GET-by-id) verified end-to-end with `curl`; HTTP semantics (200, 204, 400, 404, 405) all behave correctly. README walks readers through the module layout and the bridging pattern (`runRIO` inside an HTTPurple router).
 
 ### 8.2 Migration guides
 
@@ -408,23 +408,23 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
   - Each maps idioms 1:1 with code snippets in both languages.
 - **Acceptance:** A ZIO user and an Effect-TS user each review their respective doc and confirm the mappings are accurate.
 
-**Status:** Complete. See `docs/migrating-from-zio.md` and `docs/migrating-from-effect-ts.md`. Each guide opens with a core-type comparison table, walks through lifting / composing / services / providing / typed errors / resource safety / concurrency / layers / testing with paired code snippets, and closes with two backlog sections ("what RIO does not have yet" and "what RIO has that the source language does not"). DX-1 (no implicit `passthrough` operator on `Layer`) is called out explicitly under the Layers section in both guides. External review (ZIO user, Effect-TS user) is the v0.1 release gate item.
+**Status:** Complete. See `docs/migrating-from-zio.md` and `docs/migrating-from-effect-ts.md`. Each guide opens with a core-type comparison table, walks through lifting / composing / services / providing / typed errors / resource safety / concurrency / layers / testing with paired code snippets, and closes with two backlog sections ("what RIO does not have yet" and "what RIO has that the source language does not"). External review (ZIO user, Effect-TS user) is a release gate item.
 
 ### 8.3 API reference
 
 - **Deliverables:** `purs docs` output published to Pursuit.
 - **Acceptance:** Every public function has a docstring with at least one example.
 
-**Status:** Complete (docstring audit). Every public function across `RIO.Core`, `RIO.Env`, `RIO.Error`, `RIO.Concurrency`, `RIO.Layer`, `RIO.Resource`, `RIO.Clock`, `RIO.Spec`, `RIO.Test`, and `RIO.Test.Clock` now carries a docstring with at least one inline code example. Worked examples were added to: `unsafeRunRIO`, `catchAll`, `mapError`, `die`, `sandbox`, `unsandbox`, `fork`, `join`, `interrupt`, `parTraverse`, `parSequence`, `zipPar`, `race`, `raceAll`, `fromRecord`, `fromRIO`, `unLayer`, `andThen`, `combine`, `buildLayer`, `provideLayer`, `acquireRelease`, `addFinalizer`, `scoped`, `now`, `sleep`, `liveClock`, `itRIO`, `newTestClock`. Pursuit publication is gated on Phase 8.5 (v0.1.0 release), since uploading docs requires the package to be tagged in the registry.
+**Status:** Complete (docstring audit). Every public function across `RIO.Core`, `RIO.Env`, `RIO.Error`, `RIO.Concurrency`, `RIO.Layer`, `RIO.Resource`, `RIO.Clock`, `RIO.Spec`, `RIO.Test`, and `RIO.Test.Clock` now carries a docstring with at least one inline code example. Worked examples were added to: `unsafeRunRIO`, `catchAll`, `mapError`, `die`, `sandbox`, `unsandbox`, `fork`, `join`, `interrupt`, `parTraverse`, `parSequence`, `zipPar`, `race`, `raceAll`, `fromRecord`, `fromRIO`, `unLayer`, `andThen`, `combine`, `buildLayer`, `provideLayer`, `acquireRelease`, `addFinalizer`, `scoped`, `now`, `sleep`, `liveClock`, `itRIO`, `newTestClock`. Pursuit publication waits on the first registry release, since uploading docs requires the package to be tagged in the registry.
 
 ### 8.4 Performance baseline
 
 - **Deliverables:** A benchmark suite using `purescript-minibench` plus a small custom harness covering: monadic bind in a tight loop, service lookup overhead, parallel vs sequential traversal. Baselines committed.
 - **Acceptance:** Numbers documented in `docs/performance.md` with notes on the dominant costs.
 
-**Status:** Complete. See `benchmarks/` (workspace package `rio-benchmarks`) and `docs/performance.md`. The suite covers four scenarios (bind chain at 100 / 10 000 depths, `ask` + `Record.get` loop, sequential vs parallel traversal over 32 pure elements, and `fail` + `catchTag` round-trip) plus three baselines (`runRIO' pure unit`, raw `Aff pure unit`, service-free pure loop). The harness samples `process.hrtime()` before and after each invocation for nanosecond resolution (`Effect.Now` was too coarse). Headline numbers on Apple M1 Pro / node 20: per-bind cost ~90 ns amortised, service lookup is essentially free, `parTraverse` over pure work costs ~3x sequential traverse (break-even ~10 μs of latency per element), typed failure round-trip ~930 ns. CI builds the suite on every PR (it does not run it; benchmark numbers in CI are too noisy to gate on). Setting up the regression gate is a v0.2 backlog item, captured in `docs/performance.md`.
+**Status:** Complete. See `benchmarks/` (workspace package `rio-benchmarks`) and `docs/performance.md`. The suite covers four scenarios (bind chain at 100 / 10 000 depths, `ask` + `Record.get` loop, sequential vs parallel traversal over 32 pure elements, and `fail` + `catchTag` round-trip) plus three baselines (`runRIO' pure unit`, raw `Aff pure unit`, service-free pure loop). The harness samples `process.hrtime()` before and after each invocation for nanosecond resolution (`Effect.Now` was too coarse). Headline numbers on Apple M1 Pro / node 20: per-bind cost ~90 ns amortised, service lookup is essentially free, `parTraverse` over pure work costs ~3x sequential traverse (break-even ~10 μs of latency per element), typed failure round-trip ~930 ns. CI builds the suite on every PR (it does not run it; benchmark numbers in CI are too noisy to gate on). Setting up the regression gate is captured as a future backlog item in `docs/performance.md`.
 
-### 8.5 v0.1.0 release
+### 8.5 Release prep
 
 - **Deliverables:**
   - Tagged release on GitHub.
@@ -436,7 +436,7 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
 
 ### Phase 8 review cycle
 
-Final acceptance: an external PureScript developer (not involved in development) is asked to build a small program using only public docs and the registry release. Their feedback drives v0.1.1.
+Final acceptance: an external PureScript developer (not involved in development) is asked to build a small program using only public docs and the registry release. Their feedback drives the first patch.
 
 ---
 
@@ -515,7 +515,7 @@ here as a sketch of how a multi-contributor cadence could look.
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Row inference produces incomprehensible errors at scale | High | High | Phase 0.4 spike; Phase 2/3 review cycles focused on error quality; custom `Fail` instances for common mistakes in v0.2. |
+| Row inference produces incomprehensible errors at scale | High | High | Phase 0.4 spike; Phase 2/3 review cycles focused on error quality; custom `Fail` instances for common mistakes are a future backlog item. |
 | `Aff`'s cancellation model is too weak for ZIO-style interruption | Medium | High | Phase 0.5 spike. If `Aff` can't carry it, the spike's findings define the workaround (uninterruptible regions, custom runtime layer, or scoped guarantees) before Phase 4 starts. |
 | Layer composition becomes verbose without intersection types | Medium | Medium | Lean on row-union helpers validated in the Phase 0.4 spike; document escape hatches. |
 | Performance overhead from `Record`/`Variant` indirection | Medium | Medium | Phase 8.4 benchmarks; optimize hot paths with `unsafeCoerce` where safe. |

@@ -143,10 +143,10 @@ provideLayer (myLogger <+> myDb) program
 
 `provide` adds one service; `provideAll` adds an entire record
 at once; `provideLayer` runs a `Layer` and provides its output.
-See `docs/02-services.md` for the smaller helpers and
-`docs/04-layers.md` for the layer story (in v0.2; today, the
-in-source comments in `src/RIO/Layer.purs` and the worked
-example in `spikes/phase-5-review/` are the reference).
+See `docs/02-services.md` for the smaller helpers; for the
+layer story the in-source comments in `src/RIO/Layer.purs` and
+the worked example in `spikes/phase-5-review/` are the
+reference.
 
 ## Typed errors
 
@@ -209,16 +209,17 @@ RIO counterparts:
 | `Effect.race(a, b)`                                      | `race a b`                                |
 | `Effect.raceAll([a, b, c])`                              | `raceAll [a, b, c]`                       |
 | `Effect.forEach(xs, f, { concurrency: "unbounded" })`    | `parTraverse f xs`                        |
-| `Effect.forEach(xs, f, { concurrency: n })`              | not in v0.1; sequence in batches manually |
+| `Effect.forEach(xs, f, { concurrency: n })`              | `parTraverseN n f xs`                     |
 | `Fiber.interrupt(fiber)`                                 | `interrupt fiber`                         |
-| `Effect.uninterruptible(program)`                        | `uninterruptible` (Phase 6.4)             |
+| `Effect.uninterruptible(program)`                        | `uninterruptible`                         |
 
 Failure semantics:
 
-- `parTraverse` runs all branches to completion and surfaces
-  the first `Left` in array order. Effect-TS's `forEach` with
-  unbounded concurrency short-circuits on the first failure;
-  RIO does not, in v0.1.
+- `parTraverse` and `parSequence` short-circuit on the first
+  typed failure, cancelling sibling fibers, matching Effect-TS's
+  `forEach` with unbounded concurrency. `Par.ado` runs every
+  branch to completion and returns the leftmost failure if you
+  need that shape.
 - `race` returns the first completion (success or failure) and
   interrupts the loser, exactly as Effect-TS does.
 - `raceAll` ditto for any number of branches.
@@ -251,12 +252,11 @@ appLayer = configLayer >>> dbLayer >>> userServiceLayer
 provideLayer appLayer program
 ```
 
-One v0.1 caveat: RIO has no implicit passthrough operator. If
-layer `B` between `A` and `C` produces services that `C` needs
-but doesn't itself consume, `B` must re-emit them in its
-output row. (Effect-TS's `Layer.passthrough` covers this; we
-expect to add it in v0.2. The Phase 5 review documents the
-pattern as "DX-1".)
+Passthrough composition: if layer `B` between `A` and `C`
+produces services that `C` needs but doesn't itself consume,
+`B` must either re-emit them in its output row or be wrapped
+with `RIO.Layer.passthrough`, the direct analogue of
+Effect-TS's `Layer.passthrough`.
 
 ## Testing
 
@@ -290,21 +290,18 @@ explicit `advance` controller, deterministic across forks. See
 
 ## Things Effect-TS has that RIO does not (yet)
 
-- **STM** (`Effect.STM`, `SynchronizedRef`). Listed in the v0.2
-  backlog as `TRef` + `atomically`.
-- **Schedule combinators** (`Schedule.recurs`,
-  `Schedule.exponential`). v0.2 candidate.
-- **Tracing / metrics / OpenTelemetry integration**. v0.2
-  candidate.
-- **Bounded concurrency** (`Effect.forEach` with a numeric
-  `concurrency` option). Workaround: chunk and `parTraverse`
-  each chunk.
-- **`Fiber.children`, `Effect.descriptor`, supervisor model**.
-  Out of scope for v0.1; `docs/06-concurrency.md` calls these
-  out under "what RIO does not give you".
-- **Schema-driven decoders** (`@effect/schema`). The Phase 8
-  todo-api example uses `argonaut-codecs` directly; a
-  schema-style layer over argonaut is a v0.2 candidate.
+- **Streaming** (`Stream`). No analogue yet; would live in a
+  separate `rio-streams` package.
+- **`Fiber.children`, `Effect.descriptor`, full supervisor model.**
+  Out of scope; `docs/06-concurrency.md` calls these out under
+  "what RIO does not give you". `forkScoped` covers the
+  common "fiber bounded by enclosing scope" case.
+- **Interrupt-with-cause.** Effect-TS carries a structured
+  `Cause` through interruption; RIO surfaces kills as `Aff`
+  exceptions with a string message.
+- **Schema-driven decoders** (`@effect/schema`). The todo-api
+  example uses `argonaut-codecs` directly; a schema-style layer
+  over argonaut is a future candidate.
 
 ## Things RIO has that Effect-TS does not
 

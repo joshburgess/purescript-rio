@@ -73,17 +73,11 @@ render.
 
 ## Install
 
-`rio` is published to the PureScript registry. Add it to your
-`spago.yaml` as a dependency:
+`rio` is not yet published to the PureScript registry. To try it
+out, clone the repository and use it as a local workspace package,
+or point your `spago.yaml` at the git remote directly.
 
-```yaml
-dependencies:
-  - rio
-```
-
-Then `npx spago install`.
-
-## What's in v0.1.0
+## What's included
 
 - `RIO.Core`: the type, runners, and the most common
   re-exports.
@@ -131,7 +125,7 @@ Then `npx spago install`.
 - `RIO.Local`: ambient state with scoped overrides. `Local a`
   cells with `get` / `set` / `update` and a `locally fl value
   action` combinator whose restore is guaranteed by
-  `Aff.finally`. The v0.3 analogue of ZIO `FiberRef`.
+  `Aff.finally`. The RIO analogue of ZIO `FiberRef`.
 - `RIO.Logger`: structured logging service. Five levels, smart
   constructors per level, and `withField` / `withFields` for
   scoped ambient annotations attached to every emission inside
@@ -212,28 +206,24 @@ npx spago run -p rio-benchmarks
 
 ## Status
 
-v0.1.0 covers the production core: services, typed errors,
-resource safety, layers, concurrency, and a testing toolkit.
-The v0.2 work has landed on `main`: bounded-concurrency
-traversal (`parTraverseN`), `timeout`, `uninterruptible`,
-`forkScoped`, `Deferred`, `ensuring`, `Layer.passthrough`,
-short-circuiting parallel traversal, `RIO.Schedule` (retry /
-repeat policies), `RIO.STM` (`TRef` + `atomically`, plus derived
-`TQueue` / `TMap` / `TSemaphore`), the benchmark regression
-gate (`Benchmarks.Gate`, profile-driven, running on CI in
-informational mode), tracing / metrics (`RIO.Tracer`,
-`RIO.Metrics` with recording test backends), and an
-OpenTelemetry adapter for `RIO.Tracer` (`rio-otel`). The only
-remaining v0.2 follow-up is capturing the `ci-ubuntu-latest`
-baseline from the first informational gate run and promoting
-the CI step to required.
+Pre-release. Nothing has been published to the PureScript
+registry or Pursuit yet; the surface is being developed
+on `main`. Treat any version string in `spago.yaml` as a
+placeholder.
 
-v0.3 work in progress: `RIO.Local` (ambient state with scoped
-overrides via `locally`, the v0.3 analogue of ZIO `FiberRef`;
-see `docs/11-fiber-local.md`) and `RIO.Logger` (structured
-logging with scoped annotations via `withFields`, console and
-in-memory backends; see `docs/12-logging.md`). See
-[`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
+What's in `main` today: the production core (services, typed
+errors, resource safety, layers, concurrency, virtual-time
+testing), plus the larger surface listed above — `RIO.Schedule`,
+`RIO.STM` and its derived structures, `RIO.Tracer` and
+`RIO.Metrics` with an OpenTelemetry adapter (`rio-otel`),
+`RIO.Local`, `RIO.Logger`, the qualified-do sugar
+(`RIO.Resource.Do`, `RIO.Concurrency.Par`), and the
+`rio-httpurple` companion package.
+
+What's open: streaming, `rio-postgres` / `rio-node` / `rio-aws`
+integration packages, custom `Fail` instances for the worst row /
+variant error messages, and a property-testing harness tuned for
+RIO. See [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License
 

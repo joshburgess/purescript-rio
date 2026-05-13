@@ -134,7 +134,7 @@ better served by explicit `fork`.
 
 ## `parTraverse` failure semantics
 
-`parTraverse f xs` runs every action concurrently. As of v0.2:
+`parTraverse f xs` runs every action concurrently:
 
 - If any branch returns `Left v`, the **first** such failure
   cancels every sibling fiber and is what the combinator returns.

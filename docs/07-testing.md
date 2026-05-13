@@ -167,13 +167,15 @@ build plan's Phase 7 review cycle exercises.
 
 - **Property tests via `purescript-quickcheck`.** The Phase 1 law
   checks are sampled, not generated. Generators that drive `Aff`
-  programs are a v0.2 candidate.
+  programs are a future candidate.
 - **Snapshot testing.** No built-in support; if you need it, write
   the snapshot to a file from `Aff` and diff in the assertion.
-- **Test isolation per fiber.** RIO does not provide fiber-local
-  state (covered in `docs/06-concurrency.md`); per-test isolation
-  must come from `Ref`s allocated inside each `it` body, which is
-  what the examples above already do.
+- **Test isolation per fiber.** Per-test isolation is best handled
+  by allocating `Ref`s inside each `it` body, which is what the
+  examples above already do. `RIO.Local`
+  (`docs/11-fiber-local.md`) is available for ambient state with
+  scoped overrides if you need it, but reach for it as a feature
+  primitive, not a test-isolation primitive.
 
 ## Pointers
 

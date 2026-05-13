@@ -21,7 +21,7 @@ import RIO.Local (get, locally, newLocal, set, update)
 
 spec :: Spec Unit
 spec = do
-  describe "RIO.Local (v0.3)" do
+  describe "RIO.Local" do
     describe "get / set / update" do
       it "get returns the initial value" do
         let

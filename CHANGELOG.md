@@ -90,11 +90,11 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   `RIO.Resource.Do` / `RIO.Concurrency.Par` once the surface is
   reviewed.
 
-### Changed (v0.3)
+### Changed
 
 - `examples/todo-api/`: migrated to `RIO.Logger` for structured
   logging and demonstrates two `RIO`-native middleware
-  combinators built on the v0.3 services. A new
+  combinators built on the new logging / local services. A new
   `Example.TodoApi.Middleware` module ships
   `withRequestContext`, which opens a per-request
   `withFields` block stamping `request.id` /
@@ -119,7 +119,7 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   method 405) and a sample of the resulting structured log
   output.
 
-### Added (v0.3)
+### Added
 
 - `spikes/phase-9-review/`: randomised stress harness covering
   the recently-added modules. Eight scenarios, one invariant
@@ -333,8 +333,9 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 ### Changed
 
 - `parTraverse` and `parSequence` now short-circuit on the first
-  typed failure, cancelling sibling fibers. v0.1 ran every branch
-  to completion before surfacing the first `Left`. The new
+  typed failure, cancelling sibling fibers. The earlier
+  implementation ran every branch to completion before surfacing
+  the first `Left`. The new
   behaviour matches ZIO `foreachPar` / Effect-TS `forEach` with
   `concurrency: "unbounded"` and is implemented by throwing a
   sentinel defect from the failing branch (caught by `Aff.attempt`
@@ -350,23 +351,23 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   wins; losers are interrupted), but every branch is started in
   parallel rather than racing pairwise.
 
-## [0.1.0] - 2026-05-12
+## Earlier work (build-plan phases 0–8)
 
-First public release. The library covers the full ZIO / Effect-TS
-analogue: typed environment row, typed error row, resource-safe
-bracket and scope primitives, layer composition, structural
-concurrency with cancellation, virtual-time testing, and adapters
-for `purescript-spec`. See `docs/` for the walkthroughs, and
-`docs/migrating-from-zio.md` / `docs/migrating-from-effect-ts.md`
-for idiom-by-idiom mappings.
+Nothing below has been released. These entries describe the
+phase-by-phase work that landed on `main` against the original
+build plan, covering the production core: typed environment row,
+typed error row, resource-safe bracket and scope primitives,
+layer composition, structural concurrency with cancellation,
+virtual-time testing, and adapters for `purescript-spec`. See
+`docs/` for the walkthroughs, and `docs/migrating-from-zio.md` /
+`docs/migrating-from-effect-ts.md` for idiom-by-idiom mappings.
 
-### Phase 8.5 release prep
+### Release-prep work (not actually released)
 
-- Version bumped to `0.1.0` in `spago.yaml`.
-- README rewritten as a release-quality landing page: 30-second
-  tour, install line, module-by-module surface for v0.1.0, links
-  to walkthrough docs and the worked example, build and run
-  instructions, v0.2 backlog pointer.
+- Version string set to `0.1.0` in `spago.yaml` as a placeholder.
+- README rewritten as a landing page: 30-second tour, install
+  note, module-by-module surface, links to walkthrough docs and
+  the worked example, build and run instructions.
 
 ### Added
 
@@ -431,7 +432,7 @@ for idiom-by-idiom mappings.
 - Phase 3 review cycle: two new compile-fail cases (`runRIO'` with a
   leftover error tag; `catchTag` with a wrong payload type) plus
   `compile-fail/FINDINGS.md` rating the readability of each compiler
-  message and listing candidates for v0.2 custom `Fail` instances.
+  message and listing candidates for custom `Fail` instances.
 - `RIO.Resource` module with `acquireRelease`: bracket-style primitive
   that guarantees the release action runs on every termination path of
   the use phase (success, typed failure, defect, or external fiber
@@ -544,9 +545,8 @@ for idiom-by-idiom mappings.
   the console reporter and exits the process with the suite's
   result (Phase 7.2). `spec` and `spec-node` added to the
   package's dependency manifest. The trade-off (transitive
-  spec dep for every consumer) is intentional for v0.1; we may
-  factor `RIO.Spec` out into a sibling workspace package in a
-  later phase.
+  spec dep for every consumer) is intentional for now; we may
+  factor `RIO.Spec` out into a sibling workspace package later.
 - `docs/07-testing.md`: end-to-end walkthrough of the testing
   story, covering `mockService` and `recording` (from Phase
   2.6), the `Clock` service plus `newTestClock` (Phase 7.1),
@@ -588,10 +588,10 @@ for idiom-by-idiom mappings.
   `/todos`, DELETE `/todos/:id`) with HTTP semantics
   (200/204/400/404/405) verified against `curl` end-to-end.
   Persistence is in-memory only; the SQLite-backed variant
-  called for in the original build plan is deferred to v0.2
-  since the layer-swap story is already demonstrated by the
-  Phase 7 review and the example does not need a second
-  driver to show off RIO. CI builds the example on every PR.
+  called for in the original build plan is deferred since the
+  layer-swap story is already demonstrated by the Phase 7
+  review and the example does not need a second driver to
+  show off RIO. CI builds the example on every PR.
   `argonaut-codecs`, `argonaut-core`, `httpurple`, and
   `integers` join the example package's dependency manifest;
   none are added to the main `rio` package's dependencies.
@@ -619,8 +619,8 @@ for idiom-by-idiom mappings.
   `unLayer`, `andThen`, `combine`, `buildLayer`,
   `provideLayer`, `acquireRelease`, `addFinalizer`, `scoped`,
   `now`, `sleep`, `liveClock`, `itRIO`, `newTestClock`.
-  Publication of the generated docs to Pursuit is gated on
-  Phase 8.5 (v0.1.0 release).
+  Publication of the generated docs to Pursuit waits on the
+  first registry release.
 - `benchmarks/` (workspace package `rio-benchmarks`) plus
   `docs/performance.md`: Phase 8.4 benchmark suite. Four
   scenarios (bind chain at 100 and 10 000 depths, `ask` +
@@ -637,7 +637,7 @@ for idiom-by-idiom mappings.
   reasoning behind the dominant costs. CI builds the suite
   on every PR; it does not run it, since benchmark numbers in
   CI are too noisy to gate on. Setting up a regression gate
-  is a v0.2 backlog item.
+  is tracked as a future backlog item.
 - `spikes/phase-6-review/`: Phase 6 review cycle. Four randomised
   stress scenarios driven by `Effect.Random` parameters:
   `parTraverse` over up to eight actions with up to 60 percent

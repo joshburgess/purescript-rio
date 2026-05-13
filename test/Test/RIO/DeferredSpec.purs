@@ -25,7 +25,7 @@ import RIO.Core
 
 spec :: Spec Unit
 spec = do
-  describe "RIO.Deferred (v0.2)" do
+  describe "RIO.Deferred" do
     describe "succeedDeferred + awaitDeferred" do
       it "an awaiter sees the produced value" do
         let

@@ -7,9 +7,9 @@
 -- | a metric name and a `Number` value; the backend handles
 -- | aggregation, tagging, and emission.
 -- |
--- | This module deliberately stays minimal. v0.2 ships the service
--- | shape and a test-friendly recording backend
--- | (`RIO.Test.Metrics.newRecordingMetrics`); production backends
+-- | This module deliberately stays minimal: the service shape plus a
+-- | test-friendly recording backend
+-- | (`RIO.Test.Metrics.newRecordingMetrics`). Production backends
 -- | (OTel, StatsD, Prometheus push) can sit on top of the same
 -- | record type without touching the call sites.
 module RIO.Metrics

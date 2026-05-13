@@ -28,7 +28,7 @@ import RIO.STM
 
 spec :: Spec Unit
 spec = do
-  describe "RIO.STM (v0.2)" do
+  describe "RIO.STM" do
     describe "atomically" do
       it "applies writes after a successful transaction" do
         let

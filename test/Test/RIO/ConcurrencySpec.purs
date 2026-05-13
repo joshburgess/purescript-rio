@@ -447,7 +447,7 @@ spec = do
         Array.elem "A:released" order `shouldEqual` true
         Array.elem "B:released" order `shouldEqual` true
 
-  describe "RIO.Concurrency (v0.2)" do
+  describe "RIO.Concurrency extras" do
     describe "parTraverse short-circuit" do
       it "interrupts sibling fibers on the first failure" do
         completed <- liftEffect (Ref.new (0 :: Int))

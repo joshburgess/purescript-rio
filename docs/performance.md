@@ -1,9 +1,9 @@
 # Performance baseline
 
-This page captures the v0.1 performance numbers for `rio`. The
+This page captures baseline performance numbers for `rio`. The
 goal is not absolute benchmark heroics; it is to make the cost
-model legible so users can reason about hot paths and so future
-versions can spot regressions.
+model legible so users can reason about hot paths and so changes
+can spot regressions.
 
 The benchmark suite lives in `benchmarks/`. Run it with:
 
