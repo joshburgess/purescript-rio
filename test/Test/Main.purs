@@ -6,6 +6,7 @@ import Effect (Effect)
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
+import Test.RIO.ConcurrencySpec as ConcurrencySpec
 import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
@@ -22,4 +23,5 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ErrorHandlingSpec.spec
   ResourceSpec.spec
   LayerSpec.spec
+  ConcurrencySpec.spec
   TestHelpersSpec.spec

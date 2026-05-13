@@ -135,3 +135,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   issue worth tracking: the lack of a passthrough operator for
   sequential composition (DX-1, candidate for a later phase). CI
   builds and runs the spike on every PR.
+- `RIO.Concurrency` module with `Fiber e a`, `fork`, `join`, and
+  `interrupt` (Phase 6.1). `fork` and `interrupt` are infallible
+  from the caller's perspective and leave the caller's error row
+  free (instead of pinning it to `()`) so they compose cleanly
+  inside a do-block whose surrounding row is non-empty: this is the
+  one departure from the build plan's literal signature, made
+  because the `()` form forces the entire surrounding do-block to
+  have `()` for its error row. `Fiber e a` wraps an
+  `Effect.Aff.Fiber (Either (Variant e) a)`; typed failures from
+  inside a fiber surface on `join` as `Left v` on the joiner's
+  row, defects (including the kill exception from `interrupt`)
+  propagate as `Aff` exceptions and are observable via
+  `RIO.Error.sandbox`. The cancellation guarantees come from the
+  Phase 0.5 spike scenarios S1 / S3 / S4.
