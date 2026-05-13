@@ -159,3 +159,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   actions complete in ~100ms rather than ~200ms. `parallel`,
   `arrays`, `datetime`, `integers`, `newtype`, and `now` added to
   the package's dependency manifest.
+- `race` and `raceAll` in `RIO.Concurrency` (Phase 6.3). `race`
+  uses `Aff`'s `ParAff` `Alt` instance to run two actions
+  concurrently, returns whichever completes first (success or
+  typed failure), and interrupts the loser. Finalizers registered
+  by the loser via `acquireRelease` or `Scope` run on
+  interruption, leveraging the same `Aff.bracket` guarantees from
+  Phase 0.5 scenario S3. `raceAll` takes a `NonEmptyArray` and is
+  the left fold of `race` over the array (no `parOneOf` because
+  the `Parallel f m` constraint solver couldn't infer the
+  instance from a polymorphic-`f` callsite; the fold is
+  equivalent and uses concrete types throughout). `control` and
+  `foldable-traversable` added to the dependency manifest.

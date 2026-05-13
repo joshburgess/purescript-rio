@@ -2,7 +2,9 @@ module Test.RIO.ConcurrencySpec (spec) where
 
 import Prelude
 
+import Data.Array (elem, range, snoc) as Array
 import Data.Array (range, snoc)
+import Data.Array.NonEmpty as NEArray
 import Data.Either (Either(..))
 import Data.Tuple (Tuple(..))
 import Data.DateTime.Instant (unInstant)
@@ -29,6 +31,8 @@ import RIO.Core
   , join
   , parSequence
   , parTraverse
+  , race
+  , raceAll
   , runRIO
   , sandbox
   , scoped
@@ -316,6 +320,127 @@ spec = do
           (Right (Tuple 1 2) :: Either _ (Tuple Int Int))
         let elapsed = elapsedMs startMs endMs
         (elapsed >= 90 && elapsed < 190) `shouldEqual` true
+
+  describe "RIO.Concurrency (Phase 6.3)" do
+    describe "race" do
+      it "the faster branch wins" do
+        let
+          fast :: RIO () () Int
+          fast = do
+            liftAff (delay (Milliseconds 10.0))
+            pure 1
+
+          slow :: RIO () () Int
+          slow = do
+            liftAff (delay (Milliseconds 500.0))
+            pure 2
+
+          prog :: RIO () () Int
+          prog = race fast slow
+        result <- runRIO prog
+        result `shouldEqual` (Right 1 :: Either _ Int)
+
+      it "the loser's resources are released by interrupt" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          loser :: RIO () () Int
+          loser = scoped do
+            scope <- ask (Proxy :: Proxy "scope")
+            liftAff (push "loser:acquired")
+            _ <- addFinalizer scope (push "loser:released")
+            liftAff (delay (Milliseconds 500.0))
+            pure 99
+
+          winner :: RIO () () Int
+          winner = do
+            liftAff (delay (Milliseconds 10.0))
+            pure 1
+
+          prog :: RIO () () Int
+          prog = race winner loser
+        result <- runRIO prog
+        result `shouldEqual` (Right 1 :: Either _ Int)
+        -- Give the runtime a moment to drain finalizers on the loser
+        -- side, then read the event log.
+        liftAff (delay (Milliseconds 20.0))
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "loser:acquired", "loser:released" ]
+
+      it "a fast failure can win the race" do
+        let
+          fastFail :: RIO () (boom :: Unit) Int
+          fastFail = do
+            liftAff (delay (Milliseconds 10.0))
+            fail (Proxy :: Proxy "boom") unit
+
+          slowSuccess :: RIO () (boom :: Unit) Int
+          slowSuccess = do
+            liftAff (delay (Milliseconds 500.0))
+            pure 1
+
+          prog :: RIO () (boom :: Unit) Int
+          prog = race fastFail slowSuccess
+        result <- runRIO prog
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+
+    describe "raceAll" do
+      it "the fastest of three wins" do
+        let
+          a :: RIO () () Int
+          a = do
+            liftAff (delay (Milliseconds 100.0))
+            pure 1
+
+          b :: RIO () () Int
+          b = do
+            liftAff (delay (Milliseconds 10.0))
+            pure 2
+
+          c :: RIO () () Int
+          c = do
+            liftAff (delay (Milliseconds 50.0))
+            pure 3
+
+          prog :: RIO () () Int
+          prog = raceAll
+            (NEArray.cons' a [ b, c ])
+        result <- runRIO prog
+        result `shouldEqual` (Right 2 :: Either _ Int)
+
+      it "all losers' resources are released" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          loser :: String -> RIO () () Int
+          loser tag = scoped do
+            scope <- ask (Proxy :: Proxy "scope")
+            liftAff (push (tag <> ":acquired"))
+            _ <- addFinalizer scope (push (tag <> ":released"))
+            liftAff (delay (Milliseconds 500.0))
+            pure 0
+
+          winner :: RIO () () Int
+          winner = do
+            liftAff (delay (Milliseconds 10.0))
+            pure 1
+
+          prog :: RIO () () Int
+          prog = raceAll
+            (NEArray.cons' winner [ loser "A", loser "B" ])
+        result <- runRIO prog
+        result `shouldEqual` (Right 1 :: Either _ Int)
+        liftAff (delay (Milliseconds 30.0))
+        order <- liftEffect (Ref.read events)
+        -- We don't assert order between A and B (the runtime may
+        -- start them in either order); we do assert each one's
+        -- acquire-release pair is present.
+        Array.elem "A:released" order `shouldEqual` true
+        Array.elem "B:released" order `shouldEqual` true
   where
   nowMs = do
     instant <- Now.now

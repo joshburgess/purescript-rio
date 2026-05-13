@@ -21,12 +21,18 @@ module RIO.Concurrency
   , join
   , parSequence
   , parTraverse
+  , race
+  , raceAll
   , zipPar
   ) where
 
 import Prelude
 
+import Control.Alt ((<|>))
 import Control.Parallel (parTraverse) as Parallel
+import Data.Array.NonEmpty (NonEmptyArray)
+import Data.Array.NonEmpty as NEArray
+import Data.Foldable (foldl)
 import Data.Either (Either(..))
 import Data.Traversable (sequence)
 import Data.Tuple (Tuple(..))
@@ -143,3 +149,34 @@ zipPar ra rb = RIO \r ->
         Left v, _ -> Left v
         _, Left v -> Left v
         Right a, Right b -> Right (Tuple a b)
+
+-- | Race two actions: the first to complete wins, regardless of
+-- | whether it succeeds or fails with a typed error. The loser is
+-- | interrupted by the underlying `Aff` runtime, and any resources
+-- | it holds via `acquireRelease` or `Scope` are released (Phase
+-- | 0.5 scenario S3).
+-- |
+-- | Defects propagate from whichever side raises them; the loser
+-- | is interrupted as usual.
+race
+  :: forall r e a
+   . RIO r e a
+  -> RIO r e a
+  -> RIO r e a
+race ra rb = RIO \r ->
+  Aff.sequential
+    (Aff.parallel (unRIO ra r) <|> Aff.parallel (unRIO rb r))
+
+-- | Race a non-empty array of actions. First to complete wins; the
+-- | others are interrupted and their resources released. The
+-- | non-empty input is what makes the result type total: with an
+-- | empty array there would be nothing to return.
+raceAll
+  :: forall r e a
+   . NonEmptyArray (RIO r e a)
+  -> RIO r e a
+raceAll arr =
+  let
+    { head, tail } = NEArray.uncons arr
+  in
+    foldl race head tail

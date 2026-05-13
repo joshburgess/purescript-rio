@@ -7,9 +7,11 @@ package:
     - aff
     - arrays
     - console
+    - control
     - effect
     - either
     - exceptions
+    - foldable-traversable
     - maybe
     - parallel
     - prelude
