@@ -17,6 +17,7 @@ import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
+import Test.RIO.STMSpec as STMSpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
 
 main :: Effect Unit
@@ -31,5 +32,6 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   DeferredSpec.spec
   ClockSpec.spec
   ScheduleSpec.spec
+  STMSpec.spec
   TestHelpersSpec.spec
   SpecHelpersSpec.spec

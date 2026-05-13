@@ -47,6 +47,19 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   sample a schedule's delay distribution. The error row is fixed
   to `()`; schedules cannot themselves fail with a typed error.
   See `docs/08-scheduling.md`.
+- `RIO.STM` module: software-transactional memory. `TRef a`,
+  `STM e a` (with `Functor` / `Apply` / `Bind` / `Monad`
+  instances), `newTRef`, `readTRef`, `writeTRef`, `modifyTRef`,
+  `retry`, `check`, `orElse`, `failSTM`, and `atomically`. The
+  implementation uses the JS event loop's lack of preemption
+  directly: an `STM` body is a synchronous `Effect` whose
+  intermediate writes are unobservable to other fibers, so commit
+  needs neither version checks nor pessimistic locks. `retry`
+  suspends until any read `TRef` is written, via waiter callbacks
+  fired from the writer's commit phase. Typed failures abort the
+  transaction (no writes apply) and surface on the parent's row.
+  No `TQueue` / `TMap` / `TSemaphore` in this cut; they derive
+  from `TRef` and can land later. See `docs/09-stm.md`.
 
 ### Changed
 
