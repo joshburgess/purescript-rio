@@ -18,6 +18,9 @@ import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.STMSpec as STMSpec
+import Test.RIO.STM.TMapSpec as TMapSpec
+import Test.RIO.STM.TQueueSpec as TQueueSpec
+import Test.RIO.STM.TSemaphoreSpec as TSemaphoreSpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
 
 main :: Effect Unit
@@ -33,5 +36,8 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ClockSpec.spec
   ScheduleSpec.spec
   STMSpec.spec
+  TQueueSpec.spec
+  TMapSpec.spec
+  TSemaphoreSpec.spec
   TestHelpersSpec.spec
   SpecHelpersSpec.spec

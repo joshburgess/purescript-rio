@@ -117,6 +117,9 @@ Then `npx spago install`.
   `newTRef` / `readTRef` / `writeTRef` / `modifyTRef`, `retry` /
   `check`, `orElse`, `failSTM`, and `atomically`. Single-event-loop
   atomicity: no version checks, no spinning.
+- `RIO.STM.TQueue`, `RIO.STM.TMap`, `RIO.STM.TSemaphore`: derived
+  transactional structures. Blocking FIFO queue, keyed map with
+  `awaitKey`, counting semaphore with `withTSemaphore` bracketing.
 - `RIO.Spec`: `itRIO` / `itRIO_` adapters for
   `purescript-spec`.
 - `RIO.Test`: `mockService`, `recording` for service-call
@@ -185,9 +188,9 @@ The v0.2 backlog tracks tracing / metrics. Bounded-concurrency
 traversal (`parTraverseN`), `timeout`, `uninterruptible`,
 `forkScoped`, `Deferred`, `ensuring`, `Layer.passthrough`,
 short-circuiting parallel traversal, `RIO.Schedule` (retry /
-repeat policies), `RIO.STM` (`TRef` + `atomically`), and the
-benchmark regression gate (`Benchmarks.Gate`) have already
-landed on `main`. See
+repeat policies), `RIO.STM` (`TRef` + `atomically`, plus derived
+`TQueue` / `TMap` / `TSemaphore`), and the benchmark regression
+gate (`Benchmarks.Gate`) have already landed on `main`. See
 [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License

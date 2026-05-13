@@ -71,8 +71,29 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   suspends until any read `TRef` is written, via waiter callbacks
   fired from the writer's commit phase. Typed failures abort the
   transaction (no writes apply) and surface on the parent's row.
-  No `TQueue` / `TMap` / `TSemaphore` in this cut; they derive
-  from `TRef` and can land later. See `docs/09-stm.md`.
+  See `docs/09-stm.md`.
+- `RIO.STM.TQueue`: unbounded FIFO queue built on a single
+  `TRef (Array a)`. Surface: `newTQueue`, `writeTQueue`,
+  `readTQueue` (retries when empty), `tryReadTQueue`,
+  `peekTQueue`, `isEmptyTQueue`, `lengthTQueue`. Underlying
+  enqueue/dequeue are `Array.snoc` / `Array.uncons` (O(n) on the
+  JS backend); the API leaves room for a deque-based replacement.
+- `RIO.STM.TMap`: transactional map keyed by an `Ord` type,
+  backed by a single `TRef (Map k v)`. Surface: `newTMap`,
+  `insertTMap`, `lookupTMap`, `deleteTMap`, `memberTMap`,
+  `sizeTMap`, and `awaitKey` (retries until a key is present).
+  Wakeups are not key-indexed; any write to the underlying TRef
+  re-checks the predicate, which suits "wait on handler
+  registration" patterns and is fine for low-churn maps.
+- `RIO.STM.TSemaphore`: counting semaphore on a single
+  `TRef Int`. Surface: `newTSemaphore`, `acquireTSemaphore`,
+  `acquireN`, `releaseTSemaphore`, `releaseN`,
+  `availableTSemaphore`, and `withTSemaphore`, which brackets
+  an acquire/release pair around an `RIO` action via
+  `acquireRelease` so the permit is returned on every
+  termination path.
+- `ordered-collections` to the main `rio` package's dependency
+  manifest (used by `RIO.STM.TMap`).
 
 ### Changed
 

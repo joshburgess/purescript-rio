@@ -173,12 +173,94 @@ confirms the final count is exactly 50.
 - **`Deferred`**: when one fiber needs to hand off *one* value
   to another fiber as a write-once cell. Not for ongoing state.
 
+## Derived structures: `TQueue`, `TMap`, `TSemaphore`
+
+Three derived structures ship in submodules. Each is a thin
+wrapper around a single `TRef` plus the primitives above; the
+implementations are short enough to read in one sitting if you
+want to see how they compose.
+
+### `RIO.STM.TQueue`
+
+An unbounded FIFO queue. Producers `writeTQueue`; consumers
+`readTQueue`, which retries when the queue is empty and wakes
+up automatically the next time a producer commits.
+
+```purescript
+import RIO.STM (atomically)
+import RIO.STM.TQueue (newTQueue, readTQueue, writeTQueue)
+
+example = do
+  q <- atomically newTQueue
+  _ <- fork (atomically (writeTQueue q 1))
+  atomically (readTQueue q)  -- blocks until producer commits
+```
+
+Surface: `newTQueue`, `writeTQueue`, `readTQueue`,
+`tryReadTQueue`, `peekTQueue`, `isEmptyTQueue`, `lengthTQueue`.
+
+Implementation note: the backing store is a single `Array a`
+read via `Array.uncons` and extended via `Array.snoc`. Both are
+O(n) on the JS backend; a deque-based replacement can swap in
+without changing the public API.
+
+### `RIO.STM.TMap`
+
+A transactional map keyed by an `Ord` type. The headline
+combinator is `awaitKey`, which retries until a key is present.
+
+```purescript
+import RIO.STM (atomically)
+import RIO.STM.TMap (awaitKey, insertTMap, newTMap)
+
+example = do
+  m <- atomically newTMap
+  _ <- fork (atomically (insertTMap 42 "found-it" m))
+  atomically (awaitKey 42 m)  -- blocks until a producer inserts
+```
+
+Surface: `newTMap`, `insertTMap`, `lookupTMap`, `deleteTMap`,
+`memberTMap`, `sizeTMap`, `awaitKey`. Wakeups are not key-indexed:
+any write to the underlying `TRef` re-checks the predicate. This
+is fine for typical "wait on handler registration" or "wait on
+configuration ready" patterns; if you have a hot map where many
+keys are inserted per second and waiters scale with key count,
+prefer one `TQueue` per logical channel.
+
+### `RIO.STM.TSemaphore`
+
+A counting semaphore. `acquireN` retries when fewer permits
+than requested are available; `releaseN` adds permits back.
+`withTSemaphore` brackets a single-permit acquire/release pair
+against an `RIO` action so the permit is released on every
+termination path.
+
+```purescript
+import RIO.STM (atomically)
+import RIO.STM.TSemaphore (newTSemaphore, withTSemaphore)
+
+example = do
+  sem <- atomically (newTSemaphore 3)
+  parTraverse (withTSemaphore sem <<< handle) requests
+```
+
+Surface: `newTSemaphore`, `acquireTSemaphore`, `acquireN`,
+`releaseTSemaphore`, `releaseN`, `availableTSemaphore`,
+`withTSemaphore`.
+
+Note that `parTraverseN n` already bounds concurrency for the
+common case of "run at most n fibers in parallel." Reach for a
+`TSemaphore` when the permit needs to span more than one
+traversal, when a single fiber needs multiple permits at once,
+or when you want to expose the permit pool as a service for
+other callers to share.
+
 ## What `RIO.STM` does not give you yet
 
-- **`TQueue`, `TMap`, `TSemaphore`, `TArray`**. These are
-  derivable from `TRef` + the primitives in this module. They
-  may land as a follow-up; for now build them in your own
-  application code if you need them, or open an issue.
+- **`TArray`.** A simple `TRef (Array a)` covers most callers;
+  if you need indexed reads or writes to be atomic at a
+  finer granularity than "the whole array," open an issue with
+  the use case.
 - **Multi-transaction composition.** Each `atomically` is its
   own transaction; there is no way to span one transaction
   across two `atomically` calls.
@@ -195,9 +277,14 @@ confirms the final count is exactly 50.
 ## Pointers
 
 - `src/RIO/STM.purs`: the type, primitives, and `atomically`.
+- `src/RIO/STM/TQueue.purs`, `src/RIO/STM/TMap.purs`,
+  `src/RIO/STM/TSemaphore.purs`: the derived structures.
 - `test/Test/RIO/STMSpec.purs`: tests for commit / abort,
   staged-write visibility, `failSTM` abort + write discard,
   `retry` wakeup, `orElse` fallthrough, and 50-fiber parallel
   increments.
+- `test/Test/RIO/STM/`: tests for the derived structures
+  (FIFO order, blocking dequeue, `awaitKey` wakeup, bounded
+  concurrency via `withTSemaphore`).
 - `docs/06-concurrency.md`: how `interrupt` interacts with a
   suspended `atomically`.

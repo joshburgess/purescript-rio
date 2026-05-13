@@ -17,6 +17,7 @@
             "foldable-traversable",
             "maybe",
             "now",
+            "ordered-collections",
             "parallel",
             "prelude",
             "random",
