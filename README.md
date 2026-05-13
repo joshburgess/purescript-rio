@@ -117,9 +117,12 @@ Then `npx spago install`.
   `newTRef` / `readTRef` / `writeTRef` / `modifyTRef`, `retry` /
   `check`, `orElse`, `failSTM`, and `atomically`. Single-event-loop
   atomicity: no version checks, no spinning.
-- `RIO.STM.TQueue`, `RIO.STM.TMap`, `RIO.STM.TSemaphore`: derived
-  transactional structures. Blocking FIFO queue, keyed map with
-  `awaitKey`, counting semaphore with `withTSemaphore` bracketing.
+- `RIO.STM.TQueue`, `RIO.STM.TMap`, `RIO.STM.TSemaphore`,
+  `RIO.STM.THub`: derived transactional structures. Blocking
+  FIFO queue, keyed map with `awaitKey`, counting semaphore
+  with `withTSemaphore` bracketing, and a pub/sub hub with
+  per-subscriber buffers and four back-pressure strategies
+  (`Bounded`, `Sliding`, `Dropping`, `Unbounded`).
 - `RIO.Tracer`: spans with `withSpan` and `addAttribute`. Implicit
   parent / child context via a tracer-held current-span pointer.
   `noopTracer` for production opt-out.

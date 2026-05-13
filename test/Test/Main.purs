@@ -22,6 +22,7 @@ import Test.RIO.ScheduleSpec as ScheduleSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.STMSpec as STMSpec
 import Test.RIO.STM.TMapSpec as TMapSpec
+import Test.RIO.STM.THubSpec as THubSpec
 import Test.RIO.STM.TQueueSpec as TQueueSpec
 import Test.RIO.STM.TSemaphoreSpec as TSemaphoreSpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
@@ -43,6 +44,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   TQueueSpec.spec
   TMapSpec.spec
   TSemaphoreSpec.spec
+  THubSpec.spec
   TracerSpec.spec
   MetricsSpec.spec
   LocalSpec.spec

@@ -11,6 +11,24 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added (v0.3)
 
+- `RIO.STM.THub` module: transactional publish/subscribe hub.
+  Each published value fans out to every active subscriber's
+  private buffer; subscribers consume independently. Four
+  back-pressure strategies chosen at construction time:
+  `newBoundedTHub n` (producer retries while any subscriber is
+  full), `newSlidingTHub n` (drops oldest on full, never
+  blocks), `newDroppingTHub n` (drops new on full, never
+  blocks, returns `false` when any subscriber dropped),
+  `newUnboundedTHub` (never blocks, never drops, susceptible to
+  memory growth on slow consumers). Subscribers register with
+  `subscribeTHub` and consume with `takeSubscription` /
+  `tryTakeSubscription`; `unsubscribeTHub` removes a
+  subscription and drops its buffered values. Prefer
+  `withSubscription` for the common case: it brackets
+  subscribe/unsubscribe against an `RIO` action so the
+  subscription is released on every termination path. A new
+  subscriber sees only values published after it registers.
+  See `docs/09-stm.md`.
 - `RIO.Logger` module: structured logging service. `Logger` is a
   record of `log` / `getAnnotations` / `setAnnotations`
   operations carried in the environment row at the `logger`

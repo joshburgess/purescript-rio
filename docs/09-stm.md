@@ -173,7 +173,7 @@ confirms the final count is exactly 50.
 - **`Deferred`**: when one fiber needs to hand off *one* value
   to another fiber as a write-once cell. Not for ongoing state.
 
-## Derived structures: `TQueue`, `TMap`, `TSemaphore`
+## Derived structures: `TQueue`, `TMap`, `TSemaphore`, `THub`
 
 Three derived structures ship in submodules. Each is a thin
 wrapper around a single `TRef` plus the primitives above; the
@@ -254,6 +254,76 @@ common case of "run at most n fibers in parallel." Reach for a
 traversal, when a single fiber needs multiple permits at once,
 or when you want to expose the permit pool as a service for
 other callers to share.
+
+### `RIO.STM.THub`
+
+A transactional publish/subscribe hub. Each published value
+fans out to every active subscriber's private buffer;
+subscribers consume independently from their own buffers, so a
+slow subscriber does not block sibling subscribers (modulo the
+chosen back-pressure strategy).
+
+```purescript
+import RIO.STM (atomically)
+import RIO.STM.THub
+  ( newBoundedTHub
+  , publishTHub
+  , takeSubscription
+  , withSubscription
+  )
+
+example = do
+  hub <- atomically (newBoundedTHub 16)
+  withSubscription hub \sub -> do
+    _ <- fork (forever (atomically (publishTHub hub "tick")))
+    atomically (takeSubscription sub)  -- blocks until first publish
+```
+
+Four constructors choose how the hub handles a subscriber whose
+buffer is full:
+
+- `newBoundedTHub n`: each subscriber buffer is capped at `n`
+  items. `publishTHub` retries (blocks) while any subscriber's
+  buffer is full. Producer throughput is dictated by the
+  slowest subscriber.
+- `newSlidingTHub n`: when a subscriber's buffer is full the
+  oldest entry is dropped to make room. `publishTHub` never
+  blocks and always returns `true`; the affected subscriber
+  loses its oldest pending message.
+- `newDroppingTHub n`: when a subscriber's buffer is full the
+  *new* message is dropped for that subscriber. `publishTHub`
+  never blocks; the return value is `false` if any subscriber
+  dropped the message.
+- `newUnboundedTHub`: no cap. Producer never blocks and nothing
+  is dropped. Susceptible to memory growth if a subscriber
+  stops consuming.
+
+`subscribeTHub` registers a fresh subscriber and returns a
+`Subscription`. A new subscriber sees only values published
+*after* it registers; values that were already in flight are
+not retroactively delivered to it. `unsubscribeTHub` removes
+the subscription and drops any values still buffered for it.
+
+For most consumer code, prefer `withSubscription`: it brackets
+subscribe/unsubscribe against an `RIO` action so the
+subscription is released on every termination path.
+
+Surface: `Strategy(..)`, `THub`, `Subscription`, `newTHub`,
+`newBoundedTHub`, `newSlidingTHub`, `newDroppingTHub`,
+`newUnboundedTHub`, `publishTHub`, `subscribeTHub`,
+`unsubscribeTHub`, `takeSubscription`, `tryTakeSubscription`,
+`isEmptySubscription`, `lengthSubscription`, `subscriberCount`,
+`withSubscription`.
+
+Implementation note: each subscriber's buffer is a `TRef (Array
+a)`. Publish iterates all current subscribers in one
+transaction, so either every subscriber accepts the value or
+the whole publish retries (`Bounded`) / records a drop
+(`Dropping`). There is no per-subscriber back-pressure on a
+shared hub: choose `Bounded` if you want the producer to be
+paced by the slowest consumer, `Sliding` / `Dropping` if you
+want the producer to outrun a slow consumer at the cost of
+losing messages, and `Unbounded` if buffer growth is fine.
 
 ## What `RIO.STM` does not give you yet
 
