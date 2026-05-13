@@ -360,6 +360,8 @@ Concurrency bugs hide. Reviewer writes a property-based test suite that runs eac
 
 Reviewer ports one of the Phase 2/3/5 examples to use only test services and asserts the experience is at parity with running against real implementations.
 
+**Status:** Complete. See `spikes/phase-7-review/`. Ports the Phase 5 review's six-service layered application to a `Test.Spec` suite that uses only `RIO.Spec`, `RIO.Test`, and `RIO.Test.Clock`. Four scenarios (happy path, failing layer, program failure after use, time-sensitive forks) all pass on every run. DX is at parity: the test-helpers shape replaces a hand-rolled `ScenarioResult` harness with ordinary `it` / `itRIO_` bodies and `shouldEqual` assertions. Three small DX observations recorded in `FINDINGS.md` for a future v0.2 helper kit; none block v0.1.
+
 ---
 
 ## Phase 8, Documentation, Examples, Release Prep

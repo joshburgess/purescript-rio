@@ -196,6 +196,23 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   programs (referencing `spikes/phase-5-review/`), and what is
   intentionally absent from Phase 7 (generator-based property
   tests, snapshot testing, per-fiber isolation) (Phase 7.3).
+- `spikes/phase-7-review/`: Phase 7 review cycle. Ports the
+  Phase 5 review's six-service layered application to a
+  `Test.Spec` suite that uses only `RIO.Spec`, `RIO.Test`, and
+  `RIO.Test.Clock`. Four scenarios: A. happy path with
+  `recording` + `newTestClock`; B. failing layer (`dataLayer`
+  raises `dbConnect`); C. program failure after service use
+  (typed `progBoom`); D. time-sensitive forks parked on
+  `clock.sleep` resumed by `advance` in deadline order.
+  Replaces Phase 5's hand-rolled `ScenarioResult` harness with
+  ordinary `it` / `itRIO_` bodies and `shouldEqual` assertions.
+  All four scenarios pass; CI builds and runs the spike on
+  every PR. `FINDINGS.md` records three DX observations:
+  `recording` is `Aff Unit`-only (no `recordingWith`); `itRIO_`
+  requires `e ~ ()`, so typed-failure inspection falls back to
+  plain `it` + `runRIO`; forking a service-using program inside
+  a spec body costs an inner `runRIO` because `Aff.forkAff`
+  works in `Aff`, not in `RIO`.
 - `spikes/phase-6-review/`: Phase 6 review cycle. Four randomised
   stress scenarios driven by `Effect.Random` parameters:
   `parTraverse` over up to eight actions with up to 60 percent

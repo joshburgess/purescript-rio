@@ -1,0 +1,21 @@
+package:
+  name: spike-phase-7-review
+  dependencies:
+    - aff
+    - arrays
+    - datetime
+    - effect
+    - either
+    - exceptions
+    - foldable-traversable
+    - maybe
+    - prelude
+    - refs
+    - rio
+    - spec
+    - spec-node
+    - strings
+    - tuples
+    - variant
+  run:
+    main: Spike.Phase7Review.Main
