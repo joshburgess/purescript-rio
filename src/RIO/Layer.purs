@@ -19,6 +19,7 @@ module RIO.Layer
   , combine
   , fromRecord
   , fromRIO
+  , passthrough
   , provideLayer
   , unLayer
   , (>>>)
@@ -163,6 +164,50 @@ combine (Layer l1) (Layer l2) = Layer $ RIO \env -> do
         Right r2Rec -> pure (Right (Record.union r1Rec r2Rec))
 
 infixr 7 combine as <+>
+
+-- | Extend a layer's output row with the labels it already required
+-- | as input, so downstream consumers see both the produced services
+-- | and the upstream ones the layer was built against.
+-- |
+-- | The plain `>>>` "consumes" the input row: chaining `configLayer
+-- | >>> dbLayer` yields a layer whose output is just `(db ::
+-- | Database)`, even though `dbLayer`'s caller probably also wants
+-- | `(config :: Config)` at hand. `passthrough` adds the input row
+-- | back into the output:
+-- |
+-- | ```purescript
+-- | -- configLayer :: Layer ()                 e (config :: Config)
+-- | -- dbLayer     :: Layer (config :: Config) e (db :: Database)
+-- | --
+-- | -- without passthrough: only `db` is visible downstream
+-- | base = configLayer >>> dbLayer
+-- |
+-- | -- with passthrough on dbLayer: both are visible downstream
+-- | base = configLayer >>> passthrough dbLayer
+-- | -- :: Layer () e (config :: Config, db :: Database)
+-- | ```
+-- |
+-- | The required output row is supplied by the `Union` constraint:
+-- | `rIn` plus the layer's own output `rOut` equals `rPassed`. If
+-- | the rows aren't disjoint, the compiler rejects the call.
+passthrough
+  :: forall rIn e rOut rPassed
+   . Row.Union rOut rIn rPassed
+  => Layer rIn e rOut
+  -> Layer rIn e rPassed
+passthrough (Layer rio) = Layer $ RIO \env -> do
+  res <- unRIO rio env
+  case res of
+    Left v -> pure (Left v)
+    Right outRec -> do
+      let
+        -- `env` has shape `(scope :: Scope | rIn)`; coerce away the
+        -- `scope` label so we can union the input services with the
+        -- layer's output. Safe because the `Union` constraint pins
+        -- `rPassed` to exactly `rOut + rIn`.
+        inRec :: Record rIn
+        inRec = (unsafeCoerce :: forall x. Record x -> Record rIn) env
+      pure (Right (Record.union outRec inRec :: Record rPassed))
 
 -- | Run a closed layer (input row `()`) in a fresh scope and hand
 -- | back its produced record.

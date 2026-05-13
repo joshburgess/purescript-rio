@@ -22,6 +22,7 @@ import RIO.Core
   , fail
   , fromRIO
   , fromRecord
+  , passthrough
   , provideLayer
   , runRIO
   )
@@ -292,3 +293,30 @@ spec = do
         _ <- attempt (runRIO provided)
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "open", "log:before", "close" ]
+
+  describe "RIO.Layer (v0.2) passthrough" do
+    it "makes input services visible to downstream consumers" do
+      let
+        configLayer :: Layer () () (config :: { port :: Int })
+        configLayer = fromRecord { config: { port: 8080 } }
+
+        -- A layer that builds a "logger" from config. With plain
+        -- `>>>`, only `logger` would be visible downstream; with
+        -- `passthrough`, both `config` and `logger` are visible.
+        loggerLayer :: Layer (config :: { port :: Int }) () (logger :: Logger)
+        loggerLayer = fromRIO do
+          _ <- ask (Proxy :: Proxy "config")
+          pure { logger: { log: \_ -> pure unit } }
+
+        appLayer :: Layer () () (config :: { port :: Int }, logger :: Logger)
+        appLayer = configLayer >>> passthrough loggerLayer
+
+        program
+          :: RIO (config :: { port :: Int }, logger :: Logger) () Int
+        program = do
+          cfg <- ask (Proxy :: Proxy "config")
+          _ <- ask (Proxy :: Proxy "logger")
+          pure cfg.port
+
+      result <- runRIO (provideLayer appLayer program)
+      result `shouldEqual` (Right 8080 :: Either _ Int)

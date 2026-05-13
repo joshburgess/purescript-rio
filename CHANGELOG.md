@@ -9,6 +9,55 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ## [Unreleased]
 
+### Added
+
+- `RIO.Concurrency.timeout :: Milliseconds -> RIO r e a -> RIO r e
+  (Maybe a)`. Race an action against a deadline; on timeout the
+  action is interrupted and `Nothing` is returned. Typed failures
+  from the action propagate unchanged.
+- `RIO.Concurrency.parTraverseN :: Int -> (a -> RIO r e b) -> Array
+  a -> RIO r e (Array b)`. Bounded-concurrency traversal that
+  chunks the input array into `n`-sized groups and `parTraverse`s
+  each chunk in turn.
+- `RIO.Concurrency.uninterruptible :: RIO r e a -> RIO r e a`. Wrap
+  a critical section so kills are queued until the inner action
+  completes. Sits on top of `Aff.invincible`.
+- `RIO.Concurrency.forkScoped :: Scope -> RIO r e a -> RIO r e'
+  (Fiber e a)`. Fork into a scope: when the scope exits the fiber
+  is interrupted as part of its LIFO finalizer pass. The
+  structured-concurrency counterpart of `fork`.
+- `RIO.Resource.ensuring :: RIO r e a -> RIO r () Unit -> RIO r e
+  a`. `finally`-style finalizer guarantor without the
+  acquire/release split of `acquireRelease`.
+- `RIO.Deferred` module: one-shot write-once cell over
+  `Effect.Aff.AVar` for fiber handshakes. `makeDeferred`,
+  `succeedDeferred`, `failDeferred`, `awaitDeferred`,
+  `pollDeferred`.
+- `RIO.Layer.passthrough :: Union rOut rIn rPassed => Layer rIn e
+  rOut -> Layer rIn e rPassed`. Extend a layer's output row with
+  the labels it required as input, so downstream consumers see
+  both. Closes DX-1.
+
+### Changed
+
+- `parTraverse` and `parSequence` now short-circuit on the first
+  typed failure, cancelling sibling fibers. v0.1 ran every branch
+  to completion before surfacing the first `Left`. The new
+  behaviour matches ZIO `foreachPar` / Effect-TS `forEach` with
+  `concurrency: "unbounded"` and is implemented by throwing a
+  sentinel defect from the failing branch (caught by `Aff.attempt`
+  at the boundary) plus a shared `Ref` for the first-failure value.
+  Successful programs are unaffected; programs that depended on
+  the old "run to completion" semantics will see siblings
+  interrupted instead of completing.
+- `zipPar` short-circuits similarly: the first `Left` from either
+  branch cancels the other.
+- `raceAll` is now implemented in terms of
+  `Control.Parallel.parOneOfMap` rather than a left-fold of
+  pairwise `race`. The behaviour is the same (first to complete
+  wins; losers are interrupted), but every branch is started in
+  parallel rather than racing pairwise.
+
 ## [0.1.0] - 2026-05-12
 
 First public release. The library covers the full ZIO / Effect-TS

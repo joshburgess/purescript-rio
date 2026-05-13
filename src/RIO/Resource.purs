@@ -11,6 +11,7 @@
 -- | the underlying evidence.
 module RIO.Resource
   ( acquireRelease
+  , ensuring
   , Scope(..)
   , addFinalizer
   , scoped
@@ -21,7 +22,7 @@ import Prelude
 import Data.Array (foldr)
 import Data.Either (Either(..))
 import Data.Variant as Variant
-import Effect.Aff (Aff, attempt, bracket)
+import Effect.Aff (Aff, attempt, bracket, finally)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Record.Unsafe (unsafeSet)
@@ -70,6 +71,36 @@ acquireRelease acquire release use = RIO \r ->
         Left v -> pure (Left v)
         Right a -> unRIO (use a) r
     )
+
+-- | `finally`-style guarantor: run `finalizer` after `action`, on
+-- | every termination path (success, typed failure, defect, or
+-- | external fiber kill). Use it when you have a cleanup to attach
+-- | but no acquire/use split worth modelling with `acquireRelease`.
+-- |
+-- | The finalizer's error row is `()`: it cannot fail with a typed
+-- | error because there's no caller-visible place to surface one.
+-- | Defects from the finalizer propagate as `Aff` exceptions and are
+-- | observable via `RIO.Error.sandbox`.
+-- |
+-- | The finalizer runs in the underlying `Aff` `finally`'s release
+-- | phase, which is uninterruptible: a kill landing during the
+-- | finalizer is queued until it completes.
+-- |
+-- | ```purescript
+-- | -- guarantee the connection pool is drained, no matter how the
+-- | -- inner action ends
+-- | drainOnExit = ensuring serveRequests drainPool
+-- | ```
+ensuring :: forall r e a. RIO r e a -> RIO r () Unit -> RIO r e a
+ensuring action finalizer = RIO \r ->
+  let
+    finAff = do
+      res <- unRIO finalizer r
+      case res of
+        Right _ -> pure unit
+        Left v -> Variant.case_ v
+  in
+    finally finAff (unRIO action r)
 
 -- | A scope is a place to register finalizers that will run on exit.
 -- |

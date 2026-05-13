@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Array (elem, range, snoc) as Array
 import Data.Array (range, snoc)
+import Data.Maybe (Maybe(..))
 import Data.Array.NonEmpty as NEArray
 import Data.Either (Either(..))
 import Data.Tuple (Tuple(..))
@@ -27,15 +28,19 @@ import RIO.Core
   , die
   , fail
   , fork
+  , forkScoped
   , interrupt
   , join
   , parSequence
   , parTraverse
+  , parTraverseN
   , race
   , raceAll
   , runRIO
   , sandbox
   , scoped
+  , timeout
+  , uninterruptible
   , zipPar
   )
 
@@ -441,6 +446,188 @@ spec = do
         -- acquire-release pair is present.
         Array.elem "A:released" order `shouldEqual` true
         Array.elem "B:released" order `shouldEqual` true
+
+  describe "RIO.Concurrency (v0.2)" do
+    describe "parTraverse short-circuit" do
+      it "interrupts sibling fibers on the first failure" do
+        completed <- liftEffect (Ref.new (0 :: Int))
+        let
+          step :: Int -> RIO () (boom :: Unit) Int
+          step n =
+            if n == 0 then do
+              liftAff (delay (Milliseconds 5.0))
+              fail (Proxy :: Proxy "boom") unit
+            else do
+              liftAff (delay (Milliseconds 200.0))
+              liftEffect (Ref.modify_ (_ + 1) completed)
+              pure n
+
+          prog :: RIO () (boom :: Unit) (Array Int)
+          prog = parTraverse step [ 0, 1, 2, 3 ]
+        result <- runRIO prog
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+        -- Wait for what would have been the full 200ms run, then
+        -- read the counter. Siblings should have been interrupted
+        -- before their delay completed.
+        liftAff (delay (Milliseconds 250.0))
+        n <- liftEffect (Ref.read completed)
+        n `shouldEqual` 0
+
+    describe "parTraverseN" do
+      it "preserves array order in the result" do
+        let
+          prog :: RIO () () (Array Int)
+          prog = parTraverseN 3 (\n -> pure (n + 100)) (range 1 5)
+        result <- runRIO prog
+        result `shouldEqual`
+          (Right [ 101, 102, 103, 104, 105 ] :: Either _ (Array Int))
+
+      it "caps concurrency: never more than N in flight" do
+        inflight <- liftEffect (Ref.new (0 :: Int))
+        peak <- liftEffect (Ref.new (0 :: Int))
+        let
+          step :: Int -> RIO () () Int
+          step n = do
+            cur <- liftEffect
+              (Ref.modify (_ + 1) inflight)
+            liftEffect
+              ( Ref.modify_
+                  (\p -> if cur > p then cur else p)
+                  peak
+              )
+            liftAff (delay (Milliseconds 30.0))
+            _ <- liftEffect (Ref.modify (\x -> x - 1) inflight)
+            pure n
+
+          prog :: RIO () () (Array Int)
+          prog = parTraverseN 2 step (range 1 6)
+        result <- runRIO prog
+        result `shouldEqual`
+          (Right [ 1, 2, 3, 4, 5, 6 ] :: Either _ (Array Int))
+        peakSeen <- liftEffect (Ref.read peak)
+        (peakSeen <= 2) `shouldEqual` true
+
+      it "n <= 1 runs sequentially (concurrency capped at 1)" do
+        inflight <- liftEffect (Ref.new (0 :: Int))
+        peak <- liftEffect (Ref.new (0 :: Int))
+        let
+          step :: Int -> RIO () () Int
+          step n = do
+            cur <- liftEffect (Ref.modify (_ + 1) inflight)
+            liftEffect (Ref.modify_ (\p -> if cur > p then cur else p) peak)
+            liftAff (delay (Milliseconds 10.0))
+            _ <- liftEffect (Ref.modify (\x -> x - 1) inflight)
+            pure n
+
+          prog :: RIO () () (Array Int)
+          prog = parTraverseN 1 step [ 1, 2, 3 ]
+        _ <- runRIO prog
+        peakSeen <- liftEffect (Ref.read peak)
+        peakSeen `shouldEqual` 1
+
+    describe "timeout" do
+      it "returns Just on success when the action beats the deadline" do
+        let
+          prog :: RIO () () (Maybe Int)
+          prog = timeout (Milliseconds 200.0) do
+            liftAff (delay (Milliseconds 10.0))
+            pure 42
+        result <- runRIO prog
+        result `shouldEqual` (Right (Just 42) :: Either _ (Maybe Int))
+
+      it "returns Nothing when the deadline fires first" do
+        let
+          prog :: RIO () () (Maybe Int)
+          prog = timeout (Milliseconds 10.0) do
+            liftAff (delay (Milliseconds 500.0))
+            pure 42
+        result <- runRIO prog
+        result `shouldEqual` (Right Nothing :: Either _ (Maybe Int))
+
+      it "releases resources when the deadline interrupts the action" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          slow :: RIO () () Int
+          slow = scoped do
+            scope <- ask (Proxy :: Proxy "scope")
+            liftAff (push "acquired")
+            _ <- addFinalizer scope (push "released")
+            liftAff (delay (Milliseconds 500.0))
+            pure 1
+
+          prog :: RIO () () (Maybe Int)
+          prog = timeout (Milliseconds 10.0) slow
+        result <- runRIO prog
+        result `shouldEqual` (Right Nothing :: Either _ (Maybe Int))
+        liftAff (delay (Milliseconds 30.0))
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "acquired", "released" ]
+
+      it "typed failures surface unchanged on the parent's row" do
+        let
+          prog :: RIO () (boom :: Unit) (Maybe Int)
+          prog = timeout (Milliseconds 500.0)
+            (fail (Proxy :: Proxy "boom") unit)
+        result <- runRIO prog
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+
+    describe "uninterruptible" do
+      it "completes a critical section even after an interrupt is sent" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          child :: RIO () () Unit
+          child = uninterruptible do
+            liftAff (push "start")
+            liftAff (delay (Milliseconds 50.0))
+            liftAff (push "end")
+
+          parent :: RIO () () Unit
+          parent = do
+            fib <- fork child
+            liftAff (delay (Milliseconds 10.0))
+            interrupt fib
+            _ <- sandbox (join fib)
+            pure unit
+
+        _ <- runRIO parent
+        liftAff (delay (Milliseconds 100.0))
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "start", "end" ]
+
+    describe "forkScoped" do
+      it "interrupts the fiber when the scope exits" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          worker :: forall r. RIO r () Unit
+          worker = do
+            liftAff (push "worker:start")
+            liftAff (delay (Milliseconds 500.0))
+            liftAff (push "worker:should-not-fire")
+
+          program :: RIO () () Unit
+          program = scoped do
+            scope <- ask (Proxy :: Proxy "scope")
+            _ <- forkScoped scope worker
+            liftAff (delay (Milliseconds 20.0))
+            liftAff (push "scope:exit")
+
+        result <- runRIO program
+        result `shouldEqual` (Right unit :: Either _ Unit)
+        liftAff (delay (Milliseconds 80.0))
+        order <- liftEffect (Ref.read events)
+        Array.elem "worker:start" order `shouldEqual` true
+        Array.elem "scope:exit" order `shouldEqual` true
+        Array.elem "worker:should-not-fire" order `shouldEqual` false
   where
   nowMs = do
     instant <- Now.now

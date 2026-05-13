@@ -134,52 +134,149 @@ better served by explicit `fork`.
 
 ## `parTraverse` failure semantics
 
-`parTraverse f xs` runs every action concurrently and waits for all
-of them to complete before returning. Crucially:
+`parTraverse f xs` runs every action concurrently. As of v0.2:
 
-- If any branch returns `Left v`, the first such failure (in array
-  order) is what the combinator returns.
-- The other branches are **not** interrupted on failure: they run
-  to completion. This is the natural shape of an applicative
-  layered on `ParAff`.
+- If any branch returns `Left v`, the **first** such failure
+  cancels every sibling fiber and is what the combinator returns.
+  This matches ZIO `foreachPar` and Effect-TS `forEach` with
+  `concurrency: "unbounded"`.
+- "First" means observation order, not array index: whichever
+  branch's `Left` is captured into the shared first-failure ref
+  first wins. In practice, fast failures win over slow ones.
+- Defects from any branch propagate as `Aff` defects (observable
+  via `RIO.Error.sandbox`) and also interrupt the siblings.
 
-If you want first-failure-cancels-the-rest semantics, build it
-from `race` plus your own array sweep, or wait for a future phase
-that adds it as a named combinator. We did not add it in 6.2
-because the simple `ParAff` shape composes with everything else
-the way users expect.
+The same short-circuit applies to `parSequence` (which is
+`parTraverse identity`) and to `zipPar` (where the first `Left`
+from either side cancels the other).
+
+If you genuinely need run-to-completion semantics, sandbox each
+branch first so its failure becomes a `Right (Left _)` on the
+parent's success row.
+
+### Bounded concurrency: `parTraverseN`
+
+`parTraverse` is unbounded: one fiber per element. When each
+element is heavy (an outbound connection, a large memory
+allocation), use `parTraverseN n f xs` to cap the number of fibers
+in flight. The implementation splits the input into chunks of size
+`n` and `parTraverse`s each chunk in turn, so the short-circuit
+semantics apply within each chunk; a failure in chunk `k` aborts
+chunks `k+1..` before they start.
+
+```purescript
+-- at most 8 fetches in flight at once
+bodies = parTraverseN 8 fetch urls
+```
+
+### Deadlines: `timeout`
+
+`timeout ms action` is `race action (delay ms *> pure Nothing)`
+with the success branch wrapped in `Just`. On success the action's
+result is `Just a`; on deadline the action is interrupted and the
+result is `Nothing`. Typed failures from the action propagate
+unchanged: `timeout` never converts a failure into a `Nothing`.
+
+```purescript
+-- a 500ms cache miss falls back to the source
+result <- timeout (Milliseconds 500.0) (fromCache key)
+case result of
+  Just hit -> pure hit
+  Nothing -> fromSource key
+```
+
+## Critical sections: `uninterruptible`
+
+`uninterruptible action` runs `action` with kills queued, so the
+section completes before any pending interrupt lands. It's a thin
+wrapper over `Effect.Aff.invincible`.
+
+Reach for it when the inner action's mid-execution state is
+observable to other fibers (a multi-step `Ref` update, a handover
+that records "we own this resource") and a kill landing partway
+through would leave the world inconsistent.
+
+`acquireRelease` already runs its release phase uninterruptibly;
+`uninterruptible` is for the cases where the *body* (not the
+release) is what must not be torn down.
+
+```purescript
+uninterruptible do
+  liftEffect (Ref.write True committed)
+  liftEffect (Ref.modify_ (_ + 1) commitCounter)
+```
+
+## Structured fibers: `forkScoped`
+
+`forkScoped scope action` is like `fork`, but the fiber's lifetime
+is bounded by `scope`. When the scope exits (on any termination
+path, including kill), the fiber is interrupted as part of its
+LIFO finalizer pass. This gives you "the fiber cannot outlive its
+enclosing block" without writing the finalizer by hand.
+
+```purescript
+scoped do
+  scope <- ask (Proxy :: Proxy "scope")
+  _ <- forkScoped scope (poll endpoint)
+  serveRequests
+  -- poll is interrupted automatically when `scoped` returns
+```
+
+This is the structured-concurrency counterpart of `fork`. Plain
+`fork` is still available for unbounded fibers (background tasks
+the program is happy to leak).
+
+## Fiber handoff: `Deferred`
+
+`RIO.Deferred` is a one-shot write-once cell over
+`Effect.Aff.AVar`. Fiber A blocks on `awaitDeferred`; fiber B
+fills the cell with `succeedDeferred` (or `failDeferred`); A wakes
+up with the value (or typed failure). Subsequent fills return
+`False` instead of overwriting; subsequent awaits see the same
+value (reads are non-destructive).
+
+```purescript
+ready <- makeDeferred
+_ <- fork (initWorker *> succeedDeferred ready unit)
+awaitDeferred ready
+useWorker
+```
+
+Use `pollDeferred` for the non-blocking probe.
 
 ## What `RIO` does not give you
 
-For honesty, here is what `RIO` (as of Phase 6) does *not* do:
+For honesty, here is what `RIO` does *not* do, even at v0.2:
 
-- **Structured concurrency.** A parent fiber being killed does not
-  automatically kill its children. `Aff` doesn't track child-of
-  relationships; `RIO` doesn't add them. If you `fork` a child and
-  then your parent fiber is killed, the child runs to completion (or
-  until something kills it). Structured-concurrency semantics
-  (`forkScoped`, supervisor trees, etc.) are out of scope and would
-  be a future phase.
+- **Implicit structured concurrency.** Plain `fork` returns a
+  fiber whose lifetime is unbounded; if you want
+  "killed-when-parent-dies" semantics, reach for `forkScoped` and
+  hand it a `Scope`. There is no automatic supervisor tree.
 - **Interrupt-with-cause.** Kill exceptions are just `Aff` errors
   carrying a message. ZIO has a richer notion (interrupted-by-whom,
   interrupted-due-to-failure-elsewhere, etc.) that `RIO` does not
   reproduce.
 - **Fiber-local state.** No equivalent of ZIO's `FiberRef`. Use a
   regular service or a `Ref` if you need per-fiber state.
+- **STM.** No `TRef` or `atomically`. `RIO.Deferred` covers
+  one-shot handshakes; for multi-key transactional state, model it
+  as a service backed by `Ref` plus a lock, or wait for a future
+  phase.
 
-These are deliberate omissions to keep Phase 6 lean. They are not
-hard to add later: ZIO's design and the existing `RIO` row-typed
-machinery make each of them a reasonable phase-9-or-later addition.
+These are deliberate omissions. The row-typed machinery the rest
+of `RIO` is built on makes each of them a reasonable later
+addition.
 
 ## Pointers
 
 - `src/RIO/Concurrency.purs`: implementations of every primitive
   described above.
-- `test/Test/RIO/ConcurrencySpec.purs`: 22 tests covering the
-  scenarios cited here.
+- `src/RIO/Deferred.purs`: the one-shot fiber-handoff primitive.
+- `test/Test/RIO/ConcurrencySpec.purs` and
+  `test/Test/RIO/DeferredSpec.purs`: tests covering the scenarios
+  cited here, including the short-circuit cancellation behaviour
+  for `parTraverse` / `zipPar` and the scope-bounded lifetime of
+  `forkScoped`.
 - `spikes/aff-interruption/FINDINGS.md`: the authoritative source
   for `Aff`'s cancellation behaviour and the canonical
   cooperative-cancellation caveat.
-- `docs/04-resources.md` (forthcoming): the resource-safety doc
-  this one assumes you have already read for the `acquireRelease`
-  / `Scope` background.

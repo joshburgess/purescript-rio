@@ -9,6 +9,7 @@ import Test.Spec.Runner.Node (runSpecAndExitProcess)
 import Test.RIO.ClockSpec as ClockSpec
 import Test.RIO.ConcurrencySpec as ConcurrencySpec
 import Test.RIO.CoreSpec as CoreSpec
+import Test.RIO.DeferredSpec as DeferredSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
@@ -26,6 +27,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ResourceSpec.spec
   LayerSpec.spec
   ConcurrencySpec.spec
+  DeferredSpec.spec
   ClockSpec.spec
   TestHelpersSpec.spec
   SpecHelpersSpec.spec

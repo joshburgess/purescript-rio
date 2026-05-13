@@ -1,0 +1,102 @@
+module Test.RIO.DeferredSpec (spec) where
+
+import Prelude
+
+import Data.Either (Either(..))
+import Data.Maybe (Maybe(..), isJust, isNothing)
+import Data.Variant as Variant
+import Effect.Aff (Milliseconds(..), delay)
+import Effect.Aff.Class (liftAff)
+import Test.Spec (Spec, describe, it)
+import Test.Spec.Assertions (shouldEqual)
+import Type.Proxy (Proxy(..))
+
+import RIO.Core
+  ( RIO
+  , awaitDeferred
+  , failDeferred
+  , fork
+  , join
+  , makeDeferred
+  , pollDeferred
+  , runRIO
+  , succeedDeferred
+  )
+
+spec :: Spec Unit
+spec = do
+  describe "RIO.Deferred (v0.2)" do
+    describe "succeedDeferred + awaitDeferred" do
+      it "an awaiter sees the produced value" do
+        let
+          program :: RIO () () Int
+          program = do
+            d <- makeDeferred
+            _ <- fork do
+              liftAff (delay (Milliseconds 10.0))
+              _ <- succeedDeferred d 7
+              pure unit
+            awaitDeferred d
+        result <- runRIO program
+        result `shouldEqual` (Right 7 :: Either _ Int)
+
+      it "second succeedDeferred returns False (write-once)" do
+        let
+          program :: RIO () () { first :: Boolean, second :: Boolean }
+          program = do
+            d <- makeDeferred
+            a <- succeedDeferred d 1
+            b <- succeedDeferred d 2
+            pure { first: a, second: b }
+        result <- runRIO program
+        result `shouldEqual`
+          ( Right { first: true, second: false }
+              :: Either _ { first :: Boolean, second :: Boolean }
+          )
+
+    describe "failDeferred + awaitDeferred" do
+      it "surfaces a typed failure on the awaiter's row" do
+        let
+          program :: RIO () (boom :: Unit) Int
+          program = do
+            d <- makeDeferred
+            _ <- failDeferred d (Variant.inj (Proxy :: Proxy "boom") unit)
+            awaitDeferred d
+        result <- runRIO program
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+
+    describe "pollDeferred" do
+      it "is Nothing before fill, Just after fill" do
+        let
+          program :: RIO () () { before :: Boolean, after :: Boolean }
+          program = do
+            d :: _ () Int <- makeDeferred
+            before <- pollDeferred d
+            _ <- succeedDeferred d 42
+            after <- pollDeferred d
+            pure { before: isNothing before, after: isJust after }
+        result <- runRIO program
+        result `shouldEqual`
+          ( Right { before: true, after: true }
+              :: Either _ { before :: Boolean, after :: Boolean }
+          )
+
+    describe "multiple awaiters" do
+      it "all see the same value (read is non-destructive)" do
+        let
+          program :: RIO () () (Maybe Int)
+          program = do
+            d <- makeDeferred
+            f1 <- fork (awaitDeferred d)
+            f2 <- fork (awaitDeferred d)
+            _ <- fork do
+              liftAff (delay (Milliseconds 5.0))
+              _ <- succeedDeferred d 99
+              pure unit
+            r1 <- join f1
+            r2 <- join f2
+            pure (if r1 == r2 then Just r1 else Nothing)
+        result <- runRIO program
+        result `shouldEqual` (Right (Just 99) :: Either _ (Maybe Int))

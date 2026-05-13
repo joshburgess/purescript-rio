@@ -19,8 +19,10 @@ import RIO.Core
   , addFinalizer
   , ask
   , die
+  , ensuring
   , fail
   , runRIO
+  , sandbox
   , scoped
   )
 
@@ -193,3 +195,49 @@ spec = do
         _ <- runRIO program
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "body", "f3", "f1" ]
+
+    describe "ensuring" do
+      it "runs the finalizer after a successful action" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () Int
+          program = ensuring
+            (liftAff (push "use") *> pure 42)
+            (liftAff (push "fin"))
+        result <- runRIO program
+        result `shouldEqual` (Right 42 :: Either _ Int)
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "use", "fin" ]
+
+      it "runs the finalizer after a typed failure" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () (boom :: Unit) Int
+          program = ensuring
+            (liftAff (push "use") *> fail (Proxy :: Proxy "boom") unit)
+            (liftAff (push "fin"))
+        result <- runRIO program
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "use", "fin" ]
+
+      it "runs the finalizer after a defect" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () (Either _ Int)
+          program = sandbox
+            ( ensuring
+                (liftAff (push "use") *> die (error "kaboom"))
+                (liftAff (push "fin"))
+            )
+        _ <- runRIO program
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "use", "fin" ]

@@ -7,6 +7,7 @@
           "dependencies": [
             "aff",
             "arrays",
+            "avar",
             "console",
             "control",
             "datetime",

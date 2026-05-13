@@ -91,16 +91,23 @@ Then `npx spago install`.
   `provideAll` to inject them.
 - `RIO.Error`: `fail`, `catchTag`, `catchAll`, `mapError`,
   plus `die` / `sandbox` / `unsandbox` for the defect channel.
-- `RIO.Resource`: `acquireRelease` and `Scope` with LIFO
-  finalizers; release runs on success, typed failure, defect,
-  and interruption.
+- `RIO.Resource`: `acquireRelease`, `ensuring`, and `Scope` with
+  LIFO finalizers; release runs on success, typed failure,
+  defect, and interruption.
 - `RIO.Layer`: `Layer rIn e rOut`, with sequential (`>>>`)
-  and horizontal (`<+>`) composition, `buildLayer`, and
-  `provideLayer`.
-- `RIO.Concurrency`: `fork`, `join`, `interrupt`,
-  `parTraverse`, `zipPar`, `race`, `raceAll`. Cancellation is
-  cooperative (`Aff`-style); resources held by losers in a
-  race are released.
+  and horizontal (`<+>`) composition, `buildLayer`,
+  `provideLayer`, and `passthrough` for keeping a layer's input
+  services visible downstream.
+- `RIO.Concurrency`: `fork`, `forkScoped`, `join`, `interrupt`,
+  `uninterruptible`, `timeout`, `parTraverse` (short-circuit on
+  first failure), `parTraverseN` (bounded), `parSequence`,
+  `zipPar`, `race`, `raceAll`. Cancellation is cooperative
+  (`Aff`-style); resources held by losers in a race or a
+  short-circuited traversal are released.
+- `RIO.Deferred`: one-shot write-once cell over
+  `Effect.Aff.AVar` for fiber handshakes (`makeDeferred`,
+  `succeedDeferred`, `failDeferred`, `awaitDeferred`,
+  `pollDeferred`).
 - `RIO.Clock`: the `Clock` service plus `liveClock`.
 - `RIO.Spec`: `itRIO` / `itRIO_` adapters for
   `purescript-spec`.
@@ -162,9 +169,12 @@ npx spago run -p rio-benchmarks
 v0.1.0 covers the production core: services, typed errors,
 resource safety, layers, concurrency, and a testing toolkit.
 The v0.2 backlog tracks STM (`TRef` + `atomically`), schedule
-combinators, bounded-concurrency traversal, a
-`Layer.passthrough` operator, tracing / metrics, and a perf
-regression gate. See [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
+combinators, tracing / metrics, and a perf regression gate.
+Bounded-concurrency traversal (`parTraverseN`), `timeout`,
+`uninterruptible`, `forkScoped`, `Deferred`, `ensuring`,
+`Layer.passthrough`, and short-circuiting parallel traversal
+have already landed on `main`. See
+[`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License
 
