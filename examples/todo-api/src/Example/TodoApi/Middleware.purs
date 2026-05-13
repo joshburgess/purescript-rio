@@ -1,4 +1,4 @@
--- | App-specific bindings on top of `rio-httpurple`.
+-- | App-specific bindings on top of `rio-http`.
 -- |
 -- | `withRequestContext` and the `RequestContext` type are
 -- | re-exported verbatim. `requireAuth` is a pre-application of

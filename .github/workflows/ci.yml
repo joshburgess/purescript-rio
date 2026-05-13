@@ -40,7 +40,7 @@ jobs:
           npx purs-tidy --version
 
       - name: Format check
-        run: npx purs-tidy check src test spikes examples benchmarks otel http
+        run: npx purs-tidy check src test spikes examples benchmarks rio-otel rio-http
 
       - name: Build (main package)
         run: npx spago build -p rio
@@ -99,8 +99,8 @@ jobs:
       - name: Build and run logger example
         run: npx spago run -p rio-example-logger
 
-      - name: Build rio-httpurple adapter
-        run: npx spago build -p rio-httpurple
+      - name: Build rio-http adapter
+        run: npx spago build -p rio-http
 
       - name: Build todo-api example
         run: npx spago build -p rio-example-todo-api

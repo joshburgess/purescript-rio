@@ -432,7 +432,7 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
   - Announcement post draft for the PureScript Discourse.
 - **Acceptance:** A fresh project can add `rio` as a dependency and use it.
 
-**Status:** Code-complete; **not released**. The `spago.yaml` version, CHANGELOG header, and README landing page are all in `main`, but no GitHub tag has been cut and nothing has been pushed to the PureScript registry or Pursuit. Treat the "0.1.0" string in `spago.yaml` as a placeholder, not a published version. The tag-and-publish step has been intentionally deferred while the surface continues to grow (STM, tracing, metrics, schedule, qualified-do, the `rio-httpurple` companion package, etc. all landed after this entry was originally written).
+**Status:** Code-complete; **not released**. The `spago.yaml` version, CHANGELOG header, and README landing page are all in `main`, but no GitHub tag has been cut and nothing has been pushed to the PureScript registry or Pursuit. Treat the "0.1.0" string in `spago.yaml` as a placeholder, not a published version. The tag-and-publish step has been intentionally deferred while the surface continues to grow (STM, tracing, metrics, schedule, qualified-do, the `rio-http` companion package, etc. all landed after this entry was originally written).
 
 ### Phase 8 review cycle
 
@@ -499,7 +499,7 @@ here as a sketch of how a multi-contributor cadence could look.
 ### Original "v0.3 and beyond" (partially landed)
 
 - ~~DSL exploration for direct-style syntax via PureScript's `qualified-do`.~~ **Done.** Spike in `spikes/qualified-do/`, with the two winners promoted into `main` as `RIO.Resource.Do` and `RIO.Concurrency.Par`.
-- ~~`rio-httpure` integration package.~~ **Done** (as `rio-httpurple`, since HTTPure is unmaintained). The companion package lives at `http/` and `examples/todo-api/` consumes it.
+- ~~`rio-httpure` integration package.~~ **Done** (as `rio-http`, wrapping HTTPurple since HTTPure is unmaintained). The companion package lives at `rio-http/` and `examples/todo-api/` consumes it.
 - `rio-node`, `rio-aws`, `rio-postgres` integration packages. **Still open.**
 - Property-based testing integration with `purescript-quickcheck` specifically tuned for RIO programs. **Still open** (basic QuickCheck is available; no RIO-tuned harness yet).
 

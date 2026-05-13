@@ -619,7 +619,7 @@
             "prelude",
             "refs",
             "rio",
-            "rio-httpurple",
+            "rio-http",
             "strings",
             "tuples",
             "variant"
@@ -697,7 +697,7 @@
             "record-studio",
             "refs",
             "rio",
-            "rio-httpurple",
+            "rio-http",
             "routing-duplex",
             "safe-coerce",
             "spec",
@@ -720,8 +720,8 @@
           "build_plan": []
         }
       },
-      "rio-httpurple": {
-        "path": "http",
+      "rio-http": {
+        "path": "rio-http",
         "core": {
           "dependencies": [
             "aff",
@@ -831,7 +831,7 @@
         }
       },
       "rio-otel": {
-        "path": "otel",
+        "path": "rio-otel",
         "core": {
           "dependencies": [
             "arrays",

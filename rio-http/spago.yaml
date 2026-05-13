@@ -1,5 +1,5 @@
 package:
-  name: rio-httpurple
+  name: rio-http
   dependencies:
     - aff
     - effect

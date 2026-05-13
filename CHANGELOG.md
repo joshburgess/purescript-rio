@@ -34,7 +34,7 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   `parTuple`. Verified at 3x speedup vs sequential `do` in
   `Test.RIO.Concurrency.Par`.
 
-- `rio-httpurple` workspace package: extracts the reusable HTTP
+- `rio-http` workspace package: extracts the reusable HTTP
   pieces of the todo-api example into a standalone adapter so
   apps that pair `rio` with [HTTPurple](https://pursuit.purescript.org/packages/purescript-httpurple)
   can pick them up without copying.
@@ -59,13 +59,13 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
     (`unauthorized`, `forbidden`, ...) and payload on its
     own error row. `bearerAuthConfig` builds a config whose
     `expected` field is `"Bearer " <> token`.
-- CI builds `rio-httpurple` on every PR and the
-  `purs-tidy` format check now covers the `http/` source tree.
+- CI builds `rio-http` on every PR and the
+  `purs-tidy` format check now covers the `rio-http/` source tree.
 
 ### Changed
 
 - `examples/todo-api/Middleware.purs` is now a thin app-shim
-  over `rio-httpurple`. It re-exports `RequestContext` /
+  over `rio-http`. It re-exports `RequestContext` /
   `AuthConfig` / `withRequestContext` verbatim and pre-applies
   `requireAuth` against the example's `unauthorized` typed
   failure so call sites stay unchanged.
@@ -317,7 +317,7 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   service plus a `snapshot` action returning every emission
   with its kind (`Counter` / `Gauge` / `Histogram`), name, and
   value.
-- `rio-otel` package (`otel/`): OpenTelemetry adapter for
+- `rio-otel` package (`rio-otel/`): OpenTelemetry adapter for
   `RIO.Tracer`. `RIO.Tracer.OTel.makeOTelTracer name` returns a
   `Tracer` record that forwards every span lifecycle, attribute
   write, and parent / child relationship to an

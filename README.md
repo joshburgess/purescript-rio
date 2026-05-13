@@ -218,7 +218,7 @@ testing), plus the larger surface listed above — `RIO.Schedule`,
 `RIO.Metrics` with an OpenTelemetry adapter (`rio-otel`),
 `RIO.Local`, `RIO.Logger`, the qualified-do sugar
 (`RIO.Resource.Do`, `RIO.Concurrency.Par`), and the
-`rio-httpurple` companion package.
+`rio-http` companion package (an HTTPurple adapter).
 
 What's open: streaming, `rio-postgres` / `rio-node` / `rio-aws`
 integration packages, custom `Fail` instances for the worst row /
