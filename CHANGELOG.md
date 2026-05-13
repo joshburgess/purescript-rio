@@ -236,6 +236,18 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   `argonaut-codecs`, `argonaut-core`, `httpurple`, and
   `integers` join the example package's dependency manifest;
   none are added to the main `rio` package's dependencies.
+- `docs/migrating-from-zio.md` and
+  `docs/migrating-from-effect-ts.md`: Phase 8.2 migration
+  guides. Each maps idioms 1:1 with code snippets in both
+  languages, covering the core type, lifting values,
+  composition, services, providing services, typed errors,
+  resource safety, concurrency, layers, and testing. Each
+  guide closes with a "what RIO does not have yet" backlog
+  (STM, `Schedule`, bounded-concurrency `forEach`, tracing /
+  metrics, supervisor model, plus `@effect/schema` for the
+  Effect-TS guide) and a short "what RIO has that the source
+  language does not" section calling out structural error
+  rows and `Layer`'s exact-shrink typing.
 - `spikes/phase-6-review/`: Phase 6 review cycle. Four randomised
   stress scenarios driven by `Effect.Random` parameters:
   `parTraverse` over up to eight actions with up to 60 percent

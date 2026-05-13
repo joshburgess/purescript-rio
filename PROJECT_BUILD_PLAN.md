@@ -383,6 +383,8 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
   - Each maps idioms 1:1 with code snippets in both languages.
 - **Acceptance:** A ZIO user and an Effect-TS user each review their respective doc and confirm the mappings are accurate.
 
+**Status:** Complete. See `docs/migrating-from-zio.md` and `docs/migrating-from-effect-ts.md`. Each guide opens with a core-type comparison table, walks through lifting / composing / services / providing / typed errors / resource safety / concurrency / layers / testing with paired code snippets, and closes with two backlog sections ("what RIO does not have yet" and "what RIO has that the source language does not"). DX-1 (no implicit `passthrough` operator on `Layer`) is called out explicitly under the Layers section in both guides. External review (ZIO user, Effect-TS user) is the v0.1 release gate item.
+
 ### 8.3 API reference
 
 - **Deliverables:** `purs docs` output published to Pursuit.
