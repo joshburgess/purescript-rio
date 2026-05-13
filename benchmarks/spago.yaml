@@ -1,0 +1,21 @@
+package:
+  name: rio-benchmarks
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - datetime
+    - effect
+    - either
+    - foldable-traversable
+    - integers
+    - lists
+    - minibench
+    - prelude
+    - record
+    - refs
+    - rio
+    - tuples
+    - variant
+  run:
+    main: Benchmarks.Main

@@ -397,6 +397,8 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
 - **Deliverables:** A benchmark suite using `purescript-minibench` plus a small custom harness covering: monadic bind in a tight loop, service lookup overhead, parallel vs sequential traversal. Baselines committed.
 - **Acceptance:** Numbers documented in `docs/performance.md` with notes on the dominant costs.
 
+**Status:** Complete. See `benchmarks/` (workspace package `rio-benchmarks`) and `docs/performance.md`. The suite covers four scenarios (bind chain at 100 / 10 000 depths, `ask` + `Record.get` loop, sequential vs parallel traversal over 32 pure elements, and `fail` + `catchTag` round-trip) plus three baselines (`runRIO' pure unit`, raw `Aff pure unit`, service-free pure loop). The harness samples `process.hrtime()` before and after each invocation for nanosecond resolution (`Effect.Now` was too coarse). Headline numbers on Apple M1 Pro / node 20: per-bind cost ~90 ns amortised, service lookup is essentially free, `parTraverse` over pure work costs ~3x sequential traverse (break-even ~10 μs of latency per element), typed failure round-trip ~930 ns. CI builds the suite on every PR (it does not run it; benchmark numbers in CI are too noisy to gate on). Setting up the regression gate is a v0.2 backlog item, captured in `docs/performance.md`.
+
 ### 8.5 v0.1.0 release
 
 - **Deliverables:**

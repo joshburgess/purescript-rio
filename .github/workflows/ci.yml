@@ -40,7 +40,7 @@ jobs:
           npx purs-tidy --version
 
       - name: Format check
-        run: npx purs-tidy check src test spikes examples
+        run: npx purs-tidy check src test spikes examples benchmarks
 
       - name: Build (main package)
         run: npx spago build -p rio
@@ -89,6 +89,9 @@ jobs:
 
       - name: Build todo-api example
         run: npx spago build -p rio-example-todo-api
+
+      - name: Build benchmark suite
+        run: npx spago build -p rio-benchmarks
 
       - name: Compile-fail tests
         run: bash compile-fail/run.sh

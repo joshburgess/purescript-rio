@@ -262,6 +262,23 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   `now`, `sleep`, `liveClock`, `itRIO`, `newTestClock`.
   Publication of the generated docs to Pursuit is gated on
   Phase 8.5 (v0.1.0 release).
+- `benchmarks/` (workspace package `rio-benchmarks`) plus
+  `docs/performance.md`: Phase 8.4 benchmark suite. Four
+  scenarios (bind chain at 100 and 10 000 depths, `ask` +
+  `Record.get` loop, sequential vs parallel traversal over a
+  32-element array of pure work, typed-failure round-trip via
+  `fail` + `catchTag`) plus three baselines (`runRIO' pure
+  unit`, raw `Aff pure unit`, service-free pure loop). The
+  harness is a small `Aff`-aware analogue of `minibench` that
+  samples `process.hrtime()` for nanosecond resolution. The
+  perf doc records headline numbers on Apple M1 Pro / node 20
+  (per-bind cost ~90 ns amortised, service lookup is
+  effectively free, `parTraverse` over pure work is ~3x
+  sequential, typed-failure round-trip ~930 ns) and the
+  reasoning behind the dominant costs. CI builds the suite
+  on every PR; it does not run it, since benchmark numbers in
+  CI are too noisy to gate on. Setting up a regression gate
+  is a v0.2 backlog item.
 - `spikes/phase-6-review/`: Phase 6 review cycle. Four randomised
   stress scenarios driven by `Effect.Random` parameters:
   `parTraverse` over up to eight actions with up to 60 percent
