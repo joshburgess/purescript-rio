@@ -5,11 +5,13 @@ package:
     license: MIT
   dependencies:
     - aff
+    - arrays
     - console
     - effect
     - either
     - exceptions
     - maybe
+    - parallel
     - prelude
     - record
     - refs
@@ -20,10 +22,16 @@ package:
     main: Test.Main
     dependencies:
       - aff
+      - arrays
+      - datetime
       - either
+      - integers
+      - newtype
+      - now
       - prelude
       - spec
       - spec-node
+      - tuples
       - variant
 workspace:
   packageSet:

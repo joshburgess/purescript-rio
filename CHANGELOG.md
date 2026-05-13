@@ -149,3 +149,13 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   propagate as `Aff` exceptions and are observable via
   `RIO.Error.sandbox`. The cancellation guarantees come from the
   Phase 0.5 spike scenarios S1 / S3 / S4.
+- `parTraverse`, `parSequence`, and `zipPar` in `RIO.Concurrency`
+  (Phase 6.2). Layered on `Effect.Aff`'s `ParAff` applicative via
+  `Control.Parallel.parTraverse` and `Effect.Aff.parallel /
+  sequential`. Failure semantics: all branches run to completion
+  and the first `Left` (in array order, or favouring the left side
+  for `zipPar`) is surfaced; first-failure racing semantics are
+  reserved for `race` in Phase 6.3. Timing tests confirm two 100ms
+  actions complete in ~100ms rather than ~200ms. `parallel`,
+  `arrays`, `datetime`, `integers`, `newtype`, and `now` added to
+  the package's dependency manifest.

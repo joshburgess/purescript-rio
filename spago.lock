@@ -6,11 +6,13 @@
         "core": {
           "dependencies": [
             "aff",
+            "arrays",
             "console",
             "effect",
             "either",
             "exceptions",
             "maybe",
+            "parallel",
             "prelude",
             "record",
             "refs",
@@ -68,10 +70,16 @@
         "test": {
           "dependencies": [
             "aff",
+            "arrays",
+            "datetime",
             "either",
+            "integers",
+            "newtype",
+            "now",
             "prelude",
             "spec",
             "spec-node",
+            "tuples",
             "variant"
           ],
           "build_plan": [

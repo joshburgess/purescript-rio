@@ -19,13 +19,19 @@ module RIO.Concurrency
   , fork
   , interrupt
   , join
+  , parSequence
+  , parTraverse
+  , zipPar
   ) where
 
 import Prelude
 
+import Control.Parallel (parTraverse) as Parallel
 import Data.Either (Either(..))
+import Data.Traversable (sequence)
+import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
-import Effect.Aff (Fiber, error, forkAff, joinFiber, killFiber) as Aff
+import Effect.Aff (Fiber, error, forkAff, joinFiber, killFiber, parallel, sequential) as Aff
 
 import RIO.Internal (RIO(..), unRIO)
 
@@ -87,3 +93,53 @@ interrupt :: forall r e e' a. Fiber e a -> RIO r e' Unit
 interrupt (Fiber fib) = RIO \_ -> do
   Aff.killFiber (Aff.error "RIO.interrupt") fib
   pure (Right unit)
+
+-- | Run every action in an array in parallel and collect the
+-- | results. Built on `Effect.Aff`'s `ParAff` applicative, so two
+-- | 100ms actions complete in ~100ms rather than ~200ms.
+-- |
+-- | Failure semantics: all actions run to completion before this
+-- | returns. If any returned `Left v`, the first such failure (in
+-- | array order) is surfaced as `Left v` on the parent's row. The
+-- | other actions are not interrupted on failure; first-failure
+-- | racing semantics live in `RIO.Concurrency.race` (Phase 6.3).
+parTraverse
+  :: forall r e a b
+   . (a -> RIO r e b)
+  -> Array a
+  -> RIO r e (Array b)
+parTraverse f as = RIO \r -> do
+  rows <- Parallel.parTraverse (\a -> unRIO (f a) r) as
+  pure (sequence rows)
+
+-- | The identity case of `parTraverse`: run an array of actions
+-- | concurrently and collect their results.
+parSequence
+  :: forall r e a
+   . Array (RIO r e a)
+  -> RIO r e (Array a)
+parSequence = parTraverse identity
+
+-- | Run two actions concurrently and pair their results.
+-- |
+-- | Same failure semantics as `parTraverse`: both actions run to
+-- | completion, and the first `Left` (favouring the left action on
+-- | ties) is surfaced on the parent's row. For first-failure racing
+-- | semantics use `race` (Phase 6.3).
+zipPar
+  :: forall r e a b
+   . RIO r e a
+  -> RIO r e b
+  -> RIO r e (Tuple a b)
+zipPar ra rb = RIO \r ->
+  let
+    pairAff =
+      Aff.sequential
+        (Tuple <$> Aff.parallel (unRIO ra r) <*> Aff.parallel (unRIO rb r))
+  in
+    do
+      Tuple ea eb <- pairAff
+      pure case ea, eb of
+        Left v, _ -> Left v
+        _, Left v -> Left v
+        Right a, Right b -> Right (Tuple a b)
