@@ -159,6 +159,22 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   actions complete in ~100ms rather than ~200ms. `parallel`,
   `arrays`, `datetime`, `integers`, `newtype`, and `now` added to
   the package's dependency manifest.
+- `spikes/phase-6-review/`: Phase 6 review cycle. Four randomised
+  stress scenarios driven by `Effect.Random` parameters:
+  `parTraverse` over up to eight actions with up to 60 percent
+  typed-failure rate, `zipPar` with independent failures on each
+  side, `raceAll` over up to six branches, and `fork` plus
+  `interrupt` against a chain of up to fifty nested `scoped`
+  blocks killed mid-sleep. Each iteration asserts the resource
+  counter returns to zero. 250 iterations per scenario per
+  invocation (1000 total). Across four consecutive local runs
+  (4000 total iterations) the harness reports zero leaks across
+  every combinator. CI builds and runs the spike on every PR.
+  `FINDINGS.md` records three observations: `raceAll` is
+  unbiased over its branches in practice, the fork plus
+  interrupt path is stable through depth-50 nested scopes, and
+  no flaky iterations were observed at the harness's
+  millisecond granularity.
 - `docs/06-concurrency.md`: walkthrough of the interruption model
   (citing `spikes/aff-interruption/FINDINGS.md` scenarios S1, S2,
   S2b, S3, S4, S5), uninterruptible regions, the cooperative

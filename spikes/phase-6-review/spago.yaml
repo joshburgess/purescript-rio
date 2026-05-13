@@ -1,0 +1,22 @@
+package:
+  name: spike-phase-6-review
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - effect
+    - either
+    - exceptions
+    - foldable-traversable
+    - integers
+    - maybe
+    - prelude
+    - random
+    - refs
+    - rio
+    - strings
+    - transformers
+    - tuples
+    - variant
+  run:
+    main: Spike.Phase6Review.Main
