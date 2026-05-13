@@ -200,11 +200,12 @@ traversal (`parTraverseN`), `timeout`, `uninterruptible`,
 short-circuiting parallel traversal, `RIO.Schedule` (retry /
 repeat policies), `RIO.STM` (`TRef` + `atomically`, plus derived
 `TQueue` / `TMap` / `TSemaphore`), the benchmark regression
-gate (`Benchmarks.Gate`), and tracing / metrics (`RIO.Tracer`,
+gate (`Benchmarks.Gate`, profile-driven, running on CI in
+informational mode), and tracing / metrics (`RIO.Tracer`,
 `RIO.Metrics` with recording test backends). Remaining v0.2
-follow-ups: capture a CI-environment baseline so the perf gate
-can be promoted from informational to a required check, and a
-production tracing backend (OTel adapter). See
+follow-ups: capture the `ci-ubuntu-latest` baseline from the
+first informational gate run and promote the CI step to
+required, and a production tracing backend (OTel adapter). See
 [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License

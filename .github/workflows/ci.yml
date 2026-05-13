@@ -93,5 +93,12 @@ jobs:
       - name: Build benchmark suite (including regression gate)
         run: npx spago build -p rio-benchmarks
 
+      - name: Perf regression gate (informational)
+        if: matrix.node == '20'
+        continue-on-error: true
+        env:
+          RIO_GATE_PROFILE: ci-ubuntu-latest
+        run: npx spago run -p rio-benchmarks --main Benchmarks.Gate
+
       - name: Compile-fail tests
         run: bash compile-fail/run.sh

@@ -49,14 +49,22 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   See `docs/08-scheduling.md`.
 - `Benchmarks.Gate`: developer-runnable performance regression
   gate. Runs the same scenarios as `Benchmarks.Main`, compares
-  each one's mean wall-clock per iteration against a hard-coded
-  baseline (taken from `docs/performance.md`), prints a one-row
-  table per scenario, and exits non-zero if any scenario's mean
-  is more than 3x its baseline. Threshold is deliberately
-  generous to tolerate machine-to-machine variance. Run with
-  `npx spago run -p rio-benchmarks --main Benchmarks.Gate`. CI
-  builds the module but does not run it pending a CI-environment
-  baseline (see `docs/performance.md`).
+  each one's mean wall-clock per iteration against a baseline
+  picked by profile (`RIO_GATE_PROFILE` env var, default
+  `local-m1-pro`; `ci-ubuntu-latest` is the in-repo CI profile),
+  prints a one-row table per scenario plus a single-line
+  `BASELINE_JSON` blob of observed means for capture, and exits
+  non-zero if any scenario's mean is more than 3x its baseline.
+  Threshold is deliberately generous to tolerate
+  machine-to-machine variance. Scenarios with no baseline in the
+  active profile are reported as `n/a` and do not contribute to
+  the regression count. The CI workflow now runs the gate on the
+  `node 20` matrix leg in informational mode
+  (`continue-on-error: true`) so the `BASELINE_JSON` line can be
+  mined to populate the `ci-ubuntu-latest` profile; the gate
+  becomes required by flipping that one flag once the baseline
+  has been captured. See `docs/performance.md` for the full
+  capture procedure.
 - `random` to the main `rio` package's dependency manifest
   (used by `RIO.Schedule.jittered`; was previously available
   transitively through the test stack only).

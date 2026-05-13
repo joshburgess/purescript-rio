@@ -143,12 +143,20 @@ if any scenario regressed.
 
 - **Metric:** mean wall-clock per iteration, 500 samples per
   scenario.
-- **Baselines:** hard-coded in `benchmarks/src/Benchmarks/Gate.purs`,
-  copied verbatim from the headline table above (Apple M1 Pro /
-  node 20.15.1).
+- **Baselines:** keyed per scenario inside
+  `benchmarks/src/Benchmarks/Gate.purs`, selected by profile.
+  The active profile comes from the `RIO_GATE_PROFILE`
+  environment variable; an unset value defaults to
+  `local-m1-pro`. Two profiles ship today:
+  - `local-m1-pro` (Apple M1 Pro / node 20.15.1), copied
+    verbatim from the headline table above.
+  - `ci-ubuntu-latest` (GitHub Actions `ubuntu-latest` /
+    node 20), captured from CI output.
 - **Tolerance:** a single constant `tolerance = 3.0` applied to
-  every scenario. A scenario fails when its measured mean is
-  more than 3x the baseline mean.
+  every scenario with a baseline. A scenario fails when its
+  measured mean is more than 3x the baseline mean. Scenarios
+  with no baseline in the active profile show up as `n/a` in
+  the report and do not contribute to the regression count.
 
 The tolerance is deliberately generous. Run-to-run variance on
 the higher-noise scenarios (parTraverse over pure work, the
@@ -158,30 +166,56 @@ catches catastrophic regressions (an accidental O(n^2), a
 re-wrapping bug doubling per-bind overhead) without flapping on
 the kind of noise CI runners introduce.
 
-### Updating the baseline
+### Updating the local-m1-pro baseline
 
 When you intentionally change a hot path:
 
 1. Run `npx spago run -p rio-benchmarks` and capture the headline
    numbers from the new version.
 2. Update the corresponding rows in the table at the top of this
-   file and the `baselineMeanNs` constants in
+   file and the values returned from `localM1ProBaseline` in
    `benchmarks/src/Benchmarks/Gate.purs`.
 3. Note the rationale for the change in the PR description so a
    future reader can see why the baseline shifted.
 
-The two locations are kept in sync by hand; we may move them to
-a single JSON file in a later phase.
+### Updating the ci-ubuntu-latest baseline
 
-### Why the gate is not (yet) wired into CI
+The CI baseline is captured from the gate's own output, not
+hand-edited from observations. Every gate run prints a single
+`BASELINE_JSON` line whose `means` object maps scenario keys
+to observed nanoseconds, e.g.:
 
-CI runners have different CPUs, memory pressure, and JIT
-warm-up behaviour than the reference hardware, so the same code
-that passes the gate locally can fail on a slow runner and pass
-on a fast one. Until we capture a CI-environment baseline (a
-follow-up task), the gate is informational: CI builds it
-(verifying the module compiles and its baseline references stay
-in sync with the surface) but does not run it.
+```
+BASELINE_JSON {"profile":"ci-ubuntu-latest","means":{"bindChain.100":21300.0,...}}
+```
+
+To refresh the CI baseline:
+
+1. Push a PR (or trigger the workflow manually) and let the
+   "Perf regression gate (informational)" step run on the
+   `node 20` matrix leg.
+2. Find the `BASELINE_JSON` line in that step's log. Each
+   `<key>:<mean>` pair maps directly to one of the
+   `ciUbuntuLatestBaseline` cases in
+   `benchmarks/src/Benchmarks/Gate.purs`.
+3. Update the function so each scenario key returns `Just <mean>`
+   for the observed value. Keep cases you don't yet have data
+   for as `Nothing`; the gate will report them as `n/a` until
+   you fill them in.
+4. Re-run CI on the same branch to verify the gate now compares
+   against real numbers and reports `OK`.
+
+### Promoting the gate from informational to required
+
+The CI step is currently `continue-on-error: true` so the gate
+runs on every build but a regression does not fail CI. Once the
+`ci-ubuntu-latest` baseline has been captured and at least one
+green run has confirmed the numbers are stable, remove
+`continue-on-error` from the step in `.github/workflows/ci.yml`.
+
+This is the only flip required. The gate already exits with a
+non-zero status on regression and a zero status on success, so
+GitHub Actions picks up the right semantics automatically.
 
 ## What is *not* in this phase
 
