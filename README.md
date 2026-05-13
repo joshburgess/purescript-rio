@@ -109,6 +109,10 @@ Then `npx spago install`.
   `succeedDeferred`, `failDeferred`, `awaitDeferred`,
   `pollDeferred`).
 - `RIO.Clock`: the `Clock` service plus `liveClock`.
+- `RIO.Schedule`: pure scheduling policies (`recurs`, `spaced`,
+  `exponential`, `jittered`, `intersect`, `andThen`, `whileInput`)
+  with runners `repeat`, `retry`, `retryOrElse` that sleep through
+  `Clock` so the virtual-time test clock can drive them.
 - `RIO.Spec`: `itRIO` / `itRIO_` adapters for
   `purescript-spec`.
 - `RIO.Test`: `mockService`, `recording` for service-call
@@ -130,6 +134,9 @@ Walkthrough docs:
   race, parallel traversal, cancellation caveats.
 - [`docs/07-testing.md`](./docs/07-testing.md): the spec
   adapters and the virtual-time clock.
+- [`docs/08-scheduling.md`](./docs/08-scheduling.md): retry and
+  repeat policies, combinators, and how to drive them
+  deterministically in tests.
 - [`docs/performance.md`](./docs/performance.md): benchmark
   baselines and dominant costs.
 
@@ -168,12 +175,12 @@ npx spago run -p rio-benchmarks
 
 v0.1.0 covers the production core: services, typed errors,
 resource safety, layers, concurrency, and a testing toolkit.
-The v0.2 backlog tracks STM (`TRef` + `atomically`), schedule
-combinators, tracing / metrics, and a perf regression gate.
-Bounded-concurrency traversal (`parTraverseN`), `timeout`,
-`uninterruptible`, `forkScoped`, `Deferred`, `ensuring`,
-`Layer.passthrough`, and short-circuiting parallel traversal
-have already landed on `main`. See
+The v0.2 backlog tracks STM (`TRef` + `atomically`), tracing /
+metrics, and a perf regression gate. Bounded-concurrency
+traversal (`parTraverseN`), `timeout`, `uninterruptible`,
+`forkScoped`, `Deferred`, `ensuring`, `Layer.passthrough`,
+short-circuiting parallel traversal, and `RIO.Schedule`
+(retry / repeat policies) have already landed on `main`. See
 [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License

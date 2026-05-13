@@ -15,6 +15,7 @@ import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.ResourceSpec as ResourceSpec
+import Test.RIO.ScheduleSpec as ScheduleSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
 
@@ -29,5 +30,6 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ConcurrencySpec.spec
   DeferredSpec.spec
   ClockSpec.spec
+  ScheduleSpec.spec
   TestHelpersSpec.spec
   SpecHelpersSpec.spec

@@ -37,6 +37,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   rOut -> Layer rIn e rPassed`. Extend a layer's output row with
   the labels it required as input, so downstream consumers see
   both. Closes DX-1.
+- `RIO.Schedule` module: pure scheduling policies for retry and
+  repeat. `Schedule r i o` with `recurs`, `spaced`, `exponential`,
+  `forever`, `once`; combinators `andThen`, `intersect`,
+  `whileInput`, `jittered`, `mapSchedule`; runners `repeat`,
+  `retry`, `retryOrElse` that sleep via the `Clock` service so a
+  virtual-time test clock can drive scheduled programs
+  deterministically. `step` exposes one decision for tests that
+  sample a schedule's delay distribution. The error row is fixed
+  to `()`; schedules cannot themselves fail with a typed error.
+  See `docs/08-scheduling.md`.
 
 ### Changed
 
