@@ -169,6 +169,41 @@ chunks `k+1..` before they start.
 bodies = parTraverseN 8 fetch urls
 ```
 
+### Concurrent fan-out with `Par.ado`
+
+`RIO.Concurrency.Par` exposes `apply` / `map` / `pure` so a
+qualified `ado` block runs each `<-` line concurrently:
+
+```purescript
+import RIO.Concurrency.Par as Par
+
+fetchAll :: forall r e. UserId -> RIO r e Bundle
+fetchAll uid = Par.ado
+  user  <- fetchUser uid
+  prefs <- fetchPrefs uid
+  posts <- fetchPosts uid
+  in { user, prefs, posts }
+```
+
+Each fetch runs as its own `ParAff` branch; the block returns
+once every branch completes. Wall-clock cost is roughly the
+slowest branch, not the sum.
+
+**Use `ado`, not `do`.** Qualified `do` would still sequence
+because monadic `bind` for parallel composition cannot exist
+without the second action waiting for the first's value. Every
+`<-` in a `Par.ado` block must be independent of the bindings
+above it.
+
+**Failure bias differs from `zipPar` / `parTraverse`.** `Par.ado`
+runs every branch to completion and returns the leftmost typed
+failure. This makes it the right fit for fan-outs where each
+branch should always be given a chance (independent reads, side
+effects you want to attempt regardless of siblings). For
+short-circuiting fan-out, stick with `zipPar` (two branches) or
+`parTraverse` (a homogeneous array), which cancel the loser the
+moment one branch fails.
+
 ### Deadlines: `timeout`
 
 `timeout ms action` is `race action (delay ms *> pure Nothing)`
@@ -246,7 +281,7 @@ Use `pollDeferred` for the non-blocking probe.
 
 ## What `RIO` does not give you
 
-For honesty, here is what `RIO` does *not* do, even at v0.2:
+For honesty, here is what `RIO` does *not* do:
 
 - **Implicit structured concurrency.** Plain `fork` returns a
   fiber whose lifetime is unbounded; if you want
@@ -256,16 +291,12 @@ For honesty, here is what `RIO` does *not* do, even at v0.2:
   carrying a message. ZIO has a richer notion (interrupted-by-whom,
   interrupted-due-to-failure-elsewhere, etc.) that `RIO` does not
   reproduce.
-- **Fiber-local state.** No equivalent of ZIO's `FiberRef`. Use a
-  regular service or a `Ref` if you need per-fiber state.
-- **STM.** No `TRef` or `atomically`. `RIO.Deferred` covers
-  one-shot handshakes; for multi-key transactional state, model it
-  as a service backed by `Ref` plus a lock, or wait for a future
-  phase.
 
-These are deliberate omissions. The row-typed machinery the rest
-of `RIO` is built on makes each of them a reasonable later
-addition.
+`RIO.Local` (`docs/11-fiber-local.md`) covers ambient
+implicit-context state with `locally`-scoped overrides;
+`RIO.STM` (`docs/09-stm.md`) covers transactional refs,
+queues, maps, semaphores, and pub/sub hubs. Both are part of
+the current surface.
 
 ## Pointers
 

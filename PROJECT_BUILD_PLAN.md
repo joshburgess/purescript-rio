@@ -1,5 +1,30 @@
 # RIO: A ZIO/Effect-Style Library for PureScript, Build Plan
 
+## Status (May 2026)
+
+This document is the original phase-by-phase build plan. It is kept for
+historical context. **Nothing has been published yet.** References to
+`v0.1.0`, `v0.2`, `v0.3` below are phase labels from the original plan,
+not actual releases on the PureScript registry or Pursuit. The library
+is being developed in `main` with no released tags.
+
+What this means for items below:
+
+- "Status: Complete" entries describe code that exists in `main`, not a
+  released artifact. The Phase 8.5 "Repository ready for release" note
+  is accurate at the code level only; the tag/publish step has not been
+  taken.
+- The `v0.2 candidate backlog` and `v0.3 and beyond` sections were
+  written before the surface grew. Several items listed there have
+  already landed in `main` and are marked inline.
+- The `Iteration Cycles` section sketches a two-week sprint cadence
+  that was never adopted in practice. It is left here as a future
+  template if the project ever grows beyond a single maintainer.
+
+For the canonical map of what exists today, look at `docs/` and the
+module list in `src/`. This plan is a snapshot of intent, not a status
+dashboard.
+
 ## Project Overview
 
 **RIO** (Reader + IO + Either) is a PureScript library that brings the ergonomics of ZIO (Scala) and Effect (TypeScript) to PureScript. The core type tracks three orthogonal concerns in one monad: a **R**eader-style environment of required services, an extensible error channel, and **I**O via `Aff`.
@@ -20,12 +45,12 @@ Both `r` (services) and `e` (errors) are row types, so requirements and possible
 - Test utilities (mock services, deterministic clock, in-memory implementations) usable from Phase 2 onward
 - Documentation, examples, and migration guides for users coming from ZIO/Effect
 
-### Non-Goals (v1)
+### Non-Goals (original v1 framing)
 
-- Generator-style direct syntax (not feasible without compiler support; do-notation is the supported style, with `qualified-do` explored in v0.3)
-- A full STM implementation (deferred to v2)
-- Streaming (deferred; a separate `rio-streams` package later)
-- Metrics and tracing integration (deferred)
+- Generator-style direct syntax (not feasible without compiler support; do-notation is the supported style). Qualified-do has since been explored and `RIO.Resource.Do` / `RIO.Concurrency.Par` shipped to `main`.
+- A full STM implementation. **Now shipped:** `RIO.STM` covers `TVar`, `atomically`, `TQueue`, `TMap`, `TSemaphore`, `THub`.
+- Streaming (still deferred; would live in a separate `rio-streams` package).
+- Metrics and tracing integration. **Now shipped:** `RIO.Tracer` and `RIO.Metrics` live in `main`.
 
 ### Tech Stack
 
@@ -407,7 +432,7 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
   - Announcement post draft for the PureScript Discourse.
 - **Acceptance:** A fresh project can add `rio` as a dependency and use it.
 
-**Status:** Repository ready for release. Version bumped to `0.1.0` in `spago.yaml`, CHANGELOG cut at `[0.1.0] - 2026-05-12` with a one-paragraph release summary above the existing detailed entries, README rewritten as a quality-bar landing page (30-second tour, install line, module-by-module surface for v0.1.0, links to walkthrough docs and the worked example, build / run instructions). Announcement-post draft dropped from the deliverables at the user's direction; README quality serves the same first-impression purpose. The tag-and-publish steps (GitHub release tag, registry publish, Pursuit upload) are gated on the user; they were not done autonomously.
+**Status:** Code-complete; **not released**. The `spago.yaml` version, CHANGELOG header, and README landing page are all in `main`, but no GitHub tag has been cut and nothing has been pushed to the PureScript registry or Pursuit. Treat the "0.1.0" string in `spago.yaml` as a placeholder, not a published version. The tag-and-publish step has been intentionally deferred while the surface continues to grow (STM, tracing, metrics, schedule, qualified-do, the `rio-httpurple` companion package, etc. all landed after this entry was originally written).
 
 ### Phase 8 review cycle
 
@@ -450,30 +475,39 @@ While in the `0.x` series, breaking changes may land in any minor release (`0.1 
 
 ---
 
-## Iteration Cycles (Post-v0.1)
+## Iteration Cycles (aspirational, never adopted)
 
-After v0.1, switch from phase-based to iteration-based development. Each iteration is 2 weeks (adjust for agent throughput).
+The two-week sprint cadence below was never actually run; the project
+has been solo-maintained on an as-and-when basis. The template is left
+here as a sketch of how a multi-contributor cadence could look.
 
 ### Iteration template
 
-- **Week 1:** Pick 3 to 5 work items from the backlog. Agents work in parallel, one item each. Daily merge of completed items.
-- **Week 2:** Integration testing across merged items. Documentation updates. One agent runs a "user journey" exercise: pretend to be a new user, attempt a non-trivial task, file issues.
-- **End of iteration:** Tag a minor release (`0.1.1`, `0.1.2`, ...). Update CHANGELOG. Update roadmap.
+- **Week 1:** Pick 3 to 5 work items from the backlog. Contributors work in parallel, one item each. Daily merge of completed items.
+- **Week 2:** Integration testing across merged items. Documentation updates. One contributor runs a "user journey" exercise: pretend to be a new user, attempt a non-trivial task, file issues.
+- **End of iteration:** Tag a minor release. Update CHANGELOG. Update roadmap.
 
-### v0.2 candidate backlog
+### Original "v0.2 candidate backlog" (now mostly landed)
 
-- STM-style transactional refs (`TRef`, `atomically`).
-- Streaming (`RStream r e a`) as a sibling package.
-- Tracing hooks for observability tools.
-- Metrics (counters, gauges, histograms) as a built-in service.
-- Schedule combinators (`Schedule` from ZIO).
-- Improved compiler error messages via custom `Fail` instances.
+- ~~STM-style transactional refs (`TRef`, `atomically`).~~ **Done.** Shipped as `RIO.STM` with `TVar`, `TQueue`, `TMap`, `TSemaphore`, `THub`.
+- Streaming (`RStream r e a`) as a sibling package. **Still open.**
+- ~~Tracing hooks for observability tools.~~ **Done.** `RIO.Tracer` in `main`.
+- ~~Metrics (counters, gauges, histograms) as a built-in service.~~ **Done.** `RIO.Metrics` in `main`.
+- ~~Schedule combinators (`Schedule` from ZIO).~~ **Done.** `RIO.Schedule` in `main`.
+- Improved compiler error messages via custom `Fail` instances. **Still open.**
 
-### v0.3 and beyond
+### Original "v0.3 and beyond" (partially landed)
 
-- DSL exploration for direct-style syntax via PureScript's `qualified-do`.
-- Integration packages: `rio-httpure`, `rio-node`, `rio-aws`, `rio-postgres`.
-- Property-based testing integration with `purescript-quickcheck` specifically tuned for RIO programs.
+- ~~DSL exploration for direct-style syntax via PureScript's `qualified-do`.~~ **Done.** Spike in `spikes/qualified-do/`, with the two winners promoted into `main` as `RIO.Resource.Do` and `RIO.Concurrency.Par`.
+- ~~`rio-httpure` integration package.~~ **Done** (as `rio-httpurple`, since HTTPure is unmaintained). The companion package lives at `http/` and `examples/todo-api/` consumes it.
+- `rio-node`, `rio-aws`, `rio-postgres` integration packages. **Still open.**
+- Property-based testing integration with `purescript-quickcheck` specifically tuned for RIO programs. **Still open** (basic QuickCheck is available; no RIO-tuned harness yet).
+
+### Other items not in the original backlog that have shipped
+
+- `RIO.Local` (fiber-local implicit context with `locally`-scoped overrides).
+- OpenTelemetry / OTLP demo example (`examples/otel-demo/`).
+- Test helpers (`RIO.TestHelpers`, `RIO.SpecHelpers`) for richer assertions and spec wiring.
 
 ---
 
