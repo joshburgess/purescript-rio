@@ -62,6 +62,14 @@ newtype Fiber e a = Fiber (Aff.Fiber (Either (Variant e) a))
 -- | The error row on the parent side is left free (rather than
 -- | pinned to `()`) so `fork` composes cleanly inside a do-block
 -- | whose surrounding row is non-empty.
+-- |
+-- | ```purescript
+-- | program = do
+-- |   fib <- fork (longRunning 42)
+-- |   doSomeOtherWork
+-- |   result <- join fib
+-- |   pure result
+-- | ```
 fork :: forall r e e' a. RIO r e a -> RIO r e' (Fiber e a)
 fork inner = RIO \r -> do
   fib <- Aff.forkAff (unRIO inner r)
@@ -76,6 +84,16 @@ fork inner = RIO \r -> do
 -- | `RIO.Error.sandbox`. Joining a fiber that has already completed
 -- | returns its cached result; joining a fiber more than once is
 -- | safe.
+-- |
+-- | ```purescript
+-- | -- start two workers in parallel and join them later
+-- | program = do
+-- |   a <- fork worker1
+-- |   b <- fork worker2
+-- |   ra <- join a
+-- |   rb <- join b
+-- |   pure (ra + rb)
+-- | ```
 join :: forall r e a. Fiber e a -> RIO r e a
 join (Fiber fib) = RIO \_ -> Aff.joinFiber fib
 
@@ -95,6 +113,14 @@ join (Fiber fib) = RIO \_ -> Aff.joinFiber fib
 -- | already-completed or already-killed fiber is a no-op. The
 -- | error row on the caller side is left free (rather than pinned
 -- | to `()`) for the same reason as `fork`.
+-- |
+-- | ```purescript
+-- | -- supervise a worker; abort it after a timeout
+-- | program = do
+-- |   fib <- fork worker
+-- |   liftAff (delay (Milliseconds 1000.0))
+-- |   interrupt fib
+-- | ```
 interrupt :: forall r e e' a. Fiber e a -> RIO r e' Unit
 interrupt (Fiber fib) = RIO \_ -> do
   Aff.killFiber (Aff.error "RIO.interrupt") fib
@@ -109,6 +135,12 @@ interrupt (Fiber fib) = RIO \_ -> do
 -- | array order) is surfaced as `Left v` on the parent's row. The
 -- | other actions are not interrupted on failure; first-failure
 -- | racing semantics live in `RIO.Concurrency.race` (Phase 6.3).
+-- |
+-- | ```purescript
+-- | -- fetch every URL concurrently and collect the bodies
+-- | bodies :: Array URL -> RIO r e (Array Body)
+-- | bodies urls = parTraverse fetch urls
+-- | ```
 parTraverse
   :: forall r e a b
    . (a -> RIO r e b)
@@ -120,6 +152,10 @@ parTraverse f as = RIO \r -> do
 
 -- | The identity case of `parTraverse`: run an array of actions
 -- | concurrently and collect their results.
+-- |
+-- | ```purescript
+-- | results <- parSequence [ jobA, jobB, jobC ]
+-- | ```
 parSequence
   :: forall r e a
    . Array (RIO r e a)
@@ -132,6 +168,11 @@ parSequence = parTraverse identity
 -- | completion, and the first `Left` (favouring the left action on
 -- | ties) is surfaced on the parent's row. For first-failure racing
 -- | semantics use `race` (Phase 6.3).
+-- |
+-- | ```purescript
+-- | -- fetch user record and audit log in parallel
+-- | Tuple user audit <- zipPar (fetchUser uid) (fetchAudit uid)
+-- | ```
 zipPar
   :: forall r e a b
    . RIO r e a
@@ -158,6 +199,11 @@ zipPar ra rb = RIO \r ->
 -- |
 -- | Defects propagate from whichever side raises them; the loser
 -- | is interrupted as usual.
+-- |
+-- | ```purescript
+-- | -- whichever cache responds first wins; the loser is cancelled
+-- | record <- race (fromCacheA key) (fromCacheB key)
+-- | ```
 race
   :: forall r e a
    . RIO r e a
@@ -171,6 +217,11 @@ race ra rb = RIO \r ->
 -- | others are interrupted and their resources released. The
 -- | non-empty input is what makes the result type total: with an
 -- | empty array there would be nothing to return.
+-- |
+-- | ```purescript
+-- | -- fastest of three replicas wins
+-- | record <- raceAll (NEArray.cons' (fetch r1) [ fetch r2, fetch r3 ])
+-- | ```
 raceAll
   :: forall r e a
    . NonEmptyArray (RIO r e a)

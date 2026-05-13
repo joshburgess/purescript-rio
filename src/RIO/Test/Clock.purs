@@ -57,6 +57,14 @@ type TestClock =
 -- |
 -- | Returned in `Aff` so the test can `bind` it alongside the rest
 -- | of its setup; the body itself is pure `Effect` work.
+-- |
+-- | ```purescript
+-- | itRIO "fires after a delay" do
+-- |   tc <- liftAff newTestClock
+-- |   fib <- fork (sleep (Milliseconds 500.0) *> liftAff (record "fired"))
+-- |   liftAff (tc.advance (Milliseconds 500.0))
+-- |   join fib
+-- | ```
 newTestClock :: Aff TestClock
 newTestClock = liftEffect do
   currentRef <- Ref.new 0.0

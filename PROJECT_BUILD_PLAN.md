@@ -390,6 +390,8 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
 - **Deliverables:** `purs docs` output published to Pursuit.
 - **Acceptance:** Every public function has a docstring with at least one example.
 
+**Status:** Complete (docstring audit). Every public function across `RIO.Core`, `RIO.Env`, `RIO.Error`, `RIO.Concurrency`, `RIO.Layer`, `RIO.Resource`, `RIO.Clock`, `RIO.Spec`, `RIO.Test`, and `RIO.Test.Clock` now carries a docstring with at least one inline code example. Worked examples were added to: `unsafeRunRIO`, `catchAll`, `mapError`, `die`, `sandbox`, `unsandbox`, `fork`, `join`, `interrupt`, `parTraverse`, `parSequence`, `zipPar`, `race`, `raceAll`, `fromRecord`, `fromRIO`, `unLayer`, `andThen`, `combine`, `buildLayer`, `provideLayer`, `acquireRelease`, `addFinalizer`, `scoped`, `now`, `sleep`, `liveClock`, `itRIO`, `newTestClock`. Pursuit publication is gated on Phase 8.5 (v0.1.0 release), since uploading docs requires the package to be tagged in the registry.
+
 ### 8.4 Performance baseline
 
 - **Deliverables:** A benchmark suite using `purescript-minibench` plus a small custom harness covering: monadic bind in a tight loop, service lookup overhead, parallel vs sequential traversal. Baselines committed.

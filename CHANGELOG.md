@@ -248,6 +248,20 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   Effect-TS guide) and a short "what RIO has that the source
   language does not" section calling out structural error
   rows and `Layer`'s exact-shrink typing.
+- Phase 8.3 docstring audit. Every public function across
+  `RIO.Core`, `RIO.Env`, `RIO.Error`, `RIO.Concurrency`,
+  `RIO.Layer`, `RIO.Resource`, `RIO.Clock`, `RIO.Spec`,
+  `RIO.Test`, and `RIO.Test.Clock` now carries at least one
+  inline usage example alongside its existing semantics
+  description. Specifically added examples to: `unsafeRunRIO`,
+  `catchAll`, `mapError`, `die`, `sandbox`, `unsandbox`,
+  `fork`, `join`, `interrupt`, `parTraverse`, `parSequence`,
+  `zipPar`, `race`, `raceAll`, `fromRecord`, `fromRIO`,
+  `unLayer`, `andThen`, `combine`, `buildLayer`,
+  `provideLayer`, `acquireRelease`, `addFinalizer`, `scoped`,
+  `now`, `sleep`, `liveClock`, `itRIO`, `newTestClock`.
+  Publication of the generated docs to Pursuit is gated on
+  Phase 8.5 (v0.1.0 release).
 - `spikes/phase-6-review/`: Phase 6 review cycle. Four randomised
   stress scenarios driven by `Effect.Random` parameters:
   `parTraverse` over up to eight actions with up to 60 percent

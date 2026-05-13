@@ -40,6 +40,15 @@ import RIO.Internal (RIO(..), unRIO)
 -- | If `acquire` itself fails (typed or defect), `release` is **not**
 -- | called, because there is nothing to release. The typed failure or
 -- | defect propagates unchanged.
+-- |
+-- | ```purescript
+-- | -- open a file, read it, guarantee the handle is closed
+-- | readContents :: forall r e. String -> RIO r e String
+-- | readContents path = acquireRelease
+-- |   (liftAff (FS.openRead path))
+-- |   (\h -> liftAff (FS.close h))
+-- |   (\h -> liftAff (FS.readAll h))
+-- | ```
 acquireRelease
   :: forall r e a b
    . RIO r e a
@@ -90,6 +99,15 @@ newtype Scope = Scope (Ref.Ref (Array (Aff Unit)))
 -- | block you typically obtain the scope via `ask (Proxy :: _ "scope")`
 -- | when the scope is provided as a service, or by direct argument
 -- | from a layer-style helper.
+-- |
+-- | ```purescript
+-- | -- inside a scope, register cleanup on exit
+-- | scoped do
+-- |   scope <- ask (Proxy :: Proxy "scope")
+-- |   conn <- liftAff openConnection
+-- |   addFinalizer scope (closeConnection conn)
+-- |   useConnection conn
+-- | ```
 addFinalizer :: forall r e. Scope -> Aff Unit -> RIO r e Unit
 addFinalizer (Scope ref) fin = RIO \_ -> do
   liftEffect (Ref.modify_ (\xs -> [ fin ] <> xs) ref)
@@ -102,6 +120,18 @@ addFinalizer (Scope ref) fin = RIO \_ -> do
 -- | The inner program's environment is `(scope :: Scope | r)`; the
 -- | resulting program needs only `r`. The error and value channels are
 -- | preserved unchanged.
+-- |
+-- | ```purescript
+-- | -- everything inside `scoped` shares a finalizer stack; both
+-- | -- finalizers fire LIFO when the block exits (success or failure)
+-- | program = scoped do
+-- |   scope <- ask (Proxy :: Proxy "scope")
+-- |   resA <- openA
+-- |   addFinalizer scope (closeA resA)
+-- |   resB <- openB resA
+-- |   addFinalizer scope (closeB resB)
+-- |   useBoth resA resB
+-- | ```
 scoped
   :: forall r e a
    . RIO (scope :: Scope | r) e a

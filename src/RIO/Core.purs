@@ -68,5 +68,14 @@ runRIO' m = do
 -- | Exposed for internal use (custom runners, test harnesses, FFI shims)
 -- | where neither `runRIO` nor `runRIO'` fits. Prefer the safer runners
 -- | whenever possible.
+-- |
+-- | ```purescript
+-- | -- a custom runner that records the environment record before running
+-- | runWithTrace
+-- |   :: forall r e a. Record r -> RIO r e a -> Aff (Either (Variant e) a)
+-- | runWithTrace env program = do
+-- |   liftEffect (Console.log ("env: " <> show (Record.keys env)))
+-- |   unsafeRunRIO program env
+-- | ```
 unsafeRunRIO :: forall r e a. RIO r e a -> Record r -> Aff (Either (Variant e) a)
 unsafeRunRIO = unRIO

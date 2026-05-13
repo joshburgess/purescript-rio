@@ -40,6 +40,13 @@ import RIO.Core (RIO, provideAll, runRIO')
 -- | the only way to surface a failure is via a defect (`Effect`
 -- | exception, `die`, etc.), which `Spec` treats as a normal test
 -- | failure.
+-- |
+-- | ```purescript
+-- | spec = describe "pure laws" do
+-- |   itRIO "succeeds on a closed program" do
+-- |     x <- pure 42
+-- |     liftAff (x `shouldEqual` 42)
+-- | ```
 itRIO :: String -> RIO () () Unit -> Spec Unit
 itRIO name program = it name (runRIO' program)
 

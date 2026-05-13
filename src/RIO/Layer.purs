@@ -55,6 +55,13 @@ newtype Layer rIn e rOut =
 -- | The simplest layer: hand back a fixed record of services. The
 -- | input row is left free; horizontal and sequential composition
 -- | unify it with the surrounding context.
+-- |
+-- | ```purescript
+-- | -- a static logger that prints to stdout
+-- | consoleLoggerLayer :: forall rIn e. Layer rIn e (logger :: Logger)
+-- | consoleLoggerLayer =
+-- |   fromRecord { logger: { log: \msg -> liftEffect (Console.log msg) } }
+-- | ```
 fromRecord :: forall rIn e rOut. Record rOut -> Layer rIn e rOut
 fromRecord r = Layer (pure r)
 
@@ -62,6 +69,15 @@ fromRecord r = Layer (pure r)
 -- | you can `ask` for services from the input row, lift `Aff`, and
 -- | register finalizers via the `scope` service. The returned record
 -- | is what downstream programs receive when the layer is provided.
+-- |
+-- | ```purescript
+-- | -- a Ref-backed counter store; the Ref lives for the scope's lifetime
+-- | counterStoreLayer
+-- |   :: forall rIn e. Layer rIn e (counter :: { incr :: Aff Int })
+-- | counterStoreLayer = fromRIO do
+-- |   ref <- liftEffect (Ref.new 0)
+-- |   pure { counter: { incr: liftEffect (Ref.modify (_ + 1) ref) } }
+-- | ```
 fromRIO
   :: forall rIn e rOut
    . RIO (scope :: Scope | rIn) e (Record rOut)
@@ -72,6 +88,13 @@ fromRIO = Layer
 -- | library (composition, `provideLayer`). Not exported from
 -- | `RIO.Core`; consumers should compose layers via the combinators
 -- | rather than reaching for this.
+-- |
+-- | ```purescript
+-- | -- typically only used by libraries building higher-level
+-- | -- combinators; application code reaches for buildLayer or
+-- | -- provideLayer instead
+-- | rawAction = unLayer infraLayer
+-- | ```
 unLayer
   :: forall rIn e rOut
    . Layer rIn e rOut
@@ -85,6 +108,13 @@ unLayer (Layer rio) = rio
 -- |
 -- | If the first layer fails the second never runs; if either fails
 -- | the failure propagates unchanged on the (shared) error row.
+-- |
+-- | ```purescript
+-- | -- configLayer produces (config :: Config), dbLayer consumes it and
+-- | -- produces (db :: Database)
+-- | appLayer :: Layer () (dbConnect :: String) (db :: Database)
+-- | appLayer = configLayer >>> dbLayer  -- `andThen` infix
+-- | ```
 andThen
   :: forall rIn rMid rOut e
    . Layer rIn e rMid
@@ -110,6 +140,12 @@ infixr 1 andThen as >>>
 -- |
 -- | The two output rows must be disjoint. Sharing a label produces an
 -- | ill-formed combined row and the compiler will reject the call.
+-- |
+-- | ```purescript
+-- | -- one record with both a logger and an in-memory store
+-- | infraLayer :: forall e. Layer () e (logger :: Logger, store :: Store)
+-- | infraLayer = consoleLoggerLayer <+> inMemoryStoreLayer  -- `combine` infix
+-- | ```
 combine
   :: forall rIn e r1Out r2Out rOut
    . Row.Union r1Out r2Out rOut
@@ -137,6 +173,15 @@ infixr 7 combine as <+>
 -- | layers (a logger, a static config) but unsafe for resource-owning
 -- | layers, whose returned services would reference released
 -- | resources. Reach for `provideLayer` for the resource-safe path.
+-- |
+-- | ```purescript
+-- | -- build a stateless layer once at startup, capture in a closure
+-- | main = launchAff_ do
+-- |   built <- buildLayer infraLayer
+-- |   case built of
+-- |     Left _ -> liftEffect (log "boot failed")
+-- |     Right base -> serveRequests base
+-- | ```
 buildLayer
   :: forall e rOut
    . Layer () e rOut
@@ -164,6 +209,12 @@ buildLayer (Layer rio) = unRIO (scoped rio) {}
 -- | from the user-supplied one. The cast is safe at runtime:
 -- | `expand` itself is `unsafeCoerce`, and the constraint already
 -- | proves every label of `e'` is present in `eOut`.
+-- |
+-- | ```purescript
+-- | -- the program sees the services produced by `appLayer`; its own
+-- | -- typed failures merge into the output error row
+-- | main = runRIO (provideLayer appLayer program)
+-- | ```
 provideLayer
   :: forall rIn rOut e e' eOut a
    . Row.Union e e' eOut

@@ -108,6 +108,12 @@ catchTag sym handler inner = RIO \r -> do
 -- |
 -- | `catchAll` is the dual of `fail` at the row level: `fail` introduces
 -- | a tag, `catchAll` replaces the whole row.
+-- |
+-- | ```purescript
+-- | -- collapse every typed failure into a default value
+-- | safeProgram :: RIO r () Int
+-- | safeProgram = catchAll (\_ -> pure 0) program
+-- | ```
 catchAll
   :: forall r e e' a
    . (Variant e -> RIO r e' a)
@@ -125,6 +131,18 @@ catchAll handler inner = RIO \r -> do
 -- | total function on `Variant` so the handler can't introduce new
 -- | effects or read services. Useful for error translation at module
 -- | boundaries.
+-- |
+-- | ```purescript
+-- | -- relabel every "notFound" into "lookupFailed" without changing
+-- | -- the rest of the row
+-- | translated :: RIO r (lookupFailed :: Int | other) Todo
+-- | translated =
+-- |   mapError
+-- |     (Variant.on (Proxy :: _ "notFound")
+-- |       (\id -> Variant.inj (Proxy :: _ "lookupFailed") id)
+-- |       identity)
+-- |     program
+-- | ```
 mapError
   :: forall r e e' a
    . (Variant e -> Variant e')
@@ -146,6 +164,15 @@ mapError f inner = RIO \r -> do
 -- |
 -- | A defect raised by `die` can be observed (and converted back to a
 -- | value) with `sandbox`.
+-- |
+-- | ```purescript
+-- | -- assert an invariant; if violated, raise a defect rather than a
+-- | -- typed failure (callers cannot handle it in the row)
+-- | checkInvariant :: forall r e. Boolean -> RIO r e Unit
+-- | checkInvariant ok =
+-- |   if ok then pure unit
+-- |   else die (Exception.error "invariant violated")
+-- | ```
 die :: forall r e a. Error -> RIO r e a
 die err = RIO \_ -> throwError err
 
@@ -161,6 +188,12 @@ die err = RIO \_ -> throwError err
 -- | The output's error row is the same `e` as the input's, so typed
 -- | failures remain typed and the caller can still handle them with
 -- | `catchTag` / `catchAll`.
+-- |
+-- | ```purescript
+-- | -- recover from a defect (e.g. third-party Aff that may throw)
+-- | safeFetch :: forall r e. URL -> RIO r e (Either Error Response)
+-- | safeFetch url = sandbox (liftAff (Http.fetch url))
+-- | ```
 sandbox :: forall r e a. RIO r e a -> RIO r e (Either Error a)
 sandbox inner = RIO \r -> do
   outcome <- attempt (unRIO inner r)
@@ -175,6 +208,13 @@ sandbox inner = RIO \r -> do
 -- | `Left`, re-raises the error as a defect (via `die`). If it's a
 -- | `Right`, threads the value through unchanged. Typed failures in the
 -- | input are preserved unchanged.
+-- |
+-- | ```purescript
+-- | -- look at a defect; if it is one we accept, swallow it,
+-- | -- otherwise re-raise it unchanged
+-- | rethrowUnknown :: forall r e a. RIO r e (Either Error a) -> RIO r e a
+-- | rethrowUnknown = unsandbox
+-- | ```
 unsandbox :: forall r e a. RIO r e (Either Error a) -> RIO r e a
 unsandbox inner = RIO \r -> do
   res <- unRIO inner r

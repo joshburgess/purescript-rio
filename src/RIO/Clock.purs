@@ -40,6 +40,13 @@ type Clock =
   }
 
 -- | Read the current wall-clock time.
+-- |
+-- | ```purescript
+-- | timestampedLog :: forall r e. String -> RIO (clock :: Clock | r) e String
+-- | timestampedLog msg = do
+-- |   t <- now
+-- |   pure (show t <> ": " <> msg)
+-- | ```
 now :: forall r e. RIO (clock :: Clock | r) e Milliseconds
 now = do
   c <- ask (Proxy :: Proxy "clock")
@@ -50,6 +57,14 @@ now = do
 -- | Under `liveClock` this delegates to `Effect.Aff.delay`, which is
 -- | cancellable: an `interrupt` on the fiber will abort the sleep at
 -- | the next event-loop tick (see the Phase 0.5 spike's S1).
+-- |
+-- | ```purescript
+-- | pollEvery :: forall r e. Milliseconds -> RIO r e Unit -> RIO (clock :: Clock | r) e Unit
+-- | pollEvery interval action = do
+-- |   action
+-- |   sleep interval
+-- |   pollEvery interval action
+-- | ```
 sleep :: forall r e. Milliseconds -> RIO (clock :: Clock | r) e Unit
 sleep ms = do
   c <- ask (Proxy :: Proxy "clock")
@@ -58,6 +73,11 @@ sleep ms = do
 -- | A production-ready implementation backed by `Effect.Now` and
 -- | `Effect.Aff.delay`. Provide it via `provide` / `provideAll` or
 -- | construct a `Layer` that emits it.
+-- |
+-- | ```purescript
+-- | -- inject the live clock at the top of the program
+-- | main = launchAff_ (runRIO (provideAll { clock: liveClock } program))
+-- | ```
 liveClock :: Clock
 liveClock =
   { now: do
