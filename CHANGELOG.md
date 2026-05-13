@@ -11,6 +11,29 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Resource.Do`: qualified-do sugar over
+  `RIO.Resource.acquireRelease`. Each `<-` inside a
+  `Resource.do` block desugars to an `acquireRelease`, with the
+  block's continuation becoming the `use` callback. Flattens
+  what would otherwise be nested brackets when one computation
+  opens several resources. Release ordering matches
+  `acquireRelease`: LIFO on every termination path (success,
+  typed failure, defect, kill). Plain `RIO` statements
+  interleaved between acquisitions wrap with
+  `Resource.liftRIO`. Verified against hand-nested
+  `acquireRelease` (identical event ordering) and against
+  typed-failure / failed-acquire paths in `Test.RIO.Resource.Do`.
+- `RIO.Concurrency.Par`: qualified-`ado` sugar for running
+  independent `RIO` actions concurrently and combining their
+  results under `Control.Parallel`'s `ParAff`. Use with
+  `Par.ado`, not `Par.do` (qualified-do for parallel
+  composition would still sequence). Failure bias: leftmost
+  typed failure wins, but every branch is allowed to run to
+  completion. For short-circuiting fan-out (cancel the loser on
+  first failure), keep using `RIO.Concurrency.parPair` /
+  `parTuple`. Verified at 3x speedup vs sequential `do` in
+  `Test.RIO.Concurrency.Par`.
+
 - `rio-httpurple` workspace package: extracts the reusable HTTP
   pieces of the todo-api example into a standalone adapter so
   apps that pair `rio` with [HTTPurple](https://pursuit.purescript.org/packages/purescript-httpurple)
