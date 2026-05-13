@@ -11,7 +11,7 @@
 -- | the underlying evidence.
 module RIO.Resource
   ( acquireRelease
-  , Scope
+  , Scope(..)
   , addFinalizer
   , scoped
   ) where
@@ -74,6 +74,13 @@ acquireRelease acquire release use = RIO \r ->
 -- | does not stop subsequent finalizers from running. (We can't yet
 -- | aggregate finalizer errors; for now they are swallowed by design,
 -- | so a leak in one finalizer doesn't cascade.)
+-- |
+-- | The data constructor is exported for use inside this library
+-- | (specifically `RIO.Layer.provideLayer`, which needs to share one
+-- | scope across a layer-build phase and a program-run phase).
+-- | `RIO.Core` re-exports only the opaque type, so user code that
+-- | reaches the library through that module cannot construct a
+-- | `Scope` directly.
 newtype Scope = Scope (Ref.Ref (Array (Aff Unit)))
 
 -- | Push an `Aff` action onto a scope's finalizer stack.

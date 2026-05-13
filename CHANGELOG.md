@@ -97,3 +97,30 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   consecutive local runs (400 total iterations) the harness reports
   zero leaks and zero LIFO violations. Findings live in
   `spikes/phase-4-review/FINDINGS.md`.
+- `RIO.Layer` module with the `Layer rIn e rOut` newtype, `fromRecord`
+  (lift a fixed record), `fromRIO` (build a record from an `RIO` that
+  can `ask` for inputs, lift `Aff`, and register finalizers via the
+  `scope` service), and `buildLayer` (a closing runner intended for
+  test layers that do not own resources) (Phase 5.1).
+- `andThen` and `combine` in `RIO.Layer`, with operator aliases
+  `(>>>)` (`infixr 1`) for sequential composition and `(<+>)`
+  (`infixr 7`) for horizontal composition. `(>>>)` shadows
+  `Control.Semigroupoid.(>>>)`; `RIO.Core` re-exports only the named
+  forms so `import Prelude` keeps the standard `(>>>)` accessible.
+  `combine` requires `Prim.Row.Union` on the output rows; output rows
+  with overlapping labels are rejected by the compiler (Phase 5.2).
+- `provideLayer` in `RIO.Layer`: build a layer and run an inner
+  program in the layer's services, unioning layer and program error
+  rows via `Prim.Row.Union e e' eOut`. A single scope spans both the
+  layer build and the program run, so finalizers registered by the
+  layer release after the program completes on every termination
+  path: success, typed failure, and defect (Phases 5.3 and 5.4). The
+  forward error-row expansion uses `Data.Variant.expand` against the
+  supplied `Union`; the program-side expansion uses `unsafeCoerce`
+  because PureScript's row solver can't recover the symmetric
+  `Union e' e eOut` instance from the user-supplied one. The cast is
+  safe at runtime: `expand` itself is `unsafeCoerce`, and the
+  constraint already proves every label of `e'` is in `eOut`.
+- `Scope` constructor exported from `RIO.Resource` for in-library
+  use by `RIO.Layer.provideLayer`. `RIO.Core` continues to re-export
+  only the opaque type, so the public surface is unchanged.

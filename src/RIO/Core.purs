@@ -26,6 +26,7 @@ import RIO.Env (ask, asks, provide, provideAll) as Exports
 import RIO.Error (catchAll, catchTag, die, fail, mapError, rethrow, sandbox, unsandbox) as Exports
 import RIO.Internal (RIO, unRIO)
 import RIO.Internal (RIO) as Exports
+import RIO.Layer (Layer, andThen, buildLayer, combine, fromRIO, fromRecord, provideLayer) as Exports
 import RIO.Resource (Scope, acquireRelease, addFinalizer, scoped) as Exports
 
 -- | Run an `RIO` whose environment row is empty, surfacing the error
