@@ -148,8 +148,10 @@ instance bindSTM :: Bind (STM e) where
     r <- m log
     case r of
       TxSuccess a ->
-        let STM h = k a
-        in h log
+        let
+          STM h = k a
+        in
+          h log
       TxFailed v -> pure (TxFailed v)
       TxRetry -> pure TxRetry
 

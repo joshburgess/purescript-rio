@@ -183,8 +183,10 @@ spec = do
         delays <- runRIO' (collectDelays 100 (jittered 0.8 1.2 (spaced (Milliseconds 100.0))))
         let
           inBand ms =
-            let n = un Milliseconds ms
-            in n >= 80.0 && n <= 120.0
+            let
+              n = un Milliseconds ms
+            in
+              n >= 80.0 && n <= 120.0
         delays `shouldSatisfy` Array.all inBand
 
 collectDelays

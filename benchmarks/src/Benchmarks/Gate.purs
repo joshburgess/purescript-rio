@@ -180,8 +180,10 @@ main = launchAff_ do
   results <- traverse runOne scenarios
 
   liftEffect do
-    log "scenario                                              mean         baseline     ratio  status"
-    log "---------------------------------------------------------------------------------------------"
+    log
+      "scenario                                              mean         baseline     ratio  status"
+    log
+      "---------------------------------------------------------------------------------------------"
     for_ results printRow
     log ""
     let regressions = Array.filter _.regressed results
@@ -231,9 +233,11 @@ padRatio = padRight 6
 
 padRight :: Int -> String -> String
 padRight n s =
-  let len = String.length s
-  in if len >= n then s
-     else s <> fromCharArray (Array.replicate (n - len) ' ')
+  let
+    len = String.length s
+  in
+    if len >= n then s
+    else s <> fromCharArray (Array.replicate (n - len) ' ')
 
 showFixed :: Int -> Number -> String
 showFixed digits = toStringWith (fixed digits)

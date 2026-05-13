@@ -128,6 +128,10 @@ pollDeferred
   -> RIO r e' (Maybe (Either (Variant e) a))
 pollDeferred (Deferred avar) = RIO \_ -> do
   s <- AVar.status avar
-  pure (Right (case s of
-    Filled a -> Just a
-    _ -> Nothing))
+  pure
+    ( Right
+        ( case s of
+            Filled a -> Just a
+            _ -> Nothing
+        )
+    )

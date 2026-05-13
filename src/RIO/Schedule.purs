@@ -92,8 +92,10 @@ recurs n = go 0
   go k = Schedule \_ -> RIO \_ ->
     if k >= n then pure (Right Done)
     else
-      let next = k + 1
-      in pure (Right (Continue next (Milliseconds 0.0) (go next)))
+      let
+        next = k + 1
+      in
+        pure (Right (Continue next (Milliseconds 0.0) (go next)))
 
 -- | Fixed delay between firings, forever.
 -- |
@@ -105,8 +107,10 @@ spaced :: forall r i. Milliseconds -> Schedule r i Int
 spaced ms = go 0
   where
   go k = Schedule \_ -> RIO \_ ->
-    let next = k + 1
-    in pure (Right (Continue next ms (go next)))
+    let
+      next = k + 1
+    in
+      pure (Right (Continue next ms (go next)))
 
 -- | Exponential backoff: delay grows by `factor` each step,
 -- | starting from `base`. Output is the current delay (useful for
@@ -120,8 +124,10 @@ exponential :: forall r i. Milliseconds -> Number -> Schedule r i Milliseconds
 exponential (Milliseconds base) factor = go base
   where
   go ms = Schedule \_ -> RIO \_ ->
-    let delay = Milliseconds ms
-    in pure (Right (Continue delay delay (go (ms * factor))))
+    let
+      delay = Milliseconds ms
+    in
+      pure (Right (Continue delay delay (go (ms * factor))))
 
 -- | Never stops; output is the iteration count. Equivalent to
 -- | `spaced (Milliseconds 0.0)`.

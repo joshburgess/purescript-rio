@@ -129,10 +129,11 @@ spec = do
             refB <- atomically (newTRef 99)
             atomically do
               orElse
-                (do
-                  a <- readTRef refA
-                  check (a > 0)
-                  pure a)
+                ( do
+                    a <- readTRef refA
+                    check (a > 0)
+                    pure a
+                )
                 (readTRef refB)
         result <- runRIO' program
         result `shouldEqual` 99
@@ -142,9 +143,10 @@ spec = do
           program :: RIO () (boom :: Unit) Int
           program = atomically do
             orElse
-              (do
-                _ <- failSTM (Proxy :: Proxy "boom") unit
-                pure 0)
+              ( do
+                  _ <- failSTM (Proxy :: Proxy "boom") unit
+                  pure 0
+              )
               (pure 99)
         result <- runRIO program
         case result of
@@ -155,6 +157,7 @@ spec = do
       it "preserves the invariant under many parallel updates" do
         let
           n = 50
+
           program :: RIO () () Int
           program = do
             ref <- atomically (newTRef 0)

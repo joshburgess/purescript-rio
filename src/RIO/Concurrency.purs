@@ -315,18 +315,28 @@ zipPar ra rb = RIO \r -> do
       case res of
         Right a -> pure a
         Left v -> do
-          liftEffect (Ref.modify_ (case _ of
-            Nothing -> Just v
-            existing -> existing) failureRef)
+          liftEffect
+            ( Ref.modify_
+                ( case _ of
+                    Nothing -> Just v
+                    existing -> existing
+                )
+                failureRef
+            )
           throwError (Aff.error shortCircuitMessage)
     runB = do
       res <- unRIO rb r
       case res of
         Right b -> pure b
         Left v -> do
-          liftEffect (Ref.modify_ (case _ of
-            Nothing -> Just v
-            existing -> existing) failureRef)
+          liftEffect
+            ( Ref.modify_
+                ( case _ of
+                    Nothing -> Just v
+                    existing -> existing
+                )
+                failureRef
+            )
           throwError (Aff.error shortCircuitMessage)
   outcome <- Aff.attempt
     ( Aff.sequential (Tuple <$> Aff.parallel runA <*> Aff.parallel runB)
