@@ -120,12 +120,19 @@ Then `npx spago install`.
 - `RIO.STM.TQueue`, `RIO.STM.TMap`, `RIO.STM.TSemaphore`: derived
   transactional structures. Blocking FIFO queue, keyed map with
   `awaitKey`, counting semaphore with `withTSemaphore` bracketing.
+- `RIO.Tracer`: spans with `withSpan` and `addAttribute`. Implicit
+  parent / child context via a tracer-held current-span pointer.
+  `noopTracer` for production opt-out.
+- `RIO.Metrics`: counter / gauge / histogram service.
+  `noopMetrics` plus `RIO.Test.Metrics` recording backend.
 - `RIO.Spec`: `itRIO` / `itRIO_` adapters for
   `purescript-spec`.
 - `RIO.Test`: `mockService`, `recording` for service-call
   assertions.
 - `RIO.Test.Clock`: `newTestClock` for deterministic
   virtual-time testing.
+- `RIO.Test.Tracer`, `RIO.Test.Metrics`: recording backends for
+  the observability services.
 
 ## Documentation
 
@@ -146,6 +153,9 @@ Walkthrough docs:
   deterministically in tests.
 - [`docs/09-stm.md`](./docs/09-stm.md): the STM type, primitives,
   atomicity semantics on the JS event loop, and `retry` / `orElse`.
+- [`docs/10-tracing.md`](./docs/10-tracing.md): tracing and
+  metrics services, parent / child span context, and the
+  recording test backends.
 - [`docs/performance.md`](./docs/performance.md): benchmark
   baselines and dominant costs.
 
@@ -184,13 +194,17 @@ npx spago run -p rio-benchmarks
 
 v0.1.0 covers the production core: services, typed errors,
 resource safety, layers, concurrency, and a testing toolkit.
-The v0.2 backlog tracks tracing / metrics. Bounded-concurrency
+The v0.2 work has landed on `main`: bounded-concurrency
 traversal (`parTraverseN`), `timeout`, `uninterruptible`,
 `forkScoped`, `Deferred`, `ensuring`, `Layer.passthrough`,
 short-circuiting parallel traversal, `RIO.Schedule` (retry /
 repeat policies), `RIO.STM` (`TRef` + `atomically`, plus derived
-`TQueue` / `TMap` / `TSemaphore`), and the benchmark regression
-gate (`Benchmarks.Gate`) have already landed on `main`. See
+`TQueue` / `TMap` / `TSemaphore`), the benchmark regression
+gate (`Benchmarks.Gate`), and tracing / metrics (`RIO.Tracer`,
+`RIO.Metrics` with recording test backends). Remaining v0.2
+follow-ups: capture a CI-environment baseline so the perf gate
+can be promoted from informational to a required check, and a
+production tracing backend (OTel adapter). See
 [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License

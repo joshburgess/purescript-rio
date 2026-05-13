@@ -94,6 +94,31 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   termination path.
 - `ordered-collections` to the main `rio` package's dependency
   manifest (used by `RIO.STM.TMap`).
+- `RIO.Tracer` module: tracing service with named spans, status
+  recording (`SpanOk` / `SpanFailed` / `SpanInterrupted`), and
+  string attributes. `withSpan` brackets an action: opens a span
+  as a child of the currently-active span, runs the action,
+  closes the span with the appropriate status on every
+  termination path (success, typed failure, fiber kill).
+  `addAttribute` attaches a key/value pair to the currently
+  active span; `currentSpan` reports it. `noopTracer` discards
+  every operation. Parent context is implicit and survives the
+  common "fork inside a span" case in the JS single-event-loop
+  model; see `docs/10-tracing.md` for the explicit caveats.
+- `RIO.Test.Tracer` module: `newRecordingTracer` returns a
+  `Tracer` plus a `snapshot` action that returns the recorded
+  spans in start order. Virtual time advances by 1 per
+  `startSpan` / `endSpan`, making span ordering deterministic in
+  tests.
+- `RIO.Metrics` module: counter / gauge / histogram service
+  shape with `recordCounter`, `recordGauge`, `recordHistogram`
+  and call-site-readable aliases (`incrementCounter`,
+  `setGauge`, `observeHistogram`). `noopMetrics` discards every
+  emission.
+- `RIO.Test.Metrics` module: `newRecordingMetrics` returns the
+  service plus a `snapshot` action returning every emission
+  with its kind (`Counter` / `Gauge` / `Histogram`), name, and
+  value.
 
 ### Changed
 

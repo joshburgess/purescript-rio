@@ -14,6 +14,7 @@ import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.LayerSpec as LayerSpec
+import Test.RIO.MetricsSpec as MetricsSpec
 import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
@@ -22,6 +23,7 @@ import Test.RIO.STM.TMapSpec as TMapSpec
 import Test.RIO.STM.TQueueSpec as TQueueSpec
 import Test.RIO.STM.TSemaphoreSpec as TSemaphoreSpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
+import Test.RIO.TracerSpec as TracerSpec
 
 main :: Effect Unit
 main = runSpecAndExitProcess [ consoleReporter ] do
@@ -39,5 +41,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   TQueueSpec.spec
   TMapSpec.spec
   TSemaphoreSpec.spec
+  TracerSpec.spec
+  MetricsSpec.spec
   TestHelpersSpec.spec
   SpecHelpersSpec.spec
