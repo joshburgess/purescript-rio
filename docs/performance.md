@@ -124,16 +124,71 @@ appropriate unit (ns / μs / ms / s). The full source is in
 `Aff`-aware port of `purescript-minibench` that uses
 `process.hrtime()` for nanosecond resolution.
 
-## Regression policy
+## Regression gate
 
-The v0.2 backlog tracks two performance items:
+`Benchmarks.Gate` is a developer-runnable check that exercises
+the same scenarios as `Benchmarks.Main` and compares each one's
+mean wall-clock per iteration against a hard-coded baseline.
+Run it before opening a PR that touches a hot path:
 
-1. **Establish a regression gate.** Run the benchmark suite in
-   CI on every PR; flag any scenario whose mean is more than
-   25 percent worse than the recorded baseline.
-2. **Profile-driven `unsafeCoerce` hot-path tightening.** The
-   risk table in `PROJECT_BUILD_PLAN.md` calls out the
-   `Record` / `Variant` indirection cost as a Medium risk;
-   v0.2 will revisit the hottest paths flagged by these
-   numbers and either accept the overhead or replace it with
-   a targeted `unsafeCoerce`.
+```
+npx spago run -p rio-benchmarks --main Benchmarks.Gate
+```
+
+Output is a single table plus a summary line. The gate exits
+with status `0` if every scenario is within tolerance and `1`
+if any scenario regressed.
+
+### How the gate decides
+
+- **Metric:** mean wall-clock per iteration, 500 samples per
+  scenario.
+- **Baselines:** hard-coded in `benchmarks/src/Benchmarks/Gate.purs`,
+  copied verbatim from the headline table above (Apple M1 Pro /
+  node 20.15.1).
+- **Tolerance:** a single constant `tolerance = 3.0` applied to
+  every scenario. A scenario fails when its measured mean is
+  more than 3x the baseline mean.
+
+The tolerance is deliberately generous. Run-to-run variance on
+the higher-noise scenarios (parTraverse over pure work, the
+single-round-trip `fail` + `catchTag`) is 10 to 30 percent,
+and machine-to-machine variance is larger still. A 3x threshold
+catches catastrophic regressions (an accidental O(n^2), a
+re-wrapping bug doubling per-bind overhead) without flapping on
+the kind of noise CI runners introduce.
+
+### Updating the baseline
+
+When you intentionally change a hot path:
+
+1. Run `npx spago run -p rio-benchmarks` and capture the headline
+   numbers from the new version.
+2. Update the corresponding rows in the table at the top of this
+   file and the `baselineMeanNs` constants in
+   `benchmarks/src/Benchmarks/Gate.purs`.
+3. Note the rationale for the change in the PR description so a
+   future reader can see why the baseline shifted.
+
+The two locations are kept in sync by hand; we may move them to
+a single JSON file in a later phase.
+
+### Why the gate is not (yet) wired into CI
+
+CI runners have different CPUs, memory pressure, and JIT
+warm-up behaviour than the reference hardware, so the same code
+that passes the gate locally can fail on a slow runner and pass
+on a fast one. Until we capture a CI-environment baseline (a
+follow-up task), the gate is informational: CI builds it
+(verifying the module compiles and its baseline references stay
+in sync with the surface) but does not run it.
+
+## What is *not* in this phase
+
+**Profile-driven `unsafeCoerce` hot-path tightening.** The risk
+table in `PROJECT_BUILD_PLAN.md` calls out the `Record` /
+`Variant` indirection cost as a Medium risk; the headline numbers
+above suggest the indirection is already cheap enough (service
+lookup is indistinguishable from a pure loop, the `Variant`
+round-trip is sub-microsecond). We will revisit if a real
+program's profile flags either as a bottleneck.

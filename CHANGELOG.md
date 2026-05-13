@@ -47,6 +47,19 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   sample a schedule's delay distribution. The error row is fixed
   to `()`; schedules cannot themselves fail with a typed error.
   See `docs/08-scheduling.md`.
+- `Benchmarks.Gate`: developer-runnable performance regression
+  gate. Runs the same scenarios as `Benchmarks.Main`, compares
+  each one's mean wall-clock per iteration against a hard-coded
+  baseline (taken from `docs/performance.md`), prints a one-row
+  table per scenario, and exits non-zero if any scenario's mean
+  is more than 3x its baseline. Threshold is deliberately
+  generous to tolerate machine-to-machine variance. Run with
+  `npx spago run -p rio-benchmarks --main Benchmarks.Gate`. CI
+  builds the module but does not run it pending a CI-environment
+  baseline (see `docs/performance.md`).
+- `random` to the main `rio` package's dependency manifest
+  (used by `RIO.Schedule.jittered`; was previously available
+  transitively through the test stack only).
 - `RIO.STM` module: software-transactional memory. `TRef a`,
   `STM e a` (with `Functor` / `Apply` / `Bind` / `Monad`
   instances), `newTRef`, `readTRef`, `writeTRef`, `modifyTRef`,

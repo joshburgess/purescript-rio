@@ -90,7 +90,7 @@ jobs:
       - name: Build todo-api example
         run: npx spago build -p rio-example-todo-api
 
-      - name: Build benchmark suite
+      - name: Build benchmark suite (including regression gate)
         run: npx spago build -p rio-benchmarks
 
       - name: Compile-fail tests

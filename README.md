@@ -181,12 +181,13 @@ npx spago run -p rio-benchmarks
 
 v0.1.0 covers the production core: services, typed errors,
 resource safety, layers, concurrency, and a testing toolkit.
-The v0.2 backlog tracks tracing / metrics and a perf regression
-gate. Bounded-concurrency traversal (`parTraverseN`), `timeout`,
-`uninterruptible`, `forkScoped`, `Deferred`, `ensuring`,
-`Layer.passthrough`, short-circuiting parallel traversal,
-`RIO.Schedule` (retry / repeat policies), and `RIO.STM`
-(`TRef` + `atomically`) have already landed on `main`. See
+The v0.2 backlog tracks tracing / metrics. Bounded-concurrency
+traversal (`parTraverseN`), `timeout`, `uninterruptible`,
+`forkScoped`, `Deferred`, `ensuring`, `Layer.passthrough`,
+short-circuiting parallel traversal, `RIO.Schedule` (retry /
+repeat policies), `RIO.STM` (`TRef` + `atomically`), and the
+benchmark regression gate (`Benchmarks.Gate`) have already
+landed on `main`. See
 [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License

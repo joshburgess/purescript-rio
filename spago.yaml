@@ -18,6 +18,7 @@ package:
     - now
     - parallel
     - prelude
+    - random
     - record
     - refs
     - spec
