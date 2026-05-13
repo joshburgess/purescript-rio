@@ -1,0 +1,17 @@
+package:
+  name: spike-phase-5-review
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - effect
+    - either
+    - exceptions
+    - maybe
+    - prelude
+    - refs
+    - rio
+    - strings
+    - variant
+  run:
+    main: Spike.Phase5Review.Main

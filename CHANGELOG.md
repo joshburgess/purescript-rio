@@ -124,3 +124,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 - `Scope` constructor exported from `RIO.Resource` for in-library
   use by `RIO.Layer.provideLayer`. `RIO.Core` continues to re-export
   only the opaque type, so the public surface is unchanged.
+- `spikes/phase-5-review/`: Phase 5 review cycle. A six-service
+  layered application (`Config`, `Logger`, `Clock`, `Cache`,
+  `Database`, `UserService`) split across three layers, including
+  a failing layer (`dbConnect` when `databaseUrl` is empty) and a
+  resourceful layer (registers `cache-flush` and `db-close`
+  finalizers). Three scenarios assert exact event sequences:
+  happy path, layer-level failure, and program-level typed failure
+  after service use. All three pass. `FINDINGS.md` records one DX
+  issue worth tracking: the lack of a passthrough operator for
+  sequential composition (DX-1, candidate for a later phase). CI
+  builds and runs the spike on every PR.

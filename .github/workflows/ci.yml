@@ -60,11 +60,17 @@ jobs:
       - name: Build (spike-phase-4-review)
         run: npx spago build -p spike-phase-4-review
 
+      - name: Build (spike-phase-5-review)
+        run: npx spago build -p spike-phase-5-review
+
       - name: Run spike-aff-interruption harness
         run: npx spago run -p spike-aff-interruption
 
       - name: Run spike-phase-4-review stress test
         run: npx spago run -p spike-phase-4-review
+
+      - name: Run spike-phase-5-review layered app
+        run: npx spago run -p spike-phase-5-review
 
       - name: Build and run logger example
         run: npx spago run -p rio-example-logger
