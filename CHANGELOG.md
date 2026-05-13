@@ -213,6 +213,29 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   plain `it` + `runRIO`; forking a service-using program inside
   a spec body costs an inner `runRIO` because `Aff.forkAff`
   works in `Aff`, not in `RIO`.
+- `examples/todo-api/`: Phase 8.1 tutorial example. A small
+  HTTP service built on HTTPurple 4.0 plus `rio`. Six modules:
+  service interfaces (`Services.purs`), production layer
+  wiring (`Layers.purs`) with an in-memory `Ref`-backed store,
+  domain handlers (`Handlers.purs`) expressed as `RIO`
+  programs over a three-service environment (`logger`,
+  `todoStore`, `clock`) with a single typed failure
+  (`notFound`), JSON codecs (`Codecs.purs`) bridging
+  `argonaut-codecs` to HTTPurple's `JsonEncoder` /
+  `JsonDecoder`, route definitions (`Routes.purs`) via
+  `Routing.Duplex`, and a bridging `Main.purs` that builds the
+  layer once at startup and runs each request via `runRIO`.
+  Four endpoints (GET `/todos`, GET `/todos/:id`, POST
+  `/todos`, DELETE `/todos/:id`) with HTTP semantics
+  (200/204/400/404/405) verified against `curl` end-to-end.
+  Persistence is in-memory only; the SQLite-backed variant
+  called for in the original build plan is deferred to v0.2
+  since the layer-swap story is already demonstrated by the
+  Phase 7 review and the example does not need a second
+  driver to show off RIO. CI builds the example on every PR.
+  `argonaut-codecs`, `argonaut-core`, `httpurple`, and
+  `integers` join the example package's dependency manifest;
+  none are added to the main `rio` package's dependencies.
 - `spikes/phase-6-review/`: Phase 6 review cycle. Four randomised
   stress scenarios driven by `Effect.Random` parameters:
   `parTraverse` over up to eight actions with up to 60 percent

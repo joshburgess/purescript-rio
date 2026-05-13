@@ -373,6 +373,8 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
 - **Deliverables:** `examples/todo-api/`, a small HTTP service using HTTPure, with services for logging, persistence (in-memory + a SQLite-backed variant via `purescript-node-sqlite3` or similar), and request handling. Demonstrates layers, errors, and resource safety.
 - **Acceptance:** Reader can clone, `spago run`, hit endpoints, see logs.
 
+**Status:** Complete. See `examples/todo-api/`. Built on HTTPurple 4.0 (rather than HTTPure, which is unmaintained in registry 77.0.0). In-memory persistence only; the SQLite-backed variant is deferred to v0.2 since the layer-swap story is already demonstrated by the Phase 7 review and adding a second driver here would dilute rather than reinforce the tutorial. Four endpoints (GET / POST / DELETE / GET-by-id) verified end-to-end with `curl`; HTTP semantics (200, 204, 400, 404, 405) all behave correctly. README walks readers through the module layout and the bridging pattern (`runRIO` inside an HTTPurple router).
+
 ### 8.2 Migration guides
 
 - **Deliverables:**
