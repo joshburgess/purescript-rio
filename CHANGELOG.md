@@ -9,6 +9,24 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-12
+
+First public release. The library covers the full ZIO / Effect-TS
+analogue: typed environment row, typed error row, resource-safe
+bracket and scope primitives, layer composition, structural
+concurrency with cancellation, virtual-time testing, and adapters
+for `purescript-spec`. See `docs/` for the walkthroughs, and
+`docs/migrating-from-zio.md` / `docs/migrating-from-effect-ts.md`
+for idiom-by-idiom mappings.
+
+### Phase 8.5 release prep
+
+- Version bumped to `0.1.0` in `spago.yaml`.
+- README rewritten as a release-quality landing page: 30-second
+  tour, install line, module-by-module surface for v0.1.0, links
+  to walkthrough docs and the worked example, build and run
+  instructions, v0.2 backlog pointer.
+
 ### Added
 
 - Initial project scaffold (Phase 0.1).

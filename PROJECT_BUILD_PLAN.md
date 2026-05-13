@@ -407,6 +407,8 @@ Reviewer ports one of the Phase 2/3/5 examples to use only test services and ass
   - Announcement post draft for the PureScript Discourse.
 - **Acceptance:** A fresh project can add `rio` as a dependency and use it.
 
+**Status:** Repository ready for release. Version bumped to `0.1.0` in `spago.yaml`, CHANGELOG cut at `[0.1.0] - 2026-05-12` with a one-paragraph release summary above the existing detailed entries, README rewritten as a quality-bar landing page (30-second tour, install line, module-by-module surface for v0.1.0, links to walkthrough docs and the worked example, build / run instructions). Announcement-post draft dropped from the deliverables at the user's direction; README quality serves the same first-impression purpose. The tag-and-publish steps (GitHub release tag, registry publish, Pursuit upload) are gated on the user; they were not done autonomously.
+
 ### Phase 8 review cycle
 
 Final acceptance: an external PureScript developer (not involved in development) is asked to build a small program using only public docs and the registry release. Their feedback drives v0.1.1.
