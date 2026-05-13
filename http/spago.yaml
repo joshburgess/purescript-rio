@@ -1,0 +1,13 @@
+package:
+  name: rio-httpurple
+  dependencies:
+    - aff
+    - effect
+    - httpurple
+    - maybe
+    - newtype
+    - prelude
+    - refs
+    - rio
+    - tuples
+    - variant

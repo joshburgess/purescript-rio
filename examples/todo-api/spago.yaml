@@ -17,6 +17,7 @@ package:
     - prelude
     - refs
     - rio
+    - rio-httpurple
     - strings
     - tuples
     - variant

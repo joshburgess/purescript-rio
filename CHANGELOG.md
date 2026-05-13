@@ -9,6 +9,44 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ## [Unreleased]
 
+### Added
+
+- `rio-httpurple` workspace package: extracts the reusable HTTP
+  pieces of the todo-api example into a standalone adapter so
+  apps that pair `rio` with [HTTPurple](https://pursuit.purescript.org/packages/purescript-httpurple)
+  can pick them up without copying.
+  - `RIO.HTTPurple.Request` exposes a `RequestContext` record
+    (method, path, requestId, headers) plus `mkRequestContext`,
+    `newRequestCounter`, and `defaultRequestIdHeader` for
+    snapshotting an HTTPurple `Request` into a flat shape free of
+    the route type variable. Honours an inbound
+    `X-Request-Id` header when present; falls back to a
+    monotonic `req-N` allocated from a per-process counter.
+  - `RIO.HTTPurple.Middleware.withRequestContext` wraps any
+    `RIO` action so every emitted log line carries
+    `request.id` / `request.method` / `request.path`, writes
+    the request id into a `Local String` for downstream
+    correlation, and emits a `request received` /
+    `request completed` (or `request failed`) pair around the
+    body with elapsed milliseconds and a success / failure
+    verdict. The wrapped action's error row is preserved.
+  - `RIO.HTTPurple.Auth.requireAuth` is a polymorphic typed
+    failure: takes a `Proxy sym` and a payload supplied by the
+    caller so each consuming app can choose its own tag
+    (`unauthorized`, `forbidden`, ...) and payload on its
+    own error row. `bearerAuthConfig` builds a config whose
+    `expected` field is `"Bearer " <> token`.
+- CI builds `rio-httpurple` on every PR and the
+  `purs-tidy` format check now covers the `http/` source tree.
+
+### Changed
+
+- `examples/todo-api/Middleware.purs` is now a thin app-shim
+  over `rio-httpurple`. It re-exports `RequestContext` /
+  `AuthConfig` / `withRequestContext` verbatim and pre-applies
+  `requireAuth` against the example's `unauthorized` typed
+  failure so call sites stay unchanged.
+
 ### Changed (v0.3)
 
 - `examples/todo-api/`: migrated to `RIO.Logger` for structured
