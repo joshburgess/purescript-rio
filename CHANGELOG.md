@@ -47,6 +47,26 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   `requireAuth` against the example's `unauthorized` typed
   failure so call sites stay unchanged.
 
+### Research
+
+- `spikes/qualified-do/`: explores PureScript's qualified-do as
+  ergonomic sugar over `RIO` patterns. Two candidates earn their
+  keep: `Resource.do` flattens nested `acquireRelease` blocks
+  (verified to produce identical LIFO release ordering against
+  the hand-nested form), and `Par.ado` runs each `<-` line
+  concurrently under `Control.Parallel` (clocked at 102ms vs
+  302ms for three 100ms branches). The findings call out one
+  ergonomic gotcha (plain `RIO` lines inside `Resource.do` need
+  an explicit `liftRIO`) and the things qualified-do
+  fundamentally cannot do (type-directed implicit `Proxy` at the
+  `<-` site, implicit `atomically` lifts that mix `STM` and
+  `RIO`, generator-style `yield` / `await`). See
+  `spikes/qualified-do/FINDINGS.md`. CI builds and runs the
+  spike on every PR. The two winning candidates are scoped for
+  inclusion in the main package under
+  `RIO.Resource.Do` / `RIO.Concurrency.Par` once the surface is
+  reviewed.
+
 ### Changed (v0.3)
 
 - `examples/todo-api/`: migrated to `RIO.Logger` for structured

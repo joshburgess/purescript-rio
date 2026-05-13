@@ -1,0 +1,19 @@
+package:
+  name: spike-qualified-do
+  dependencies:
+    - aff
+    - console
+    - effect
+    - either
+    - exceptions
+    - foldable-traversable
+    - maybe
+    - newtype
+    - parallel
+    - prelude
+    - refs
+    - rio
+    - tuples
+    - variant
+  run:
+    main: Spike.QualifiedDo.Main
