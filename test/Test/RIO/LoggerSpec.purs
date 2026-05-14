@@ -12,7 +12,7 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, catchTag, die, fail, provideAll, runRIO, runRIO')
+import RIO.Core (RIO, catchTag, die, fail, fork, join, provideAll, runRIO, runRIO')
 import RIO.Logger
   ( LogLevel(..)
   , Logger
@@ -271,6 +271,60 @@ spec = describe "RIO.Logger" do
       records <- liftEffect rec.snapshot
       case records of
         [ r ] -> r.fields `shouldEqual` []
+        _ -> 1 `shouldEqual` Array.length records
+
+  describe "fork inheritance (implicit-context semantics)" do
+    -- The "Concurrency and fork inheritance" section of the
+    -- Logger docstring promises two things: (1) "a forked fiber
+    -- that emits a log line reads whatever annotations are
+    -- current at emission time", and (2) "writes from any fiber
+    -- are visible to every fiber". These are the same trade-offs
+    -- `RIO.Local` and `RIO.Tracer` document for their implicit-
+    -- context model. `RIO.Local` already pins this; pin it for
+    -- `Logger` so a future refactor that switches to per-fiber
+    -- isolation can't slip through silently.
+    it "a forked fiber inherits the parent's annotations at emit-time" do
+      rec <- liftAff newRecordingLogger
+      let
+        program :: RIO (logger :: Logger) () Unit
+        program = withField "request.id" "outer" do
+          child <- fork (logInfo "from-child")
+          logInfo "from-parent"
+          join child
+      _ <- runRIO (provideAll { logger: rec.logger } program)
+      records <- liftEffect rec.snapshot
+      Array.length records `shouldEqual` 2
+      case records of
+        [ r1, r2 ] -> do
+          r1.fields `shouldEqual` [ Tuple "request.id" "outer" ]
+          r2.fields `shouldEqual` [ Tuple "request.id" "outer" ]
+        _ -> 1 `shouldEqual` Array.length records
+
+    it "a child's withFields write is visible to a later parent emission" do
+      -- The docstring is explicit that the underlying `Effect.Ref`
+      -- is shared across fibers, so a write inside the child is
+      -- observable to the parent once `join` returns. Pin that
+      -- shared-state behaviour: it is the trade-off the docstring
+      -- documents, and changing it would be a breaking change.
+      rec <- liftAff newRecordingLogger
+      let
+        program :: RIO (logger :: Logger) () Unit
+        program = do
+          child <- fork
+            (withField "child.id" "c1" (logInfo "from-child"))
+          join child
+          logInfo "from-parent"
+      _ <- runRIO (provideAll { logger: rec.logger } program)
+      records <- liftEffect rec.snapshot
+      case records of
+        [ r1, r2 ] -> do
+          r1.message `shouldEqual` "from-child"
+          r1.fields `shouldEqual` [ Tuple "child.id" "c1" ]
+          r2.message `shouldEqual` "from-parent"
+          -- After the child's withFields exits, its `finally`
+          -- restores the previous (empty) annotation set, so the
+          -- parent's later emission sees no fields.
+          r2.fields `shouldEqual` []
         _ -> 1 `shouldEqual` Array.length records
 
   describe "noopLogger" do
