@@ -4,7 +4,7 @@ import Prelude hiding ((>>>))
 
 import Data.Array (snoc)
 import Data.Either (Either(..))
-import Effect.Aff (Aff, attempt, error)
+import Effect.Aff (Aff, Milliseconds(..), attempt, delay, error, forkAff, joinFiber, killFiber)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -25,6 +25,7 @@ import RIO.Core
   , passthrough
   , provideLayer
   , runRIO
+  , runRIO'
   )
 import RIO.Layer ((<+>), (>>>))
 
@@ -361,6 +362,39 @@ spec = do
           provided :: RIO () () Unit
           provided = provideLayer layer program
         _ <- attempt (runRIO provided)
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "open", "log:before", "close" ]
+
+      it "release fires on a fiber-kill program path" do
+        -- The `provideLayer` docstring promises "any finalizers
+        -- the layer registers run after the inner program
+        -- completes, on every termination path". Typed-failure
+        -- and defect are pinned above; pin the fiber-kill path
+        -- so the full bracket contract is documented across all
+        -- four termination paths the docstring covers.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          layer :: Layer () () (logger :: Logger)
+          layer = fromRIO do
+            scope <- ask (Proxy :: Proxy "scope")
+            liftAff (push "open")
+            _ <- addFinalizer scope (push "close")
+            pure { logger: { log: \s -> push ("log:" <> s) } }
+
+          program :: RIO (logger :: Logger) () Unit
+          program = do
+            logger <- ask (Proxy :: Proxy "logger")
+            liftAff (logger.log "before")
+            liftAff (delay (Milliseconds 50.0))
+
+          provided :: RIO () () Unit
+          provided = provideLayer layer program
+        f <- forkAff (runRIO' provided)
+        delay (Milliseconds 5.0)
+        killFiber (error "test-cancel") f
+        _ <- attempt (joinFiber f)
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "open", "log:before", "close" ]
 
