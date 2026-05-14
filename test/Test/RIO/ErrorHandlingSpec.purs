@@ -318,3 +318,24 @@ spec = do
             Left err -> message err `shouldEqual` "round-trip"
             Right _ -> Assertions.fail
               "expected defect to round-trip through sandbox/unsandbox"
+
+        it "preserves typed failures unchanged (does not convert them to defects)" do
+          -- Docstring promise: "Typed failures in the input are
+          -- preserved unchanged." `unsandbox` only re-raises a
+          -- `Left Error` in the SUCCESS channel as a defect; a
+          -- typed failure flowing through must still surface as a
+          -- typed Left on the same row.
+          let
+            inner :: RIO () (boom :: Unit) (Either _ Int)
+            inner = fail (Proxy :: Proxy "boom") unit
+
+            program :: RIO () (boom :: Unit) Int
+            program = unsandbox inner
+          result <- runRIO program
+          case result of
+            Left v ->
+              Variant.case_
+                # Variant.on (Proxy :: Proxy "boom") (\_ -> pure unit)
+                $ v
+            Right _ -> Assertions.fail
+              "expected typed Left to pass through unsandbox unchanged"
