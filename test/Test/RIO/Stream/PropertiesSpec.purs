@@ -18,6 +18,7 @@ import RIO.Core (runRIO')
 import RIO.Stream
   ( concat
   , drop
+  , empty
   , filter
   , flatMap
   , fromArray
@@ -265,6 +266,29 @@ spec = describe "RIO.Stream (property tests)" do
   -- `filter (p ∘ f) ∘ map f` and `map f ∘ filter (p ∘ f)` must
   -- agree on every prefix. This catches a fusion regression
   -- that fails to compose the predicate with the transformer.
+  -- Monoid identity laws for `concat`: `empty` is a left- and
+  -- right-identity. `concat` associativity is already pinned
+  -- above. Together they pin that `(Stream r e a, concat, empty)`
+  -- forms a Monoid under `runCollect`'s pure projection.
+
+  it "concat left identity: concat empty s ≡ s" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      left <- runRIO' (runCollect (concat empty (fromArray xs)))
+      right <- runRIO' (runCollect (fromArray xs))
+      left `shouldEqual` right
+
+  it "concat right identity: concat s empty ≡ s" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      left <- runRIO' (runCollect (concat (fromArray xs) empty))
+      right <- runRIO' (runCollect (fromArray xs))
+      left `shouldEqual` right
+
+  it "single x ≡ fromArray [x] under runCollect" do
+    forAll (arbitrary :: Gen Int) \x -> do
+      left <- runRIO' (runCollect (single x))
+      right <- runRIO' (runCollect (fromArray [ x ]))
+      left `shouldEqual` right
+
   it "filter (p ∘ f) (map f s) ≡ map f (filter (p ∘ f) s)" do
     forAll (arbitrary :: Gen (Array Int)) \xs -> do
       let
