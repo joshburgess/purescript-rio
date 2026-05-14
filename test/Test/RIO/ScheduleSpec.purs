@@ -337,6 +337,23 @@ spec = do
         outputs <- runRIO' (collectOutputs 5 (forever :: Schedule () Unit Int))
         outputs `shouldEqual` [ 1, 2, 3, 4, 5 ]
 
+      it "emits Milliseconds 0.0 at every step (equivalent to spaced 0)" do
+        -- Docstring promise: `forever` is "Equivalent to
+        -- `spaced (Milliseconds 0.0)`". The existing `forever`
+        -- test pins only the iteration-count output side; a
+        -- regression that silently introduced any nonzero
+        -- delay (e.g., copy-pasted from `spaced 100`) would
+        -- still pass that test because `collectOutputs` does
+        -- not look at delays. Pin the zero-delay half of the
+        -- equivalence directly.
+        delays <- runRIO' (collectDelays 4 (forever :: Schedule () Unit Int))
+        delays `shouldEqual`
+          [ Milliseconds 0.0
+          , Milliseconds 0.0
+          , Milliseconds 0.0
+          , Milliseconds 0.0
+          ]
+
     describe "mapSchedule" do
       it "transforms output while preserving cadence" do
         let sched = mapSchedule (\n -> n * 10) (recurs 3) :: Schedule () Unit Int
