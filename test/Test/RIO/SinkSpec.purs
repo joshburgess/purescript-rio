@@ -151,6 +151,31 @@ spec = describe "RIO.Sink" do
       r <- runRIO' (Sink.runSink (Sink.any (_ == 3)) source)
       r `shouldEqual` true
 
+    it "any does not pull elements after the first match" do
+      -- Docstring promise: "Short-circuits on the first match."
+      -- The pinned "any short-circuits on a match" test only
+      -- asserts the return value equals `true`, which any
+      -- implementation that scans the full stream would also
+      -- satisfy. A regression that replaced `Halt true` with
+      -- `any p` in the match branch (i.e. kept consuming after
+      -- the match) would still return `true` and pass that
+      -- test. Pin the short-circuit half with a counting
+      -- upstream and assert exactly the prefix up to and
+      -- including the matching element was pulled.
+      counter <- liftEffect (Ref.new 0)
+      let
+        tick :: Int -> RIO () () Int
+        tick i = liftEffect (Ref.modify (_ + 1) counter) *> pure i
+
+        program :: RIO () () Boolean
+        program = Sink.runSink
+          (Sink.any (_ == 3))
+          (Stream.mapM tick (Stream.fromArray [ 1, 2, 3, 4, 5 ]))
+      r <- runRIO' program
+      r `shouldEqual` true
+      pulled <- liftEffect (Ref.read counter)
+      pulled `shouldEqual` 3
+
     it "any returns false on an empty stream" do
       r <- runRIO'
         ( Sink.runSink
