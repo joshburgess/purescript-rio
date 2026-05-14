@@ -81,3 +81,56 @@ spec = describe "RIO.STM.TMap" do
     result `shouldEqual` "found-it"
     order <- liftEffect (Ref.read events)
     order `shouldEqual` [ "before-fork", "before-insert", "after-await" ]
+
+  it "lookupTMap on a missing key returns Nothing" do
+    let
+      program :: RIO () () (Maybe Int)
+      program = do
+        m <- atomically (newTMap :: _ (_ Int Int))
+        atomically (insertTMap 1 10 m)
+        atomically (lookupTMap 2 m)
+    result <- runRIO' program
+    result `shouldEqual` Nothing
+
+  it "insertTMap of an existing key overwrites" do
+    let
+      program :: RIO () () (Maybe Int)
+      program = do
+        m <- atomically (newTMap :: _ (_ Int Int))
+        atomically (insertTMap 1 10 m)
+        atomically (insertTMap 1 20 m)
+        atomically (lookupTMap 1 m)
+    result <- runRIO' program
+    result `shouldEqual` Just 20
+
+  it "deleteTMap of an absent key is a no-op" do
+    let
+      program :: RIO () () { sizeBefore :: Int, sizeAfter :: Int }
+      program = do
+        m <- atomically (newTMap :: _ (_ Int Int))
+        atomically (insertTMap 1 10 m)
+        sizeBefore <- atomically (sizeTMap m)
+        atomically (deleteTMap 99 m)
+        sizeAfter <- atomically (sizeTMap m)
+        pure { sizeBefore, sizeAfter }
+    result <- runRIO' program
+    result `shouldEqual` { sizeBefore: 1, sizeAfter: 1 }
+
+  it "sizeTMap on an empty map is 0" do
+    let
+      program :: RIO () () Int
+      program = do
+        m <- atomically (newTMap :: _ (_ Int Int))
+        atomically (sizeTMap m)
+    result <- runRIO' program
+    result `shouldEqual` 0
+
+  it "awaitKey returns immediately when the key is already present" do
+    let
+      program :: RIO () () String
+      program = do
+        m <- atomically (newTMap :: _ (_ Int String))
+        atomically (insertTMap 1 "ready" m)
+        atomically (awaitKey 1 m)
+    result <- runRIO' program
+    result `shouldEqual` "ready"

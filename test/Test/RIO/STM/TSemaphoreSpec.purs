@@ -4,19 +4,22 @@ import Prelude
 
 import Data.Array (range)
 import Data.Traversable (traverse)
-import Effect.Aff (Milliseconds(..), delay)
+import Effect.Aff (Milliseconds(..), attempt, delay, error)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
+import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fork, join, runRIO')
+import RIO.Core (RIO, die, fail, fork, join, runRIO, runRIO')
 import RIO.STM (atomically)
 import RIO.STM.TSemaphore
   ( TSemaphore
+  , acquireN
   , availableTSemaphore
   , newTSemaphore
+  , releaseN
   , releaseTSemaphore
   , withTSemaphore
   )
@@ -89,3 +92,54 @@ spec = describe "RIO.STM.TSemaphore" do
     peak <- runRIO' program
     (peak <= 3) `shouldEqual` true
     (peak >= 1) `shouldEqual` true
+
+  it "acquireN / releaseN deduct and restore the full count atomically" do
+    let
+      program
+        :: RIO () () { afterAcquire :: Int, afterRelease :: Int }
+      program = do
+        sem <- atomically (newTSemaphore 5)
+        atomically (acquireN 3 sem)
+        afterAcquire <- atomically (availableTSemaphore sem)
+        atomically (releaseN 3 sem)
+        afterRelease <- atomically (availableTSemaphore sem)
+        pure { afterAcquire, afterRelease }
+    result <- runRIO' program
+    result `shouldEqual` { afterAcquire: 2, afterRelease: 5 }
+
+  it "availableTSemaphore reflects the initial count and each step" do
+    let
+      program
+        :: RIO ()
+             ()
+             { fresh :: Int, afterAcquire :: Int, afterExtraRelease :: Int }
+      program = do
+        sem <- atomically (newTSemaphore 1)
+        fresh <- atomically (availableTSemaphore sem)
+        atomically (acquireN 1 sem)
+        afterAcquire <- atomically (availableTSemaphore sem)
+        atomically (releaseTSemaphore sem)
+        atomically (releaseTSemaphore sem)
+        afterExtraRelease <- atomically (availableTSemaphore sem)
+        pure { fresh, afterAcquire, afterExtraRelease }
+    result <- runRIO' program
+    result `shouldEqual`
+      { fresh: 1, afterAcquire: 0, afterExtraRelease: 2 }
+
+  it "withTSemaphore releases the permit after a typed failure" do
+    sem <- runRIO' (atomically (newTSemaphore 1) :: RIO () () TSemaphore)
+    let
+      program :: RIO () (boom :: Unit) Unit
+      program = withTSemaphore sem (fail (Proxy :: Proxy "boom") unit)
+    _ <- runRIO program
+    a <- runRIO' (atomically (availableTSemaphore sem) :: RIO () () Int)
+    a `shouldEqual` 1
+
+  it "withTSemaphore releases the permit after a defect" do
+    sem <- runRIO' (atomically (newTSemaphore 1) :: RIO () () TSemaphore)
+    let
+      program :: RIO () () Unit
+      program = withTSemaphore sem (die (error "boom"))
+    _ <- attempt (runRIO' program)
+    a <- runRIO' (atomically (availableTSemaphore sem) :: RIO () () Int)
+    a `shouldEqual` 1

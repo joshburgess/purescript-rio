@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.STM.TMap` and `RIO.STM.TSemaphore`: nine additional unit
+  tests covering coverage gaps. TMap picks up missing-key
+  lookup, insert-overwrite, delete-of-absent-key no-op, empty-
+  map size, and awaitKey-with-key-already-present (no retry);
+  TSemaphore picks up `acquireN` / `releaseN` (the multi-permit
+  smart constructors, previously only exercised through the
+  `withTSemaphore`/`acquireTSemaphore` aliases), incremental
+  `availableTSemaphore` tracking, and the release-on-typed-
+  failure / release-on-defect contracts (mirrors the non-STM
+  `RIO.Semaphore` tests added earlier this session).
+  Whole-package run goes `358 -> 367` tests passing.
 - `docs/01-core-type.md`, `docs/02-services.md`, and
   `docs/13-streams.md` now have the `## Pointers` section every
   other 01-15 numbered reference doc carries. The three were the
