@@ -2,9 +2,10 @@ module Test.RIO.Stream.ParSpec (spec) where
 
 import Prelude
 
-import Data.Array (range, sort) as Array
+import Data.Array (length, range, sort) as Array
 import Data.Either (Either(..))
 import Data.Time.Duration (Milliseconds(..))
+import Data.Traversable (traverse)
 import Effect.Aff (delay)
 import Effect.Aff.Class (liftAff)
 import Test.Spec (Spec, describe, it)
@@ -12,9 +13,10 @@ import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Assertions (fail) as Spec
 import Type.Proxy (Proxy(..))
 
+import RIO.Concurrency (fork, join)
 import RIO.Core (RIO, fail, runRIO)
 import RIO.Stream (Stream, fromArray, mapM, runCollect)
-import RIO.Stream.Par (merge, mergeAll, mergeMap)
+import RIO.Stream.Par (broadcast, merge, mergeAll, mergeMap)
 
 spec :: Spec Unit
 spec = do
@@ -115,3 +117,76 @@ spec = do
             )
         r <- runRIO program
         r `shouldEqual` Right []
+
+    describe "broadcast" do
+      it "every consumer sees every element in input order" do
+        let
+          program :: RIO () () (Array (Array Int))
+          program = do
+            consumers <- broadcast 3 4 (fromArray (Array.range 1 5))
+            fibers <- traverse (\s -> fork (runCollect s)) consumers
+            traverse join fibers
+        r <- runRIO program
+        case r of
+          Right outs -> do
+            outs `shouldEqual`
+              [ [ 1, 2, 3, 4, 5 ]
+              , [ 1, 2, 3, 4, 5 ]
+              , [ 1, 2, 3, 4, 5 ]
+              ]
+          Left _ -> Spec.fail "expected broadcast to succeed"
+
+      it "n = 0 returns no consumers (no fiber forked)" do
+        let
+          program :: RIO () () (Array (Stream () () Int))
+          program = broadcast 0 4 (fromArray [ 1, 2, 3 ])
+        r <- runRIO program
+        case r of
+          Right xs -> Array.length xs `shouldEqual` 0
+          Left _ -> Spec.fail "expected zero-consumer broadcast to succeed"
+
+      it "propagates a typed failure to every consumer" do
+        let
+          source :: Stream () (boom :: String) Int
+          source = mapM
+            (\_ -> fail (Proxy :: Proxy "boom") "kaboom")
+            (fromArray [ 1 ])
+
+          program :: RIO () (boom :: String) (Array (Array Int))
+          program = do
+            consumers <- broadcast 2 4 source
+            fibers <- traverse (\s -> fork (runCollect s)) consumers
+            traverse join fibers
+        r <- runRIO program
+        case r of
+          Left _ -> pure unit
+          Right _ ->
+            Spec.fail "expected broadcast to surface the typed failure"
+
+      it "slow consumers don't lose elements (buffer + backpressure)" do
+        let
+          program :: RIO () () (Array (Array Int))
+          program = do
+            consumers <- broadcast 2 2 (fromArray (Array.range 1 6))
+            fibers <- traverse
+              ( \s -> fork
+                  ( runCollect
+                      ( mapM
+                          ( \v ->
+                              liftAff (delay (Milliseconds 2.0))
+                                *> pure v
+                          )
+                          s
+                      )
+                  )
+              )
+              consumers
+            traverse join fibers
+        r <- runRIO program
+        case r of
+          Right outs ->
+            outs `shouldEqual`
+              [ [ 1, 2, 3, 4, 5, 6 ]
+              , [ 1, 2, 3, 4, 5, 6 ]
+              ]
+          Left _ -> Spec.fail "expected backpressured broadcast to succeed"

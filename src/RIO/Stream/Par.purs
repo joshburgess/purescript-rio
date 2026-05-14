@@ -9,6 +9,10 @@
 -- | and `mergeMap` is the `flatMap`-shaped variant that drains
 -- | each element's inner stream concurrently.
 -- |
+-- | `broadcast` is the dual shape: one upstream fanned out to N
+-- | consumer streams over bounded per-consumer queues, with the
+-- | slowest consumer applying backpressure to the producer.
+-- |
 -- | All combinators here share the same failure model: the *first*
 -- | typed failure or defect observed in any producer shuts the
 -- | shared queue down. Sibling producers are still running at that
@@ -31,7 +35,8 @@
 -- |   )
 -- | ```
 module RIO.Stream.Par
-  ( merge
+  ( broadcast
+  , merge
   , mergeAll
   , mergeMap
   ) where
@@ -42,7 +47,7 @@ import Control.Monad.Error.Class (throwError)
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
-import Data.Traversable (traverse_)
+import Data.Traversable (traverse, traverse_)
 import Effect.Aff (error) as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -116,6 +121,75 @@ mergeMap f outer = Stream do
       case step of
         Done -> pure acc
         Yield a rest -> go (Array.snoc acc a) rest
+
+-- | Fan one upstream out to `n` consumer streams, each with its
+-- | own bounded buffer of `bufferSize`. Returns the consumer
+-- | streams once the producer fiber is running.
+-- |
+-- | Backpressure is end-to-end: each element is offered to every
+-- | subscriber's queue in turn, so the slowest subscriber slows
+-- | the producer down (and therefore every other subscriber too).
+-- | If you need a slow consumer to fall behind without blocking
+-- | the others, allocate `Hub` subscribers directly and skip this
+-- | combinator.
+-- |
+-- | Failure model matches `mergeAll`: the first observed typed
+-- | failure or defect on the producer side shuts every subscriber
+-- | queue down; each consumer surfaces the same captured cause on
+-- | its next pull.
+-- |
+-- | `n <= 0` returns an empty array immediately and does not touch
+-- | the upstream. `bufferSize` is clamped to at least 1.
+broadcast
+  :: forall r e a
+   . Int
+  -> Int
+  -> Stream r e a
+  -> RIO r e (Array (Stream r e a))
+broadcast n bufferSize upstream
+  | n <= 0 = pure []
+  | otherwise = do
+      let cap = max 1 bufferSize
+      queues <- liftEffect
+        (traverse (\_ -> Queue.bounded cap) (Array.range 1 n))
+      failureRef <- liftEffect (Ref.new (Nothing :: Maybe (Cause e)))
+      _ <- fork (broadcastProducer queues failureRef upstream)
+      pure (map (\q -> consumer q failureRef) queues)
+
+-- | The producer side of `broadcast`: drains upstream under
+-- | `attemptCause`. Each value is offered to every subscriber's
+-- | queue in input order; a blocked queue applies backpressure to
+-- | the whole fan-out. On success, shuts every queue down; on
+-- | failure, records the cause and shuts every queue down.
+broadcastProducer
+  :: forall r e a
+   . Array (Queue a)
+  -> Ref.Ref (Maybe (Cause e))
+  -> Stream r e a
+  -> RIO r () Unit
+broadcastProducer queues failureRef upstream = do
+  outcome <- attemptCause (drainTo upstream)
+  case outcome of
+    Right _ -> traverse_ Queue.shutdown queues
+    Left cause -> do
+      liftEffect
+        ( Ref.modify_
+            ( case _ of
+                Nothing -> Just cause
+                existing -> existing
+            )
+            failureRef
+        )
+      traverse_ Queue.shutdown queues
+  where
+  drainTo :: Stream r e a -> RIO r e Unit
+  drainTo s = do
+    step <- unStream s
+    case step of
+      Done -> pure unit
+      Yield a rest -> do
+        traverse_ (\q -> Queue.offer q a) queues
+        drainTo rest
 
 -- | One producer fiber: drains its input stream onto the shared
 -- | queue under `attemptCause`. On success, decrements the
