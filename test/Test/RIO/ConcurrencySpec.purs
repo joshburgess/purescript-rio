@@ -475,6 +475,36 @@ spec = do
         n <- liftEffect (Ref.read completed)
         n `shouldEqual` 0
 
+      it "a defect in one branch propagates via sandbox and interrupts siblings" do
+        -- Docstring promise: "Defects from any branch propagate as
+        -- Aff defects (observable via `RIO.Error.sandbox`); they
+        -- also interrupt the siblings." Pin both halves: (1) the
+        -- defect surfaces through `sandbox` as Left Error rather
+        -- than collapsing into a typed failure, and (2) sibling
+        -- branches do not complete their 200ms work, mirroring
+        -- the typed-failure short-circuit test above.
+        completed <- liftEffect (Ref.new (0 :: Int))
+        let
+          step :: Int -> RIO () () Int
+          step n =
+            if n == 0 then do
+              liftAff (delay (Milliseconds 5.0))
+              die (error "kaboom")
+            else do
+              liftAff (delay (Milliseconds 200.0))
+              liftEffect (Ref.modify_ (_ + 1) completed)
+              pure n
+
+          prog :: RIO () () (Either _ (Array Int))
+          prog = sandbox (parTraverse step [ 0, 1, 2, 3 ])
+        result <- runRIO prog
+        case result of
+          Right (Left e) -> message e `shouldEqual` "kaboom"
+          _ -> 1 `shouldEqual` 0
+        liftAff (delay (Milliseconds 250.0))
+        n <- liftEffect (Ref.read completed)
+        n `shouldEqual` 0
+
     describe "parTraverseN" do
       it "preserves array order in the result" do
         let
