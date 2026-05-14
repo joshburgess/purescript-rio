@@ -11,6 +11,18 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Config`: four additional unit tests pinning the rendering
+  contract of `prettyConfigError`, the user-facing pretty-printer
+  for config-load failures. The previous suite exercised the
+  loader paths thoroughly but never asserted what the rendered
+  text looks like, so any silent change in the message format
+  would have slipped through. The new tests cover all three
+  `ConfigError` constructors: `MissingKey` with and without a
+  namespace path (verifying the dotted `DB.URL` form), a
+  `ParseError` (verifying the `key: message` shape), and a
+  `Multi` (verifying the "config failed to load:" header plus
+  one indented bullet per child error). Whole-package run goes
+  `384 -> 388` tests passing.
 - `RIO.Config.Rotating`: two additional unit tests pinning the
   `withRotation` docstring contract about loader failure on a
   subsequent refresh. The first asserts that the failure

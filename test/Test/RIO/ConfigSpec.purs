@@ -3,6 +3,8 @@ module Test.RIO.ConfigSpec (spec) where
 import Prelude
 
 import Data.Either (Either(..))
+import Data.List (List(..), (:))
+import Data.List.NonEmpty as NEL
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Tuple.Nested ((/\))
@@ -22,6 +24,7 @@ import RIO.Config
   , mapSource
   , nested
   , optional
+  , prettyConfigError
   , secret
   , string
   , unSecret
@@ -145,3 +148,29 @@ spec = do
         case r of
           Right s -> show s `shouldEqual` "<redacted>"
           Left _ -> fail "expected the secret to load"
+
+    describe "prettyConfigError" do
+      it "renders MissingKey on a single line with the bare key" do
+        prettyConfigError (MissingKey [] "DATABASE_URL")
+          `shouldEqual` "missing required config key: DATABASE_URL"
+
+      it "renders MissingKey with a namespace path joined by dots" do
+        prettyConfigError (MissingKey [ "DB" ] "URL")
+          `shouldEqual` "missing required config key: DB.URL"
+
+      it "renders ParseError with the message after the colon" do
+        prettyConfigError (ParseError [] "PORT" "not a number")
+          `shouldEqual` "could not parse config key PORT: not a number"
+
+      it "renders Multi as a header plus an indented bullet per child" do
+        let
+          err =
+            Multi
+              ( NEL.cons' (MissingKey [] "DATABASE_URL")
+                  (ParseError [] "PORT" "not a number" : Nil)
+              )
+        prettyConfigError err `shouldEqual`
+          ( "config failed to load:\n"
+              <> "  - missing required config key: DATABASE_URL\n"
+              <> "  - could not parse config key PORT: not a number"
+          )
