@@ -63,17 +63,32 @@ demo workload outgrows the minimal surface.
 
 ### Cause integration
 
-`RIO.Cause` ships the `Fail` / `Die` / `Parallel` / `Sequential`
-algebra plus `bothPar` and `prettyCause`. What it doesn't yet do:
+`RIO.Cause` now ships `Fail` / `Die` / `Parallel` / `Sequential`
+plus the combinator set:
 
-- Capture `Sequential` causes automatically (e.g. when a finalizer
-  fails on top of a primary failure)
+- `attemptCause` reifies any outcome as `Either (Cause e) a`
+- `bothPar` collects two parallel outcomes
+- `parTraverseCause` / `parSequenceCause` collect every failure
+  from N parallel branches into a left-leaning `Parallel` tree
+- `raceCause` waits for the first success and combines both
+  failures into a `Parallel` cause when both sides fail
+- `acquireReleaseCause` records `Sequential (body, release)` when
+  the body and the finalizer both fail
+- `prettyCause` renders the tree
+
+`worker-pool` demonstrates `parTraverseCause` + `prettyCause` end
+to end.
+
+What it doesn't yet do:
+
+- Have `RIO.Resource.acquireRelease` itself produce a `Cause` when
+  its release path fails on top of a primary failure - today only
+  the explicit `acquireReleaseCause` opts into that
 - Render Aff stacktraces inside `Die` (today we only show
   `message`)
-- Surface suppressed failures from `race`
-
-These all need plumbing changes inside `RIO.Resource` and
-`RIO.Concurrency` rather than new public API.
+- Surface suppressed failures from `RIO.Concurrency.race`
+  (`raceCause` waits for first-success-or-both-fail, but the
+  short-circuit `race` still drops the loser)
 
 ### Config sources
 
