@@ -5,12 +5,19 @@ package:
     - arrays
     - effect
     - either
+    - exceptions
+    - foldable-traversable
     - maybe
     - newtype
+    - node-event-emitter
+    - ordered-collections
     - postgresql
     - prelude
+    - refs
     - rio
+    - strings
     - transformers
+    - tuples
     - variant
   test:
     main: Test.Main

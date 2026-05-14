@@ -21,12 +21,15 @@ import Test.Spec (pending)
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
+import Test.RIO.Postgres.NotifySpec as NotifySpec
 import Test.RIO.PostgresSpec as PostgresSpec
 
 main :: Effect Unit
 main = do
   mConn <- lookupEnv "PG_CONNECTION_STRING"
   runSpecAndExitProcess [ consoleReporter ] case mConn of
-    Just conn -> PostgresSpec.spec conn
+    Just conn -> do
+      PostgresSpec.spec conn
+      NotifySpec.spec conn
     Nothing -> pending
       "rio-postgres integration tests: set PG_CONNECTION_STRING (e.g. via `docker compose up -d postgres`) to run"
