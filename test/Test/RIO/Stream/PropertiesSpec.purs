@@ -229,3 +229,54 @@ spec = describe "RIO.Stream (property tests)" do
       left <- runRIO' (runCollect (mapM (\n -> pure (f n)) (fromArray xs)))
       right <- runRIO' (runCollect (map f (fromArray xs)))
       left `shouldEqual` right
+
+  -- Naturality / distribution laws. These pin that the Array
+  -- combinators commute with their Stream counterparts under
+  -- `runCollect`, so the choice of where to apply a transform
+  -- (before or after a structural operation) has no observable
+  -- effect on the collected output.
+
+  it "map f distributes over concat: map f (concat a b) ≡ concat (map f a) (map f b)" do
+    forAll ((/\) <$> arbitrary <*> arbitrary :: Gen (Array Int /\ Array Int))
+      \(xs /\ ys) -> do
+        let f n = n * 2 + 1
+        left <- runRIO'
+          (runCollect (map f (concat (fromArray xs) (fromArray ys))))
+        right <- runRIO'
+          ( runCollect
+              (concat (map f (fromArray xs)) (map f (fromArray ys)))
+          )
+        left `shouldEqual` right
+
+  it "filter p distributes over concat: filter p (concat a b) ≡ concat (filter p a) (filter p b)" do
+    forAll ((/\) <$> arbitrary <*> arbitrary :: Gen (Array Int /\ Array Int))
+      \(xs /\ ys) -> do
+        let p n = n `mod` 2 == 0
+        left <- runRIO'
+          (runCollect (filter p (concat (fromArray xs) (fromArray ys))))
+        right <- runRIO'
+          ( runCollect
+              (concat (filter p (fromArray xs)) (filter p (fromArray ys)))
+          )
+        left `shouldEqual` right
+
+  -- Map/filter ordering: the order of map and filter matters
+  -- only when the predicate depends on the value, so the pair
+  -- `filter (p ∘ f) ∘ map f` and `map f ∘ filter (p ∘ f)` must
+  -- agree on every prefix. This catches a fusion regression
+  -- that fails to compose the predicate with the transformer.
+  it "filter (p ∘ f) (map f s) ≡ map f (filter (p ∘ f) s)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let
+        f n = n * 2 + 1
+        p n = n > 5
+      left <- runRIO'
+        (runCollect (filter (\n -> p (f n)) (map f (fromArray xs))))
+      right <- runRIO'
+        (runCollect (map f (filter (\n -> p (f n)) (fromArray xs))))
+      -- The shapes are different (right keeps then transforms,
+      -- left transforms then keeps), so they will NOT match
+      -- unless `p (f x) = p (f y)` for the same `x` (which it
+      -- does since `f` is injective here). Pin that
+      -- equivalence.
+      left `shouldEqual` right
