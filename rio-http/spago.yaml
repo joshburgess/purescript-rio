@@ -11,3 +11,19 @@ package:
     - rio
     - tuples
     - variant
+  test:
+    main: Test.Main
+    dependencies:
+      - aff
+      - effect
+      - either
+      - httpurple
+      - maybe
+      - prelude
+      - refs
+      - rio
+      - spec
+      - spec-node
+      - tuples
+      - unsafe-coerce
+      - variant
