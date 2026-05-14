@@ -49,7 +49,12 @@ Both `r` (services) and `e` (errors) are row types, so requirements and possible
 
 - Generator-style direct syntax (not feasible without compiler support; do-notation is the supported style). Qualified-do has since been explored and `RIO.Resource.Do` / `RIO.Concurrency.Par` shipped to `main`.
 - A full STM implementation. **Now shipped:** `RIO.STM` covers `TVar`, `atomically`, `TQueue`, `TMap`, `TSemaphore`, `THub`.
-- Streaming (still deferred; would live in a separate `rio-streams` package).
+- Streaming. **Now shipped:** `RIO.Stream` (pull-based,
+  single-channel), `RIO.Stream.Par` (`mergeAll` / `broadcast` /
+  `partition`), `RIO.Stream.Resource` (`bracketStream`), and
+  `RIO.Sink` (first-class composable consumers with `zipPar`)
+  all live in core `rio`. No separate `rio-streams` package was
+  needed.
 - Metrics and tracing integration. **Now shipped:** `RIO.Tracer` and `RIO.Metrics` live in `main`.
 
 ### Tech Stack
@@ -490,7 +495,10 @@ here as a sketch of how a multi-contributor cadence could look.
 ### Original "v0.2 candidate backlog" (now mostly landed)
 
 - ~~STM-style transactional refs (`TRef`, `atomically`).~~ **Done.** Shipped as `RIO.STM` with `TVar`, `TQueue`, `TMap`, `TSemaphore`, `THub`.
-- Streaming (`RStream r e a`) as a sibling package. **Still open.**
+- ~~Streaming (`RStream r e a`) as a sibling package.~~ **Done.**
+  Shipped in core `rio` (not as a sibling package) as
+  `RIO.Stream`, `RIO.Stream.Par`, `RIO.Stream.Resource`, and
+  `RIO.Sink`. See `docs/13-streams.md`.
 - ~~Tracing hooks for observability tools.~~ **Done.** `RIO.Tracer` in `main`.
 - ~~Metrics (counters, gauges, histograms) as a built-in service.~~ **Done.** `RIO.Metrics` in `main`.
 - ~~Schedule combinators (`Schedule` from ZIO).~~ **Done.** `RIO.Schedule` in `main`.
