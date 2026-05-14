@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Config`: two additional unit tests for the `boolean`
+  primitive. The previous test only covered `"yes"` as a single
+  truthy value, but the docstring promises a much wider
+  contract: `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0`,
+  case-insensitive. Add (a) an exhaustive synonym test covering
+  all documented forms plus a mixed-case check; and (b) a
+  rejection test pinning that a non-synonym value produces a
+  `ParseError`. Catches any silent narrowing of the accepted
+  set. Whole-package run goes `408 -> 410` tests passing.
 - `RIO.Config`: two additional unit tests for `nested`. The
   existing test only showed the one-level form (`nested "DB"
   (string "URL")` reads `DB_URL`). Add (a) a composition test

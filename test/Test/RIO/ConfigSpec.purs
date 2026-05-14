@@ -89,6 +89,38 @@ spec = do
         r <- runWith src (boolean "B")
         r `shouldEqual` Right true
 
+      it "accepts every documented truthy and falsy synonym, case-insensitive" do
+        -- The docstring promises `true`/`false`, `yes`/`no`,
+        -- `on`/`off`, `1`/`0`, case-insensitive. The previous
+        -- test only covered "yes"; pin the rest of the contract
+        -- so any silent narrowing of the accepted set is caught.
+        let
+          check raw expected = do
+            let src = mapSource (Map.singleton "B" raw)
+            r <- runWith src (boolean "B")
+            r `shouldEqual` Right expected
+        check "true" true
+        check "TRUE" true
+        check "yes" true
+        check "On" true
+        check "1" true
+        check "false" false
+        check "FALSE" false
+        check "no" false
+        check "off" false
+        check "0" false
+
+      it "rejects values outside the accepted synonym set" do
+        let src = mapSource (Map.singleton "B" "maybe")
+        r <- runWith src (boolean "B")
+        case r of
+          Left v ->
+            case Variant.case_ # Variant.on cfgTag identity $ v of
+              ParseError [] "B" _ -> pure unit
+              other -> fail
+                ("expected ParseError, got: " <> show other)
+          Right _ -> fail "expected a failure"
+
     describe "optional / withDefault" do
       it "optional yields Nothing when the key is missing" do
         let src = mapSource Map.empty
