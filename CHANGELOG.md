@@ -11,6 +11,18 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `rio-otel`: test suite for `RIO.Tracer.OTel`. Pins the
+  adapter's own bookkeeping (sequential `SpanId` allocation
+  starting at 1, `currentSpan` reporting the latest open span
+  as parent, stack pop on `endSpan` restoring the parent,
+  `endSpan` of an unknown or already-closed span as a no-op,
+  `endSpan` of a non-current span filtering it out of the
+  stack, `addAttribute` safety against unknown ids, and
+  per-tracer counter isolation). Runs against the no-op tracer
+  that `@opentelemetry/api` returns when no SDK is registered;
+  the end-to-end SDK round-trip lives in `examples/otel-demo/`.
+  `npx spago test -p rio-otel` now reports `12/12 tests
+  passed`.
 - `rio-http`: test suite for `RIO.HTTPurple.Auth` and
   `RIO.HTTPurple.Request`. Covers `bearerAuthConfig` prefix
   shape, `requireAuth` success / missing-header / mismatched-

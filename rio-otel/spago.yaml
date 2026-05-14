@@ -9,3 +9,13 @@ package:
     - prelude
     - refs
     - rio
+  test:
+    main: Test.Main
+    dependencies:
+      - aff
+      - effect
+      - maybe
+      - prelude
+      - rio
+      - spec
+      - spec-node
