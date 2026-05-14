@@ -24,6 +24,23 @@ import RIO.Test.Metrics (MetricKind(..), newRecordingMetrics)
 
 spec :: Spec Unit
 spec = describe "RIO.Metrics" do
+  describe "MetricKind instances" do
+    -- `MetricKind`'s `Show` instance is hand-written (case _ of
+    -- Counter -> "Counter" ...), parallel to `SpanStatus`'s
+    -- pinned Show in TracerSpec. Every `shouldEqual` over a
+    -- `MetricRecord` in this suite leans on `Show MetricKind`
+    -- for the failure-message rendering only, so a regression
+    -- that, for example, namespaced the constructors
+    -- ("MetricKind.Counter") would still compile and pass every
+    -- existing test; only the diagnostic on a failing assertion
+    -- would change. Pin the three rendered constructors directly
+    -- so a downstream exporter / log line that relies on
+    -- `show kind` to label a metric family is protected.
+    it "Show renders each kind by its constructor name" do
+      show Counter `shouldEqual` "Counter"
+      show Gauge `shouldEqual` "Gauge"
+      show Histogram `shouldEqual` "Histogram"
+
   it "records counters, gauges, and histograms in call order" do
     rec <- liftAff newRecordingMetrics
     let
