@@ -146,6 +146,41 @@ spec = do
           Right _ -> 1 `shouldEqual` 0
         count `shouldEqual` 3
 
+      it "surfaces the MOST RECENT failure (not the first) once retries are exhausted" do
+        -- Docstring promise: "When the schedule says `Done`,
+        -- surface the most recent failure on the parent's row."
+        -- The existing "surfaces the final failure once retries
+        -- are exhausted" test fires `fail (Proxy :: Proxy "boom")
+        -- unit` on every attempt, so every failure variant is
+        -- observationally identical. A regression that kept the
+        -- FIRST failure variant in scope and surfaced it after
+        -- exhaustion (e.g., bound `v0` from the first iteration
+        -- and returned `Left v0` instead of the loop's current
+        -- `Left v`) would still pass that test. Pin the "most
+        -- recent" half by having each attempt carry the attempt
+        -- count in its variant payload; with `recurs 1` (one
+        -- retry allowed, two attempts total), the surfaced
+        -- payload must be 200, not 100.
+        attempts <- liftEffect (Ref.new 0)
+        let
+          action :: RIO () (code :: Int) Int
+          action = do
+            n <- liftEffect (Ref.modify (_ + 1) attempts)
+            fail (Proxy :: Proxy "code") (n * 100)
+
+          program :: RIO (clock :: Clock) (code :: Int) Int
+          program = retry (recurs 1) action
+
+        tc <- newTestClock
+        result <- runRIO (provideAll { clock: tc.clock } program)
+        callsMade <- liftEffect (Ref.read attempts)
+        callsMade `shouldEqual` 2
+        case result of
+          Left v ->
+            (Variant.case_ # Variant.on (Proxy :: Proxy "code") identity $ v)
+              `shouldEqual` 200
+          Right _ -> 1 `shouldEqual` 0
+
       it "a defect skips retry and propagates immediately" do
         -- Docstring promise: "Defects (from `die` or any uncaught
         -- `Aff` exception) skip retry and propagate immediately;
