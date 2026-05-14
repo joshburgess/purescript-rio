@@ -322,6 +322,33 @@ spec = do
           Right _ ->
             Spec.fail "expected partition to surface the typed failure"
 
+      it "bufferSize <= 0 is clamped to at least 1 (no crash, all elements routed)" do
+        -- The docstring promises "Each bucket has its own
+        -- bounded queue of size `bufferSize` (clamped to at
+        -- least 1)". The parallel claim for `broadcast` is
+        -- pinned above; `partition` makes the identical
+        -- promise via `let cap = max 1 bufferSize` (line 188
+        -- of `Stream/Par.purs`) and is otherwise untested:
+        -- every existing `partition` test passes bufferSize 4.
+        -- A regression that dropped the clamp and forwarded a
+        -- raw 0 to `Queue.bounded` would deadlock the
+        -- producer's first offer (zero-capacity queue). Pin
+        -- the clamp by partitioning into 2 buckets with
+        -- `bufferSize = 0` and asserting every element is
+        -- routed (bucket 0 gets even-residue elements, bucket
+        -- 1 gets odd-residue).
+        let
+          program :: RIO () () (Array (Array Int))
+          program = do
+            buckets <- partition 2 0 identity (fromArray [ 1, 2, 3, 4 ])
+            fibers <- traverse (\s -> fork (runCollect s)) buckets
+            traverse join fibers
+        r <- runRIO program
+        case r of
+          Right outs ->
+            outs `shouldEqual` [ [ 2, 4 ], [ 1, 3 ] ]
+          Left _ -> Spec.fail "expected clamped-bufferSize partition to succeed"
+
     describe "backpressure timing" do
       it "slow consumers don't lose elements (buffer + backpressure)" do
         let
