@@ -224,3 +224,46 @@ spec = describe "RIO.Sink (property tests)" do
               (Stream.fromArray xs)
           )
         r `shouldEqual` Array.drop n xs
+
+  -- Sink primitives factored through `collect`. These pin that
+  -- the early-halting / aggregate sinks observe the same result
+  -- as deriving the answer from a fully-materialized collect,
+  -- modulo their finish behaviour. They are NOT statements about
+  -- consumption (early-halt sinks pull fewer elements), only
+  -- about the value the runner returns.
+
+  it "count ≡ mapResult Array.length collect" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      left <- runRIO' (Sink.runSink Sink.count (Stream.fromArray xs))
+      right <- runRIO'
+        ( Sink.runSink
+            (Sink.mapResult Array.length Sink.collect)
+            (Stream.fromArray xs)
+        )
+      left `shouldEqual` right
+
+  it "head ≡ mapResult Array.head (take 1)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      left <- runRIO' (Sink.runSink Sink.head (Stream.fromArray xs))
+      right <- runRIO'
+        ( Sink.runSink
+            (Sink.mapResult Array.head (Sink.take 1))
+            (Stream.fromArray xs)
+        )
+      left `shouldEqual` right
+
+  it "any p ≡ mapResult (case _ of Just _ -> true; Nothing -> false) (find p)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let
+        p n = n > 0
+        toBool = case _ of
+          Just _ -> true
+          Nothing -> false
+      left <- runRIO'
+        (Sink.runSink (Sink.any p) (Stream.fromArray xs))
+      right <- runRIO'
+        ( Sink.runSink
+            (Sink.mapResult toBool (Sink.find p))
+            (Stream.fromArray xs)
+        )
+      left `shouldEqual` right
