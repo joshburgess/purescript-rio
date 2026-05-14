@@ -229,6 +229,15 @@ Walkthrough docs:
   (`mergeAll`, `broadcast`, `partition`), and resource-safe
   streams via `RIO.Stream.Resource.bracketStream`. Includes a
   ZStream comparison table.
+- [`docs/14-causes.md`](./docs/14-causes.md): the `Cause`
+  algebra (`Fail`, `Die`, `Parallel`, `Sequential`), the
+  cause-collecting combinators (`parTraverseCause`,
+  `bothPar`, `raceCause`, `acquireReleaseCause`), and the
+  `prettyCause` renderer.
+- [`docs/15-config.md`](./docs/15-config.md): the `Config`
+  descriptor type, the `Source` adapter set (env, dotenv,
+  JSON), `Secret` redaction, error accumulation, and the
+  `RIO.Config.Rotating` refreshable cell.
 - [`docs/performance.md`](./docs/performance.md): benchmark
   baselines and dominant costs.
 
