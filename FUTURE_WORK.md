@@ -68,8 +68,11 @@ enclosing `scoped` block.
 Still open:
 
 - `Sink` / `Channel` style for composable, terminating consumers.
-  This is the biggest remaining gap against `ZStream` and would
-  benefit from a focused design pass before implementation.
+  `docs/sink-design.md` proposes a focused `Sink r e i a`
+  layer (no full Channel algebra) with the primitives,
+  combinators, `runSink` runner, and parallel-composition
+  semantics laid out so implementation is mechanical. The
+  recommended landing order is also documented there.
 
 ### Cause integration
 
