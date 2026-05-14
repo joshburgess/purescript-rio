@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.STM`: one additional unit test pinning that `orElse`
+  rolls back staged writes from a retried left branch. The
+  docstring promises "the log effect of a fallen-through
+  `left` is rolled back before `right` runs, so a retried
+  branch leaves no reads or writes behind." The fall-through
+  path was pinned; this pins the rollback specifically by
+  staging a write inside the retrying left, falling through
+  to the right, and asserting the staged write did not commit
+  to the surrounding atomic block. Whole-package run goes
+  `419 -> 420` tests passing.
 - `RIO.Tracer`: one additional unit test pinning the `Show
   SpanStatus` instance. The docstring distinguishes three
   terminal outcomes (`SpanOk`, `SpanFailed`,

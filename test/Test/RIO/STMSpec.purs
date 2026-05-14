@@ -163,6 +163,34 @@ spec = do
         result <- runRIO' program
         result `shouldEqual` 7
 
+      it "rolls back staged writes from a retried left branch" do
+        -- The docstring promises that "the log effect of a
+        -- fallen-through `left` is rolled back before `right`
+        -- runs, so a retried branch leaves no reads or writes
+        -- behind." The fall-through path is already pinned;
+        -- this pins the rollback specifically so a write
+        -- inside a retrying left branch must not commit when
+        -- the right branch succeeds.
+        let
+          program :: RIO () () { fromOr :: Int, afterCommit :: Int }
+          program = do
+            refA <- atomically (newTRef 0)
+            refB <- atomically (newTRef 99)
+            fromOr <- atomically do
+              orElse
+                ( do
+                    -- stage a write, then retry: this should not commit
+                    writeTRef refA 1234
+                    a <- readTRef refA
+                    check (a > 9999)
+                    pure a
+                )
+                (readTRef refB)
+            afterCommit <- atomically (readTRef refA)
+            pure { fromOr, afterCommit }
+        result <- runRIO' program
+        result `shouldEqual` { fromOr: 99, afterCommit: 0 }
+
       it "outer transaction retries when both sides retry" do
         events <- liftEffect (Ref.new [])
         let
