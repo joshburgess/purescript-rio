@@ -268,6 +268,21 @@ spec = describe "RIO.Sink (property tests)" do
         )
       left `shouldEqual` right
 
+  it "count ≡ foldL 0 (\\acc _ -> acc + 1)" do
+    -- Pin the counting equivalence between the primitive `count`
+    -- sink and a `foldL` that increments per element regardless
+    -- of value. Catches a regression that, e.g., implemented
+    -- `count` against a length-of-collected-array path that
+    -- accidentally collapsed duplicates.
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      left <- runRIO' (Sink.runSink Sink.count (Stream.fromArray xs))
+      right <- runRIO'
+        ( Sink.runSink
+            (Sink.foldL 0 (\acc _ -> acc + 1))
+            (Stream.fromArray xs)
+        )
+      left `shouldEqual` right
+
   -- Cross-module duality: `Stream.runFold` and the
   -- `Sink.foldL`-driven runner must agree on the same fold. They
   -- are two paths to the same observable result; pinning the
