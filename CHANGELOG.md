@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.STM.THub`: three additional unit tests filling concrete gaps
+  in the THub suite. `isEmptySubscription` was exported but was not
+  imported by, or used in, any existing test; two new tests pin its
+  behaviour on a fresh subscription (true) and across the
+  publish/drain cycle (false while buffered, true again after every
+  buffered value is taken). A third test extends the `withSubscription`
+  coverage from the happy path to the typed-failure path, pinning
+  the docstring promise that the subscription is released "on every
+  termination path of `use`" by asserting `subscriberCount` drops
+  back to zero after a typed failure surfaces through the block.
+  Whole-package run goes `388 -> 391` tests passing.
 - `RIO.Config`: four additional unit tests pinning the rendering
   contract of `prettyConfigError`, the user-facing pretty-printer
   for config-load failures. The previous suite exercised the

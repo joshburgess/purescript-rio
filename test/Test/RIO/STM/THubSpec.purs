@@ -3,6 +3,7 @@ module Test.RIO.STM.THubSpec (spec) where
 import Prelude hiding (join)
 
 import Data.Array (range)
+import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse, traverse_)
 import Effect.Aff (Milliseconds(..), delay)
@@ -11,11 +12,13 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
+import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fork, join, runRIO')
+import RIO.Core (RIO, fail, fork, join, runRIO, runRIO')
 import RIO.STM (atomically)
 import RIO.STM.THub
   ( THub
+  , isEmptySubscription
   , lengthSubscription
   , newBoundedTHub
   , newDroppingTHub
@@ -224,3 +227,56 @@ spec = describe "RIO.STM.THub" do
           pure { during, after }
       result <- runRIO' program
       result `shouldEqual` { during: 8, after: 0 }
+
+    it "releases the subscription on a typed failure inside the body" do
+      -- Docstring promise: "released on every termination path of `use`
+      -- (success, typed failure, defect, interrupt)". The success path
+      -- is covered above; this pins the typed-failure path: build a
+      -- hub, subscribe via withSubscription, raise a typed failure
+      -- from the body, and observe that subscriberCount drops back
+      -- to zero after the failure surfaces.
+      hubRef <- liftEffect (Ref.new Nothing)
+      let
+        program :: RIO () (boom :: Unit) Unit
+        program = do
+          hub <- atomically (newUnboundedTHub :: _ (THub Int))
+          liftEffect (Ref.write (Just hub) hubRef)
+          withSubscription hub \_ ->
+            fail (Proxy :: Proxy "boom") unit
+      result <- runRIO program
+      case result of
+        Left _ -> pure unit
+        Right _ -> 1 `shouldEqual` 0
+      maybeHub <- liftEffect (Ref.read hubRef)
+      case maybeHub of
+        Nothing -> 1 `shouldEqual` 0
+        Just hub -> do
+          after <- runRIO' (atomically (subscriberCount hub))
+          after `shouldEqual` 0
+
+  describe "isEmptySubscription" do
+    it "returns true on a fresh subscription with no published values" do
+      let
+        program :: RIO () () Boolean
+        program = do
+          hub <- atomically (newUnboundedTHub :: _ (THub Int))
+          sub <- atomically (subscribeTHub hub)
+          atomically (isEmptySubscription sub)
+      result <- runRIO' program
+      result `shouldEqual` true
+
+    it "returns false while values are buffered, true again after drain" do
+      let
+        program :: RIO () () { afterPublish :: Boolean, afterDrain :: Boolean }
+        program = do
+          hub <- atomically newUnboundedTHub
+          sub <- atomically (subscribeTHub hub)
+          _ <- atomically (publishTHub hub 1)
+          _ <- atomically (publishTHub hub 2)
+          afterPublish <- atomically (isEmptySubscription sub)
+          _ <- atomically (takeSubscription sub)
+          _ <- atomically (takeSubscription sub)
+          afterDrain <- atomically (isEmptySubscription sub)
+          pure { afterPublish, afterDrain }
+      result <- runRIO' program
+      result `shouldEqual` { afterPublish: false, afterDrain: true }
