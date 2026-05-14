@@ -248,6 +248,21 @@ Migration guides for users coming from other ecosystems:
 
 Worked examples:
 
+- [`examples/logger/`](./examples/logger/): the smallest
+  end-to-end demo. Defines a tiny `Logger` service, runs an
+  `info` / `warn` / `err` program against it via
+  `provideAll` + `runRIO`. A useful first read.
+- [`examples/notify/`](./examples/notify/): exercises
+  `rio-postgres`' `RIO.Postgres.Notify` end-to-end against the
+  workspace's docker-compose Postgres: subscribes via
+  `withListen`, fires `NOTIFY` payloads on the pool, and lets
+  the scope finalizer drain both clients on exit.
+- [`examples/otel-demo/`](./examples/otel-demo/): wires
+  `RIO.Tracer.OTel.makeOTelTracer` into a real OpenTelemetry
+  SDK with an in-memory exporter. Runs a nested-span workload
+  through the same `RIO.Tracer` API and dumps the captured
+  spans so the parent / child / attribute / status round-trip
+  is visible.
 - [`examples/todo-api/`](./examples/todo-api/): a small
   HTTPurple service demonstrating layers, typed failures,
   in-memory persistence, and JSON codec bridging.

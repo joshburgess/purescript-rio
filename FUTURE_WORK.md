@@ -31,9 +31,10 @@ review:
   prepared statements, pool stats, migrate, json)
 - Examples: `logger`, `notify`, `otel-demo`, `todo-api`,
   `worker-pool` (fan-out + Semaphore + Schedule retry + Metrics +
-  Tracer), `stream-pipeline` (mergeAll + broadcast), and
+  Tracer), `stream-pipeline` (mergeAll + broadcast),
   `sink-analytics` (single-pass zipPar aggregation over an HTTP
-  request log)
+  request log), and `config-loader` (typed configuration from a
+  `.env` file via `rio-config-file`)
 
 That covers most of what an "effect system" needs to be more than a
 toy. The gaps below are about what's still visibly missing to
