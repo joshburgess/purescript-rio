@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Stream.Resource`: one additional unit test pinning that
+  `bracketStream`'s registered finalizer fires on the defect
+  termination path. The module docstring promises release "on
+  every termination path (success, typed failure, defect, or
+  fiber kill)". Success and typed-failure were pinned; pin the
+  defect path so the full bracket contract is documented for
+  resource-owning streams. Whole-package run goes `429 -> 430`
+  tests passing.
 - `RIO.Layer`: one additional unit test pinning that finalizers
   registered by two sequentially-composed layers fire LIFO when
   the surrounding scope exits. The `andThen` docstring promises

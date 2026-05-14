@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Array (snoc)
 import Data.Either (Either(..))
+import Effect.Aff (attempt, error)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
@@ -11,7 +12,7 @@ import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Assertions (fail) as Spec
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fail, runRIO, scoped)
+import RIO.Core (RIO, die, fail, runRIO, runRIO', scoped)
 import RIO.Stream (Stream, flatMap, fromArray, mapM, runCollect, runDrain)
 import RIO.Stream.Resource (bracketStream)
 
@@ -104,6 +105,37 @@ spec = do
         _ <- runRIO program
         order <- liftEffect (Ref.read events)
         order `shouldEqual` []
+
+      it "releases the resource when the stream raises a defect" do
+        -- Module docstring promises release "on every termination
+        -- path (success, typed failure, defect, or fiber kill)".
+        -- Success and typed-failure are pinned above; pin the
+        -- defect path so the full bracket contract is documented.
+        events <- liftEffect (Ref.new [])
+        let
+          record :: forall r e. String -> RIO r e Unit
+          record s =
+            liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          recordAff :: String -> _
+          recordAff s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          inner :: Stream (scope :: _ | ()) () Int
+          inner = flatMap
+            ( bracketStream
+                (record "acquire" *> pure "resource")
+                (\_ -> recordAff "release")
+            )
+            ( \_ -> mapM
+                (\_ -> die (error "kaboom"))
+                (fromArray [ 1 ])
+            )
+
+          program :: RIO () () Unit
+          program = scoped (runDrain inner)
+        _ <- attempt (runRIO' program)
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "acquire", "release" ]
 
       it "release runs once the scope exits even if consumer takes only some" do
         events <- liftEffect (Ref.new [])
