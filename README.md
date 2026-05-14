@@ -298,15 +298,18 @@ testing), plus the larger surface listed above. The cause tree
 (`RIO.Cause`) ships `parTraverseCause`, `raceCause`,
 `acquireReleaseCause`, and `prettyCauseWithStack`. The stream
 modules ship `RIO.Stream` (pull-based, single-channel),
-`RIO.Stream.Par` (`mergeAll` / `broadcast` / `partition`), and
-`RIO.Stream.Resource` (`bracketStream`). `RIO.STM` and its
-derived structures, `RIO.Tracer` and `RIO.Metrics` with an
-OpenTelemetry adapter (`rio-otel`), `RIO.Random`, `RIO.Config`,
+`RIO.Stream.Par` (`mergeAll` / `broadcast` / `partition`),
+`RIO.Stream.Resource` (`bracketStream`), and `RIO.Sink`
+(first-class composable consumers with `zipPar`). `RIO.STM`
+and its derived structures, `RIO.Tracer` and `RIO.Metrics`
+with an OpenTelemetry adapter (`rio-otel`), `RIO.Random`,
+`RIO.Config` with `RIO.Config.Rotating` for refreshable cells,
 `RIO.Schedule`, `RIO.Local`, `RIO.Logger`, the qualified-do
 sugar (`RIO.Resource.Do`, `RIO.Concurrency.Par`), the
-`rio-http` companion package (an HTTPurple adapter), and the
+`rio-http` companion package (an HTTPurple adapter), the
 `rio-postgres` adapter (wraps `purescript-postgresql` /
-`node-postgres`).
+`node-postgres`), and the `rio-config-file` adapter
+(`dotenvFileSource`, `jsonFileSource`).
 
 What's open: `rio-node` / `rio-aws` integration packages, a
 full `Channel` algebra for stream-to-stream transducers (only

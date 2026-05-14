@@ -11,6 +11,19 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- Numbered reference docs filled in for every substantive module:
+  `docs/04-layers.md` (`Layer` construction, composition,
+  `provideLayer`, resource-safe layers), `docs/05-resources.md`
+  (`acquireRelease`, `ensuring`, `Scope` / `scoped`,
+  `RIO.Resource.Do`), `docs/14-causes.md` (the `Cause` algebra
+  and cause-collecting combinators), and `docs/15-config.md`
+  (the `Config` DSL, sources, `Secret`, `Rotating`). The
+  numbered doc set now runs 01-15 contiguously and covers every
+  module under `src/RIO/`. The `forthcoming` pointers in
+  `docs/07-testing.md` and both migration guides are resolved.
+- `docs/sink-design.md` rewritten as design notes (why the
+  shape, why single-fiber `zipPar`, why no Channel) now that
+  `RIO.Sink` has shipped.
 - `examples/sink-analytics/`: a single-pass analytics demo over
   a synthetic HTTP request log. Composes five small sinks
   (`count`, `filterIn isError count`, `mapInput _.latencyMs`
