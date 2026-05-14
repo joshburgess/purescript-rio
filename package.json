@@ -7,8 +7,8 @@
   "scripts": {
     "build": "spago build",
     "test": "spago test",
-    "format": "purs-tidy format-in-place src test spikes examples benchmarks rio-otel rio-http rio-postgres",
-    "format:check": "purs-tidy check src test spikes examples benchmarks rio-otel rio-http rio-postgres"
+    "format": "purs-tidy format-in-place src test spikes examples benchmarks rio-config-file rio-http rio-otel rio-postgres rio-postgres-json rio-postgres-migrate",
+    "format:check": "purs-tidy check src test spikes examples benchmarks rio-config-file rio-http rio-otel rio-postgres rio-postgres-json rio-postgres-migrate"
   },
   "devDependencies": {
     "purescript": "0.15.15",
