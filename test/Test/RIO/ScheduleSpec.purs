@@ -208,6 +208,24 @@ spec = do
         c3 <- liftEffect (Ref.read counter)
         c3 `shouldEqual` 4
 
+    describe "exponential direct delays" do
+      it "emits base, base*factor, base*factor^2, ... at each step" do
+        -- The "exponential under the test clock" test pins step-firing
+        -- cadence indirectly via the counter; this pins the emitted
+        -- delay values themselves so any change to the growth formula
+        -- is caught directly.
+        let
+          sched =
+            exponential (Milliseconds 100.0) 2.0
+              :: Schedule () Unit Milliseconds
+        delays <- runRIO' (collectDelays 4 sched)
+        delays `shouldEqual`
+          [ Milliseconds 100.0
+          , Milliseconds 200.0
+          , Milliseconds 400.0
+          , Milliseconds 800.0
+          ]
+
     describe "jittered" do
       it "keeps sampled delays inside the band [lo*base, hi*base]" do
         delays <- runRIO' (collectDelays 100 (jittered 0.8 1.2 (spaced (Milliseconds 100.0))))

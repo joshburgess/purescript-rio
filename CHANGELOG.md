@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Schedule`: one additional unit test pinning `exponential`'s
+  emitted delay values directly. The existing "exponential under
+  the test clock" test asserts step-firing cadence indirectly via
+  a Ref counter after `tc.advance` calls, but does not pin the
+  schedule's emitted `Milliseconds` values themselves. The new
+  test uses the existing `collectDelays` helper to assert that
+  `exponential (Milliseconds 100.0) 2.0` emits `[100, 200, 400,
+  800]` for its first four steps, so any change to the growth
+  formula (or accidental swap of base/factor semantics) is
+  caught directly. Whole-package run goes `401 -> 402` tests
+  passing.
 - `RIO.Schedule`: one additional unit test pinning the docstring
   promise that `retryOrElse` runs the fallback immediately when
   the schedule's first step is `Done` (no retry allowed). Uses
