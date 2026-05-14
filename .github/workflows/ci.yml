@@ -126,3 +126,40 @@ jobs:
 
       - name: Compile-fail tests
         run: bash compile-fail/run.sh
+
+  postgres-integration:
+    name: rio-postgres integration / node 20
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: rio
+          POSTGRES_PASSWORD: rio
+          POSTGRES_DB: rio_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rio -d rio_test"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install npm deps (purs, spago, purs-tidy, pg)
+        run: npm ci
+
+      - name: Run rio-postgres integration tests
+        env:
+          PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
+        run: npx spago test -p rio-postgres

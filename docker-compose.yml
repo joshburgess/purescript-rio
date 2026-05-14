@@ -1,0 +1,32 @@
+# Development / local-test dependencies for rio-postgres.
+#
+# Bring the postgres service up with:
+#   docker compose up -d postgres
+#
+# Run the rio-postgres test suite against it:
+#   npx spago test -p rio-postgres
+#
+# The default connection string is read by Test.RIO.Postgres.Main from
+# PG_CONNECTION_STRING. For local runs with this compose file:
+#   export PG_CONNECTION_STRING="postgres://rio:rio@localhost:55432/rio_test"
+# CI's service-container job binds Postgres directly on 5432 inside the
+# runner's network namespace, so the CI export uses port 5432.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rio-postgres-dev
+    environment:
+      POSTGRES_USER: rio
+      POSTGRES_PASSWORD: rio
+      POSTGRES_DB: rio_test
+    ports:
+      # Bind the container's 5432 to host 55432 so it doesn't
+      # collide with a developer's local Postgres on the default
+      # port. The CI service-container job (no host conflict)
+      # uses 5432 directly via its own service env.
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rio -d rio_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

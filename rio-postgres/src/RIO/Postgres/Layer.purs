@@ -51,14 +51,14 @@ import RIO.Postgres (Postgres(..))
 -- | runRIO' (provideLayer layer program)
 -- | ```
 postgresLayer
-  :: forall config missing trash rIn e
+  :: forall config missing trash rIn
    . Union config missing (PG.Pool.Config trash)
   => Record config
-  -> Layer rIn e (postgres :: Postgres)
+  -> Layer rIn () (postgres :: Postgres)
 postgresLayer cfg = fromRIO acquire
   where
   acquire
-    :: RIO (scope :: Scope | rIn) e { postgres :: Postgres }
+    :: RIO (scope :: Scope | rIn) () { postgres :: Postgres }
   acquire = do
     pool <- liftEffect (PG.Pool.make @config @missing @trash cfg)
     scope <- ask (Proxy :: Proxy "scope")

@@ -17,6 +17,12 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/sdk-trace-base": "^2.7.1"
+    "@opentelemetry/sdk-trace-base": "^2.7.1",
+    "decimal.js": "^10.6.0",
+    "pg": "^8.20.0",
+    "pg-copy-streams": "^7.0.0",
+    "pg-listen": "^1.7.0",
+    "postgres-interval": "^4.0.2",
+    "postgres-range": "^1.1.4"
   }
 }

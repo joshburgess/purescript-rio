@@ -12,3 +12,18 @@ package:
     - rio
     - transformers
     - variant
+  test:
+    main: Test.Main
+    dependencies:
+      - aff
+      - effect
+      - either
+      - maybe
+      - node-process
+      - prelude
+      - refs
+      - rio
+      - spec
+      - spec-node
+      - tuples
+      - variant
