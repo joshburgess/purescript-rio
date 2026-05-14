@@ -11,6 +11,13 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Tracer`: one additional unit test pinning the `Show
+  SpanStatus` instance. The docstring distinguishes three
+  terminal outcomes (`SpanOk`, `SpanFailed`,
+  `SpanInterrupted`); pin that `show` renders each by its
+  constructor name so any log or OTel exporter that uses
+  `show status` to label a status code can't be silently
+  broken. Whole-package run goes `418 -> 419` tests passing.
 - `RIO.Schedule`: two additional unit tests pinning the
   documented output and delay contracts of `intersect`. The
   existing test only pinned the "stops as soon as either side

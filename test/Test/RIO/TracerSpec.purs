@@ -27,6 +27,19 @@ import RIO.Tracer
 
 spec :: Spec Unit
 spec = describe "RIO.Tracer" do
+  describe "SpanStatus instances" do
+    -- The docstring distinguishes three terminal outcomes:
+    -- SpanOk (happy path), SpanFailed (typed failure inside
+    -- the action), and SpanInterrupted (fiber killed before
+    -- the action completed). Pin the Show instance renders
+    -- each constructor by its name so any log / OTel exporter
+    -- that relies on `show status` to label a status code
+    -- can't be silently broken.
+    it "Show renders each status by its constructor name" do
+      show SpanOk `shouldEqual` "SpanOk"
+      show SpanFailed `shouldEqual` "SpanFailed"
+      show SpanInterrupted `shouldEqual` "SpanInterrupted"
+
   it "withSpan opens and closes a span around a successful action" do
     rec <- liftAff newRecordingTracer
     let
