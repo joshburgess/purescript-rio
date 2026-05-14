@@ -11,6 +11,12 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Schedule`: one additional unit test pinning the docstring
+  promise that `retryOrElse` runs the fallback immediately when
+  the schedule's first step is `Done` (no retry allowed). Uses
+  `recurs 0` and a Ref-tracked action call counter to assert
+  the action ran exactly once before the fallback was invoked.
+  Whole-package run goes `400 -> 401` tests passing.
 - `RIO.Tracer`: three additional unit tests covering `noopTracer`,
   the discarding tracer constructor that had no direct coverage.
   The first runs `withSpan` (nested), `addAttribute`, and the

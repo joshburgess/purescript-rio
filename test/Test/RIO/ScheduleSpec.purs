@@ -129,6 +129,31 @@ spec = do
         result <- runRIO' (provideAll { clock: tc.clock } program)
         result `shouldEqual` 99
 
+      it "runs the fallback immediately when the schedule's first step is Done" do
+        -- Docstring promise: "If the schedule's first step is Done
+        -- (no retry allowed), the fallback runs immediately on the
+        -- first failure." Pin this with `recurs 0` and an action
+        -- whose call count tells us how many times the action ran
+        -- before the fallback was invoked.
+        attempts <- liftEffect (Ref.new 0)
+        let
+          action :: RIO () (boom :: Unit) Int
+          action = do
+            _ <- liftEffect (Ref.modify (_ + 1) attempts)
+            fail (Proxy :: Proxy "boom") unit
+
+          fallback :: Variant.Variant (boom :: Unit) -> RIO () () Int
+          fallback _ = pure 42
+
+          program :: RIO (clock :: Clock) () Int
+          program = retryOrElse (recurs 0) action fallback
+
+        tc <- newTestClock
+        result <- runRIO' (provideAll { clock: tc.clock } program)
+        result `shouldEqual` 42
+        callsMade <- liftEffect (Ref.read attempts)
+        callsMade `shouldEqual` 1
+
     describe "intersect" do
       it "stops as soon as either schedule stops" do
         counter <- liftEffect (Ref.new 0)
