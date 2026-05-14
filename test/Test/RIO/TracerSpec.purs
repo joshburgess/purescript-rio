@@ -74,6 +74,36 @@ spec = describe "RIO.Tracer" do
         inner.parent `shouldEqual` Just outer.id
       _ -> 1 `shouldEqual` Array.length spans
 
+  it "recording backend assigns deterministic monotonic ticks to startMs/endMs" do
+    -- `RIO.Test.Tracer` module docstring promises: "Each
+    -- operation increments a counter and uses the resulting
+    -- integer as the span's `startMs` / `endMs`. This keeps
+    -- the recorder fully deterministic." Existing TracerSpec
+    -- tests only check `endMs` is `Just _` for closed spans
+    -- and never inspect the timestamps. A regression that
+    -- wired the recorder to a wall-clock source (or swapped
+    -- `Ref.modify` for `Ref.write` in `nextTick`) would still
+    -- mark every closed span with `Just _` but silently break
+    -- the deterministic-ordering contract downstream tests
+    -- rely on for log/replay assertions. Pin the four-step
+    -- monotone sequence directly for a single nested span:
+    -- outer opens at 1, inner opens at 2, inner closes at 3,
+    -- outer closes at 4.
+    rec <- liftAff newRecordingTracer
+    let
+      program :: RIO (tracer :: Tracer) () Unit
+      program = withSpan "outer" do
+        withSpan "inner" (pure unit)
+    _ <- runRIO (provideAll { tracer: rec.tracer } program)
+    spans <- liftEffect rec.snapshot
+    case spans of
+      [ outer, inner ] -> do
+        outer.startMs `shouldEqual` 1.0
+        inner.startMs `shouldEqual` 2.0
+        inner.endMs `shouldEqual` Just 3.0
+        outer.endMs `shouldEqual` Just 4.0
+      _ -> 1 `shouldEqual` Array.length spans
+
   it "currentSpan restores to the parent after the inner span ends" do
     rec <- liftAff newRecordingTracer
     let
