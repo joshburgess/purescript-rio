@@ -87,6 +87,35 @@ spec = do
         order <- liftEffect (Ref.read events)
         order `shouldEqual` []
 
+      it "does NOT run release if acquisition itself fails (defect)" do
+        -- `acquireRelease`'s docstring promises: "If `acquire`
+        -- itself fails (typed or defect), `release` is not
+        -- called, because there is nothing to release. The
+        -- typed failure or defect propagates unchanged." The
+        -- typed-failure half is pinned above. The defect half
+        -- is unpinned: a refactor that wrapped acquire in
+        -- `Aff.attempt` and forwarded the caught Error to
+        -- release would silently invoke release on an
+        -- uninitialised handle, but every other test would
+        -- still pass. Pin the defect half by raising a defect
+        -- inside `acquire` and observing that neither release
+        -- nor use ever runs.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () Int
+          program = acquireRelease
+            (die (error "acquire-boom"))
+            (\_ -> liftAff (push "release"))
+            (\_ -> liftAff (push "use") *> pure 0)
+        outcome <- attempt (runRIO program)
+        order <- liftEffect (Ref.read events)
+        case outcome of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+        order `shouldEqual` []
+
       it "runs release when the surrounding Aff fiber is killed mid-use" do
         events <- liftEffect (Ref.new [])
         let
