@@ -11,6 +11,12 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.STM.TQueue`: two additional unit tests for `peekTQueue`
+  (an exported function with no test). The first pins the
+  non-destructive read behaviour (queue length unchanged after a
+  peek, subsequent readTQueue returns the same head); the second
+  exercises the retry path (peek on empty blocks until a producer
+  writes). Whole-package run goes `367 -> 369` tests passing.
 - `RIO.STM.TMap` and `RIO.STM.TSemaphore`: nine additional unit
   tests covering coverage gaps. TMap picks up missing-key
   lookup, insert-overwrite, delete-of-absent-key no-op, empty-

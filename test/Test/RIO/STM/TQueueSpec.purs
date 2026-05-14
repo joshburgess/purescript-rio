@@ -19,6 +19,7 @@ import RIO.STM.TQueue
   ( isEmptyTQueue
   , lengthTQueue
   , newTQueue
+  , peekTQueue
   , readTQueue
   , tryReadTQueue
   , writeTQueue
@@ -86,6 +87,46 @@ spec = describe "RIO.STM.TQueue" do
     result `shouldEqual` 99
     order <- liftEffect (Ref.read events)
     order `shouldEqual` [ "before-fork", "before-write", "after-read" ]
+
+  it "peekTQueue returns the head without removing it" do
+    let
+      program
+        :: RIO ()
+             ()
+             { peeked :: Int, lenAfterPeek :: Int, readBack :: Int }
+      program = do
+        q <- atomically newTQueue
+        atomically (writeTQueue q 7)
+        atomically (writeTQueue q 8)
+        peeked <- atomically (peekTQueue q)
+        lenAfterPeek <- atomically (lengthTQueue q)
+        readBack <- atomically (readTQueue q)
+        pure { peeked, lenAfterPeek, readBack }
+    result <- runRIO' program
+    result `shouldEqual` { peeked: 7, lenAfterPeek: 2, readBack: 7 }
+
+  it "peekTQueue blocks on an empty queue until a write commits" do
+    events <- liftEffect (Ref.new [])
+    let
+      push :: forall r e. String -> RIO r e Unit
+      push s = liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) events)
+
+      program :: RIO () () Int
+      program = do
+        q <- atomically newTQueue
+        push "before-fork"
+        waiter <- fork do
+          v <- atomically (peekTQueue q)
+          push "after-peek"
+          pure v
+        liftAff (delay (Milliseconds 20.0))
+        push "before-write"
+        atomically (writeTQueue q 11)
+        join waiter
+    result <- runRIO' program
+    result `shouldEqual` 11
+    order <- liftEffect (Ref.read events)
+    order `shouldEqual` [ "before-fork", "before-write", "after-peek" ]
 
   it "many parallel producers and consumers preserve total" do
     let
