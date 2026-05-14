@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Stream.Resource`: one additional unit test pinning that
+  `bracketStream` releases the acquired resource on the
+  fiber-kill termination path. The module docstring promises
+  release on "every termination path (success, typed failure,
+  defect, or fiber kill)"; success, typed-failure, and defect
+  were pinned. Pin the fiber-kill path so the full bracket
+  contract is documented through the user-facing
+  `bracketStream` surface. Whole-package run goes
+  `444 -> 445` tests passing.
 - `RIO.Semaphore`: one additional unit test pinning that a fiber
   killed while parked on `withPermit` removes itself from the
   waiters list cleanly. The source comment on `acquire` promises

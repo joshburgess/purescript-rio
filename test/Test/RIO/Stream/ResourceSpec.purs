@@ -4,7 +4,8 @@ import Prelude
 
 import Data.Array (snoc)
 import Data.Either (Either(..))
-import Effect.Aff (attempt, error)
+import Effect.Aff (Milliseconds(..), attempt, delay, error, forkAff, joinFiber, killFiber)
+import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
@@ -134,6 +135,41 @@ spec = do
           program :: RIO () () Unit
           program = scoped (runDrain inner)
         _ <- attempt (runRIO' program)
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "acquire", "release" ]
+
+      it "releases the resource when the surrounding fiber is killed mid-stream" do
+        -- Module docstring promises release on "every termination
+        -- path (success, typed failure, defect, or fiber kill)".
+        -- Success, typed-failure, and defect are pinned above;
+        -- pin the fiber-kill path so the full bracket contract is
+        -- documented through bracketStream's user-facing surface.
+        events <- liftEffect (Ref.new [])
+        let
+          record :: forall r e. String -> RIO r e Unit
+          record s =
+            liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          recordAff :: String -> _
+          recordAff s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          inner :: Stream (scope :: _ | ()) () Int
+          inner = flatMap
+            ( bracketStream
+                (record "acquire" *> pure "resource")
+                (\_ -> recordAff "release")
+            )
+            ( \_ -> mapM
+                (\_ -> liftAff (delay (Milliseconds 50.0)) *> pure 1)
+                (fromArray [ 1 ])
+            )
+
+          program :: RIO () () Unit
+          program = scoped (runDrain inner)
+        f <- forkAff (runRIO' program)
+        delay (Milliseconds 5.0)
+        killFiber (error "test-cancel") f
+        _ <- attempt (joinFiber f)
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "acquire", "release" ]
 
