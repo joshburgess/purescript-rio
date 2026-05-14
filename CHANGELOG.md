@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `PROJECT_BUILD_PLAN.md`: refreshed two stale entries. The
+  rio-postgres bullet under "Items from the previous plan that
+  have landed" no longer claims Postgres integration tests are
+  "still open"; it now describes the actual test layout under
+  `rio-postgres/test/`, `rio-postgres-json/test/`, and
+  `rio-postgres-migrate/test/` plus the `postgres-integration` CI
+  job that exercises them. The Risk Register row on row-inference
+  error quality now references the six-case `compile-fail` suite
+  and `compile-fail/FINDINGS.md`, with the two noisy cases (03
+  payload-type mismatch and 04 missing-tag) flagged as the v0.2
+  `Fail`-polish backlog.
 - `rio-config-file`: 12 additional edge-case tests for the
   pure `parseDotenv` / `flattenJson` helpers. `parseDotenv`
   picks up unterminated-single-quote rejection, the full

@@ -508,7 +508,7 @@ here as a sketch of how a multi-contributor cadence could look.
 
 - ~~DSL exploration for direct-style syntax via PureScript's `qualified-do`.~~ **Done.** Spike in `spikes/qualified-do/`, with the two winners promoted into `main` as `RIO.Resource.Do` and `RIO.Concurrency.Par`.
 - ~~`rio-httpure` integration package.~~ **Done** (as `rio-http`, wrapping HTTPurple since HTTPure is unmaintained). The companion package lives at `rio-http/` and `examples/todo-api/` consumes it.
-- ~~`rio-postgres` integration package.~~ **Driver wrapper done.** Lives at `rio-postgres/`, wraps `purescript-postgresql` (the `node-postgres` driver) with a `Postgres` service, `query` / `exec` / `withTransaction` smart constructors, and a `postgresLayer` that owns pool lifecycle via a scope finalizer. Integration tests against a real Postgres (intended setup: `docker compose`) are **still open**.
+- ~~`rio-postgres` integration package.~~ **Done.** Lives at `rio-postgres/`, wraps `purescript-postgresql` (the `node-postgres` driver) with a `Postgres` service, `query` / `exec` / `withTransaction` smart constructors, and a `postgresLayer` that owns pool lifecycle via a scope finalizer. Integration tests live under `rio-postgres/test/`, `rio-postgres-json/test/`, and `rio-postgres-migrate/test/`, gated on `PG_CONNECTION_STRING` with a workspace-local `docker-compose.yml` for local runs; the CI `postgres-integration` job runs them against a service container alongside the `rio-example-notify` integration tests.
 - `rio-node`, `rio-aws` integration packages. **Still open.**
 - Property-based testing integration with `purescript-quickcheck` specifically tuned for RIO programs. **Still open** (basic QuickCheck is available; no RIO-tuned harness yet).
 
@@ -524,7 +524,7 @@ here as a sketch of how a multi-contributor cadence could look.
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Row inference produces incomprehensible errors at scale | High | High | Phase 0.4 spike; Phase 2/3 review cycles focused on error quality; custom `Fail` instances for common mistakes are a future backlog item. |
+| Row inference produces incomprehensible errors at scale | High | High | Phase 0.4 spike; Phase 2/3 review cycles focused on error quality; six `compile-fail` cases covering the most common row-inference mistakes (`provide` wrong type, `runRIO'` with leftover tag, `catchTag` payload mismatch, `catchTag` for a missing tag, `mapError` into a non-empty residual row, `provideAll` missing a field) are reviewed in `compile-fail/FINDINGS.md`; custom `Fail` instances for the noisy ones (cases 03 and 04) are a v0.2 backlog item. |
 | `Aff`'s cancellation model is too weak for ZIO-style interruption | Medium | High | Phase 0.5 spike. If `Aff` can't carry it, the spike's findings define the workaround (uninterruptible regions, custom runtime layer, or scoped guarantees) before Phase 4 starts. |
 | Layer composition becomes verbose without intersection types | Medium | Medium | Lean on row-union helpers validated in the Phase 0.4 spike; document escape hatches. |
 | Performance overhead from `Record`/`Variant` indirection | Medium | Medium | Phase 8.4 benchmarks; optimize hot paths with `unsafeCoerce` where safe. |
