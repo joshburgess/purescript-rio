@@ -176,6 +176,25 @@ spec = describe "RIO.Sink" do
       r <- runRIO' (Sink.runSink (sink :: Sink () () Int Int) Stream.empty)
       r `shouldEqual` 0
 
+    it "andThen feeds the first sink's finish value into k when the stream ends mid-consumption" do
+      -- Docstring promise: "If the stream ends while the first
+      -- sink is still consuming, the first sink's `finish` runs,
+      -- the result is fed into `k`, and the resulting second
+      -- sink is run against an empty stream (so it returns its
+      -- own `finish` value)." The existing empty-stream test
+      -- discards the first result with `\_`, so it only pins
+      -- the third clause. Pin all three by using `take 10`
+      -- against a 5-element stream: the first sink must
+      -- accumulate [1..5], its `finish` must produce that array,
+      -- the closure must receive it, and the second sink (here
+      -- `collect`) must run on the empty remainder.
+      let
+        sink = Sink.take 10 `Sink.andThen` \first ->
+          Sink.mapResult (\rest -> { first, rest }) Sink.collect
+      r <- runRIO' (Sink.runSink sink source)
+      r `shouldEqual`
+        { first: [ 1, 2, 3, 4, 5 ], rest: [] :: Array Int }
+
   describe "zipPar" do
     it "runs two sinks against the same stream and tuples the results" do
       r <- runRIO' (Sink.runSink (Sink.zipPar Sink.count Sink.collect) source)
