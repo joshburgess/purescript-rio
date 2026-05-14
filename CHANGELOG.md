@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Config`: two additional unit tests for `nested`. The
+  existing test only showed the one-level form (`nested "DB"
+  (string "URL")` reads `DB_URL`). Add (a) a composition test
+  pinning two stacked `nested` layers produce an
+  `OUTER_INNER_K` key, so any future refactor that joins the
+  path differently is caught; and (b) a failure-path test
+  pinning the namespace is carried into a `MissingKey` error's
+  `path` array so `prettyConfigError` can render `DB.URL`.
+  Whole-package run goes `406 -> 408` tests passing.
 - `RIO.Config`: two additional unit tests pinning `mkSource`, the
   general escape-hatch source constructor. The whole config suite
   was using `mapSource` to build sources for tests, leaving the

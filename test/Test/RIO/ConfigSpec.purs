@@ -124,6 +124,33 @@ spec = do
         r <- runWith src c
         r `shouldEqual` Right "postgres://localhost"
 
+      it "composes: two nested layers produce an `OUTER_INNER_K` key" do
+        -- The docstring only shows the one-level form. Pin
+        -- composition explicitly so a future refactor that
+        -- joins the path differently is caught.
+        let
+          src = mapSource
+            ( Map.fromFoldable [ "APP_DB_URL" /\ "x" ]
+            )
+          c = nested "APP" (nested "DB" (string "URL"))
+        r <- runWith src c
+        r `shouldEqual` Right "x"
+
+      it "carries the namespace into the failure path" do
+        -- A MissingKey under `nested "DB"` should report the
+        -- path so prettyConfigError can render `DB.URL`.
+        let
+          src = mapSource Map.empty
+          c = nested "DB" (string "URL")
+        r <- runWith src c
+        case r of
+          Left v ->
+            case Variant.case_ # Variant.on cfgTag identity $ v of
+              MissingKey path "URL" -> path `shouldEqual` [ "DB" ]
+              other -> fail
+                ("expected MissingKey [\"DB\"] \"URL\", got: " <> show other)
+          Right _ -> fail "expected a failure"
+
     describe "accumulation" do
       it "reports both failures from a record-shaped descriptor" do
         let
