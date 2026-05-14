@@ -100,9 +100,20 @@ service row, the way ZIO and Effect-TS do.
 
 ### Config sources
 
-- JSON file source (today only `envSource` + `mapSource` exist)
-- `.env` file parser
-- Secrets-rotation hook for `Secret` values
+The `rio-config-file` adapter ships:
+
+- `dotenvFileSource` reads a `.env`-style file (with `export `
+  prefixes, double- and single-quoted values, trailing
+  comments, and 1-based parse-error line numbers)
+- `jsonFileSource` reads a JSON file and flattens nested
+  objects into `_`-joined keys, matching the way
+  `RIO.Config.nested` qualifies keys; nulls drop, arrays are
+  rejected with a path-aware shape error
+
+Still open:
+
+- Secrets-rotation hook for `Secret` values (refresh on a
+  schedule or signal)
 
 ## Out of scope for the core demonstration
 
@@ -124,10 +135,11 @@ non-goals for the "is this real" milestone.
 
 With the parallel + resource-safe stream extensions landed
 (`mergeAll`, `merge`, `mergeMap`, `broadcast`, `partition`,
-`bracketStream`), the remaining single biggest demo gap against
-ZStream is a `Sink` / `Channel` design. That work is large enough
-to warrant a focused design pass: the wire-level shape, fusion
-story, and parallel-sink combinators are all intertwined, and
-getting them wrong is more costly than getting them late. Richer
-config sources (JSON file, `.env`) are useful for real deployments
-but carry lower conceptual leverage.
+`bracketStream`) and the file-backed config sources shipped in
+`rio-config-file` (`dotenvFileSource`, `jsonFileSource`), the
+remaining single biggest demo gap against ZStream is a `Sink` /
+`Channel` design. That work is large enough to warrant a focused
+design pass: the wire-level shape, fusion story, and
+parallel-sink combinators are all intertwined, and getting them
+wrong is more costly than getting them late. Secrets rotation
+for `Secret` values is the smaller remaining config gap.

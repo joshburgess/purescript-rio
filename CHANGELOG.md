@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `rio-config-file`: new adapter package providing
+  `dotenvFileSource` and `jsonFileSource`. Both read a file
+  from disk and return a `RIO.Config.Source` ready to feed
+  into `load`. `parseDotenv` and `flattenJson` are exposed as
+  pure helpers for tests and in-memory callers. The JSON
+  flattener joins nested object keys with `_`, matching the
+  way `RIO.Config.nested` qualifies keys, so the same
+  `Config` descriptor works against env, dotenv, and JSON
+  sources without modification.
 - `RIO.Stream.Par`: parallel stream combinators. `mergeAll`
   fans in N producer streams onto a shared bounded queue (one
   fiber per producer; first observed failure shuts the queue

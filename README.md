@@ -119,7 +119,8 @@ or point your `spago.yaml` at the git remote directly.
   `withDefault`, `nested`) that pull from a `Source`; ships
   `envSource` (live process env) and `mapSource` (pure, for
   tests). Errors accumulate so one bad key doesn't hide the
-  rest. `Secret` redacts under `Show`.
+  rest. `Secret` redacts under `Show`. The `rio-config-file`
+  companion adds `dotenvFileSource` and `jsonFileSource`.
 - `RIO.Schedule`: pure scheduling policies (`recurs`, `spaced`,
   `exponential`, `jittered`, `intersect`, `andThen`, `whileInput`)
   with runners `repeat`, `retry`, `retryOrElse` that sleep through
