@@ -77,6 +77,37 @@ spec = do
           Right _ -> 1 `shouldEqual` 0
         count `shouldEqual` 2
 
+      it "feeds each successful action result into the schedule as input" do
+        -- Docstring promise: "The schedule sees each successful
+        -- result as input; while it says `Continue`, the runner
+        -- sleeps the requested delay and runs the action again."
+        -- Every existing `repeat` test pairs it with `recurs N`
+        -- (an input-blind schedule), so the input-threading half
+        -- of the contract is unexercised: a regression that
+        -- forwarded `unit` (or any constant) to the schedule
+        -- instead of the action's last result would still pass
+        -- every other test. Pin the threading by combining
+        -- `repeat` with `whileInput`, which IS input-sensitive:
+        -- run an action that returns the call-count and stop
+        -- under `whileInput (_ < 3)`. The schedule must observe
+        -- the action's 1, 2, 3 sequence and halt the third time
+        -- around. Both the `result` (the last successful value)
+        -- and the counter must read 3.
+        counter <- liftEffect (Ref.new 0)
+        let
+          action :: RIO () () Int
+          action = liftEffect (Ref.modify (_ + 1) counter)
+
+          program :: RIO (clock :: Clock) () Int
+          program =
+            repeat (whileInput (\n -> n < 3) (recurs 100)) action
+
+        tc <- newTestClock
+        result <- runRIO' (provideAll { clock: tc.clock } program)
+        count <- liftEffect (Ref.read counter)
+        result `shouldEqual` 3
+        count `shouldEqual` 3
+
     describe "retry" do
       it "recovers after a transient failure" do
         counter <- liftEffect (Ref.new 0)
