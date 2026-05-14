@@ -27,10 +27,14 @@ import RIO.Postgres
   , exec
   , execParams
   , execParamsUsing
+  , execPrepared
+  , execPreparedUsing
   , execUsing
   , pgErrorMessage
   , query
   , queryParams
+  , queryPrepared
+  , queryPreparedUsing
   , withClient
   , withTransaction
   )
@@ -167,6 +171,68 @@ spec conn = do
               ("select id from rio_test_items order by id" :: String)
         result <- runWithLayer conn program
         expectRight [ 10, 20 ] result
+
+    describe "prepared statements" do
+      it "queryPrepared / execPrepared round-trip with a named plan" do
+        let
+          program :: RIO (postgres :: Postgres) DbErr (Array (Int /\ String))
+          program = do
+            resetTable
+            _ <- execPrepared dbTag "rio_insert"
+              "insert into rio_test_items (id, label) values ($1, $2)"
+              (1 /\ "alpha")
+            _ <- execPrepared dbTag "rio_insert"
+              "insert into rio_test_items (id, label) values ($1, $2)"
+              (2 /\ "beta")
+            queryPrepared dbTag "rio_select_by_id"
+              "select id, label from rio_test_items where id = $1"
+              1
+        result <- runWithLayer conn program
+        expectRight [ 1 /\ "alpha" ] result
+
+      it "queryPreparedUsing reuses the cached plan inside withTransaction" do
+        let
+          -- Two calls with the same statement name on the same
+          -- client: Postgres caches the parse the first time and
+          -- reuses it the second. Functional behavior matches a
+          -- non-prepared call; this exercises the same-connection
+          -- code path.
+          program :: RIO (postgres :: Postgres) DbErr (Array Int)
+          program = do
+            resetTable
+            _ <- exec dbTag
+              ( "insert into rio_test_items values (1, 'a'), (2, 'b'), (3, 'c')"
+                  :: String
+              )
+            withTransaction dbTag \client -> do
+              first <- queryPreparedUsing dbTag "rio_select_one"
+                "select id from rio_test_items where id = $1"
+                1
+                client
+              second <- queryPreparedUsing dbTag "rio_select_one"
+                "select id from rio_test_items where id = $1"
+                3
+                client
+              pure (first <> second)
+        result <- runWithLayer conn program
+        expectRight [ 1, 3 ] result
+
+      it "execPreparedUsing reports affected-row counts" do
+        let
+          program :: RIO (postgres :: Postgres) DbErr Int
+          program = do
+            resetTable
+            _ <- exec dbTag
+              ( "insert into rio_test_items values (1, 'a'), (2, 'b'), (3, 'c')"
+                  :: String
+              )
+            withTransaction dbTag \client ->
+              execPreparedUsing dbTag "rio_delete_by_id"
+                "delete from rio_test_items where id = $1"
+                2
+                client
+        result <- runWithLayer conn program
+        expectRight 1 result
 
     describe "withClient" do
       it "returns the client to the pool so subsequent calls succeed on a max=1 pool" do

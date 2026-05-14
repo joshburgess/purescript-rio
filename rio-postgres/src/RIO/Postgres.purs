@@ -28,10 +28,14 @@ module RIO.Postgres
   , queryUsing
   , queryParams
   , queryParamsUsing
+  , queryPrepared
+  , queryPreparedUsing
   , exec
   , execUsing
   , execParams
   , execParamsUsing
+  , execPrepared
+  , execPreparedUsing
   , withTransaction
   , module Reexports
   ) where
@@ -48,8 +52,9 @@ import Effect.Class (liftEffect)
 import Prim.Row (class Cons) as Row
 import Type.Proxy (Proxy(..))
 
+import Data.Maybe (Maybe(..))
+import Data.Postgres.Query (class AsQuery, class AsQueryParams, Query(..), asQueryParams) as PG
 import Data.Postgres.Query (class AsQuery, class AsQueryParams) as Reexports
-import Data.Postgres.Query (class AsQuery, class AsQueryParams) as PG
 import Data.Postgres.Result (class FromRows) as Reexports
 import Data.Postgres.Result (class FromRows) as PG
 import Effect.Aff.Postgres.Client (Client) as Reexports
@@ -275,6 +280,97 @@ execParamsUsing
   -> PG.Client
   -> RIO r e Int
 execParamsUsing sym text ps client = execUsing sym (text /\ ps) client
+
+-- | Internal: a parameterized query carrying a prepared-statement
+-- | name. node-postgres caches the parsed plan under `name` on the
+-- | connection that first sees the query; subsequent calls with the
+-- | same `name` on the same connection reuse the plan. The
+-- | constructor is hidden; users go through `queryPrepared` /
+-- | `execPrepared` and friends.
+data PreparedQuery ps = PreparedQuery String String ps
+
+instance asQueryPrepared :: PG.AsQueryParams ps => PG.AsQuery (PreparedQuery ps) where
+  asQuery (PreparedQuery name text ps) = do
+    values <- PG.asQueryParams ps
+    pure (PG.Query { text, values, name: Just name })
+
+-- | Run a prepared parameterized query. `name` identifies the
+-- | cached plan on the underlying connection; `text` is the SQL
+-- | with `$1`, `$2`, ... placeholders; `ps` is the tuple of bound
+-- | values.
+-- |
+-- | The plan is cached per-connection: when this borrows a client
+-- | from the pool, the cache hits whenever the pool hands back the
+-- | same connection. For a guaranteed cache hit across calls, run
+-- | several `queryPreparedUsing` calls inside a single
+-- | `withClient` / `withTransaction` block on the same `Client`.
+-- |
+-- | ```purescript
+-- | rows <- queryPrepared dbTag "find_item"
+-- |   "select id, label from items where owner = $1"
+-- |   "alice"
+-- | ```
+queryPrepared
+  :: forall sym ps out r e e'
+   . IsSymbol sym
+  => Row.Cons sym PgError e' e
+  => PG.AsQueryParams ps
+  => PG.FromRows out
+  => Proxy sym
+  -> String
+  -> String
+  -> ps
+  -> RIO (postgres :: Postgres | r) e out
+queryPrepared sym name text ps =
+  query sym (PreparedQuery name text ps)
+
+-- | Variant of `queryPrepared` that runs on a supplied client. Use
+-- | inside `withClient` / `withTransaction` to guarantee the cached
+-- | plan is reused across calls.
+queryPreparedUsing
+  :: forall sym ps out r e e'
+   . IsSymbol sym
+  => Row.Cons sym PgError e' e
+  => PG.AsQueryParams ps
+  => PG.FromRows out
+  => Proxy sym
+  -> String
+  -> String
+  -> ps
+  -> PG.Client
+  -> RIO r e out
+queryPreparedUsing sym name text ps client =
+  queryUsing sym (PreparedQuery name text ps) client
+
+-- | Run a prepared parameterized statement (`INSERT`, `UPDATE`, ...).
+-- | See `queryPrepared` for the cache-hit story.
+execPrepared
+  :: forall sym ps r e e'
+   . IsSymbol sym
+  => Row.Cons sym PgError e' e
+  => PG.AsQueryParams ps
+  => Proxy sym
+  -> String
+  -> String
+  -> ps
+  -> RIO (postgres :: Postgres | r) e Int
+execPrepared sym name text ps =
+  exec sym (PreparedQuery name text ps)
+
+-- | Variant of `execPrepared` that runs on a supplied client.
+execPreparedUsing
+  :: forall sym ps r e e'
+   . IsSymbol sym
+  => Row.Cons sym PgError e' e
+  => PG.AsQueryParams ps
+  => Proxy sym
+  -> String
+  -> String
+  -> ps
+  -> PG.Client
+  -> RIO r e Int
+execPreparedUsing sym name text ps client =
+  execUsing sym (PreparedQuery name text ps) client
 
 -- | Acquire a client, issue `BEGIN`, run `use`, then `COMMIT`. If
 -- | `use` raises a typed failure, the transaction is rolled back
