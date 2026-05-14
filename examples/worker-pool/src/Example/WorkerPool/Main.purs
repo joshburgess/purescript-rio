@@ -19,6 +19,8 @@ import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (traverse_)
+import Data.Variant (Variant)
+import Data.Variant as Variant
 import Effect (Effect)
 import Effect.Aff (delay, launchAff_)
 import Effect.Aff.Class (liftAff)
@@ -27,8 +29,9 @@ import Effect.Class.Console as Console
 import Effect.Ref as Ref
 import Type.Proxy (Proxy(..))
 
-import Example.WorkerPool.Logger (Logger, consoleLogger, info)
-import Example.WorkerPool.Workers (Job, runWorkers)
+import Example.WorkerPool.Logger (Logger, consoleLogger, info, warn)
+import Example.WorkerPool.Workers (Job, JobError, runWorkers)
+import RIO.Cause (parTraverseCause, prettyCause)
 import RIO.Clock (Clock, liveClock)
 import RIO.Concurrency (fork, join)
 import RIO.Core (RIO, fail, provideAll, runRIO)
@@ -74,6 +77,13 @@ main = launchAff_ do
 program :: RIO Env () Unit
 program = do
   info "[main] booting worker pool"
+  -- Before the worker pool runs, validate each job name. The
+  -- validations run in parallel under `parTraverseCause`, so every
+  -- bad name surfaces (rather than just the first one) and the
+  -- resulting `Cause` tree is rendered with `prettyCause`. Two
+  -- names are intentionally bad to make the parallel-failures
+  -- header visible.
+  causeDemo
   inbox <- liftEffect (Queue.bounded 4)
   -- Producer: feed 8 jobs onto the queue, then shut it down so the
   -- workers see `Nothing` and exit.
@@ -85,6 +95,38 @@ program = do
     inbox
   join producer
   info "[main] shutdown clean"
+
+-- | A small "show what `prettyCause` looks like" pre-flight: a
+-- | handful of validation steps run under `parTraverseCause`, two
+-- | of which fail. The combined Parallel cause is rendered and
+-- | logged so the example produces visible Cause output on every
+-- | run.
+causeDemo :: RIO Env () Unit
+causeDemo = do
+  let
+    validate :: String -> RIO Env JobError String
+    validate name
+      | name == "" = fail (Proxy :: Proxy "jobFailed") "empty name"
+      | name == "bad" =
+          fail (Proxy :: Proxy "jobFailed") "name 'bad' is reserved"
+      | otherwise = pure name
+  outcome <- parTraverseCause validate [ "alpha", "", "beta", "bad" ]
+  case outcome of
+    Right names ->
+      info ("[demo] all validations passed: " <> show names)
+    Left cause ->
+      warn
+        ( "[demo] pre-flight validation failed:\n"
+            <> prettyCause renderJobError cause
+        )
+
+-- | Render whatever payload a `JobError` carries on its tag. Mirrors
+-- | the renderer used inside the worker, kept local here so this
+-- | file is self-contained.
+renderJobError :: Variant JobError -> String
+renderJobError = Variant.on (Proxy :: Proxy "jobFailed")
+  (\s -> "jobFailed: " <> s)
+  (\_ -> "<unknown failure>")
 
 producerLoop :: Queue (Job JobEnv) -> RIO Env () Unit
 producerLoop inbox = do
