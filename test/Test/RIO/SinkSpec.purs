@@ -110,6 +110,31 @@ spec = describe "RIO.Sink" do
       r <- runRIO' (Sink.runSink (Sink.take 0) source)
       r `shouldEqual` ([] :: Array Int)
 
+    it "take 0 does not pull any element from the source" do
+      -- Docstring + implementation guard `take n | n <= 0 =
+      -- Sink (pure (Halt []))` promise that `take 0` halts
+      -- before pulling. The pinned "take 0 returns the empty
+      -- array without pulling" test only checks the result
+      -- equals `[]`. A regression that weakened the guard to
+      -- `n < 0` would still pass that test: the `go [] 0`
+      -- branch immediately returns `Halt acc` without ever
+      -- pulling either. Pin the no-pull half with a counting
+      -- source via `repeatM`: every pull from an infinite
+      -- counting source would increment the counter, so the
+      -- counter staying at 0 proves the guard short-circuits
+      -- before any pull.
+      counter <- liftEffect (Ref.new 0)
+      let
+        tick :: RIO () () Int
+        tick = liftEffect (Ref.modify (_ + 1) counter)
+
+        program :: RIO () () (Array Int)
+        program = Sink.runSink (Sink.take 0) (Stream.repeatM tick)
+      r <- runRIO' program
+      r `shouldEqual` ([] :: Array Int)
+      pulls <- liftEffect (Ref.read counter)
+      pulls `shouldEqual` 0
+
     it "take returns what it could when the stream is short" do
       r <- runRIO' (Sink.runSink (Sink.take 10) source)
       r `shouldEqual` [ 1, 2, 3, 4, 5 ]
