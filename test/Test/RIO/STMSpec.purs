@@ -153,6 +153,52 @@ spec = do
           Left _ -> pure unit
           Right _ -> 1 `shouldEqual` 0
 
+      it "uses the left value when the left commits" do
+        let
+          program :: RIO () () Int
+          program = do
+            refA <- atomically (newTRef 7)
+            refB <- atomically (newTRef 99)
+            atomically (orElse (readTRef refA) (readTRef refB))
+        result <- runRIO' program
+        result `shouldEqual` 7
+
+      it "outer transaction retries when both sides retry" do
+        events <- liftEffect (Ref.new [])
+        let
+          push :: forall r e. String -> RIO r e Unit
+          push s = liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) events)
+
+          program :: RIO () () Int
+          program = do
+            refA <- atomically (newTRef 0)
+            refB <- atomically (newTRef 0)
+            push "before-fork"
+            waiter <- fork do
+              v <- atomically do
+                orElse
+                  ( do
+                      a <- readTRef refA
+                      check (a > 0)
+                      pure a
+                  )
+                  ( do
+                      b <- readTRef refB
+                      check (b > 0)
+                      pure b
+                  )
+              push "after-await"
+              pure v
+            liftAff (delay (Milliseconds 20.0))
+            push "before-write"
+            atomically (writeTRef refB 88)
+            join waiter
+        result <- runRIO' program
+        result `shouldEqual` 88
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual`
+          [ "before-fork", "before-write", "after-await" ]
+
     describe "concurrent increments" do
       it "preserves the invariant under many parallel updates" do
         let

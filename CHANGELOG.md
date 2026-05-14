@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.STM`: two additional `orElse` unit tests filling in the
+  documented behaviour matrix. The first pins the left-commits
+  happy path (left side returns a value, right side is not
+  consulted); the second pins the both-sides-retry case (outer
+  transaction itself retries and wakes when a TRef the right
+  side read is written by another fiber). Combined with the
+  existing two cases (left-retries-falls-through, left-typed-
+  failure-does-not-fall-through) the four-cell behaviour matrix
+  is now covered. Whole-package run goes `369 -> 371` tests
+  passing.
 - `RIO.STM.TQueue`: two additional unit tests for `peekTQueue`
   (an exported function with no test). The first pins the
   non-destructive read behaviour (queue length unchanged after a
