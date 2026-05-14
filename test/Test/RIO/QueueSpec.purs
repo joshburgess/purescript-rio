@@ -163,3 +163,25 @@ spec = do
         b <- runRIO' (poll q :: RIO () () (Maybe Int))
         a `shouldEqual` Just 1
         b `shouldEqual` Nothing
+
+      it "after shutdown, take drains buffered items then returns Nothing" do
+        -- `shutdown`'s docstring promises that "subsequent `take`s
+        -- return `Nothing` once the existing buffer is drained."
+        -- The unbounded describe block has this pin; the bounded
+        -- describe block does not. A natural refactor of `takeAff`
+        -- that checked `isShutdown` BEFORE the `Array.uncons items`
+        -- branch would immediately yield `Nothing` after shutdown
+        -- and drop the buffered items on the floor. None of the
+        -- existing bounded tests pre-fill the buffer below capacity
+        -- and then shut down, so that regression would slip
+        -- through. Pin the drain-before-Nothing contract for
+        -- bounded queues symmetric to the unbounded test above.
+        q <- liftEffect (bounded 5)
+        _ <- runRIO' (offer q 10 *> offer q 20 :: RIO () () Boolean)
+        runRIO' (shutdown q :: RIO () () Unit)
+        a <- runRIO' (take q :: RIO () () (Maybe Int))
+        b <- runRIO' (take q :: RIO () () (Maybe Int))
+        c <- runRIO' (take q :: RIO () () (Maybe Int))
+        a `shouldEqual` Just 10
+        b `shouldEqual` Just 20
+        c `shouldEqual` Nothing
