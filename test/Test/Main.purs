@@ -43,6 +43,7 @@ import Test.RIO.STM.TMapSpec as TMapSpec
 import Test.RIO.STM.TMap.PropertiesSpec as TMapPropertiesSpec
 import Test.RIO.STM.THubSpec as THubSpec
 import Test.RIO.STM.TQueueSpec as TQueueSpec
+import Test.RIO.STM.TQueue.PropertiesSpec as TQueuePropertiesSpec
 import Test.RIO.STM.TSemaphoreSpec as TSemaphoreSpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
 import Test.RIO.TracerSpec as TracerSpec
@@ -79,6 +80,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   SinkPropertiesSpec.spec
   STMSpec.spec
   TQueueSpec.spec
+  TQueuePropertiesSpec.spec
   TMapSpec.spec
   TMapPropertiesSpec.spec
   TSemaphoreSpec.spec
