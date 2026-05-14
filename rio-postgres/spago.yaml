@@ -1,0 +1,14 @@
+package:
+  name: rio-postgres
+  dependencies:
+    - aff
+    - arrays
+    - effect
+    - either
+    - maybe
+    - newtype
+    - postgresql
+    - prelude
+    - rio
+    - transformers
+    - variant

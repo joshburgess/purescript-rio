@@ -500,7 +500,8 @@ here as a sketch of how a multi-contributor cadence could look.
 
 - ~~DSL exploration for direct-style syntax via PureScript's `qualified-do`.~~ **Done.** Spike in `spikes/qualified-do/`, with the two winners promoted into `main` as `RIO.Resource.Do` and `RIO.Concurrency.Par`.
 - ~~`rio-httpure` integration package.~~ **Done** (as `rio-http`, wrapping HTTPurple since HTTPure is unmaintained). The companion package lives at `rio-http/` and `examples/todo-api/` consumes it.
-- `rio-node`, `rio-aws`, `rio-postgres` integration packages. **Still open.**
+- ~~`rio-postgres` integration package.~~ **Driver wrapper done.** Lives at `rio-postgres/`, wraps `purescript-postgresql` (the `node-postgres` driver) with a `Postgres` service, `query` / `exec` / `withTransaction` smart constructors, and a `postgresLayer` that owns pool lifecycle via a scope finalizer. Integration tests against a real Postgres (intended setup: `docker compose`) are **still open**.
+- `rio-node`, `rio-aws` integration packages. **Still open.**
 - Property-based testing integration with `purescript-quickcheck` specifically tuned for RIO programs. **Still open** (basic QuickCheck is available; no RIO-tuned harness yet).
 
 ### Other items not in the original backlog that have shipped

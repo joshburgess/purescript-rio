@@ -62,6 +62,34 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 - CI builds `rio-http` on every PR and the
   `purs-tidy` format check now covers the `rio-http/` source tree.
 
+- `rio-postgres` workspace package: an adapter wrapping
+  [`purescript-postgresql`](https://pursuit.purescript.org/packages/purescript-postgresql)
+  (the `node-postgres` / `pg` driver) so apps can talk to
+  Postgres through a row-typed `Postgres` service. Each
+  combinator surfaces driver failures on a caller-chosen typed
+  tag carrying `PgError` (a thin newtype around the library's
+  `NonEmptyArray Error`), keeping the row layout up to the
+  consuming app.
+  - `RIO.Postgres` exposes the `Postgres` service token,
+    `PgError` plus `pgErrorMessage`, and a small set of smart
+    constructors: `withClient` brackets a client from the pool
+    for a callback (release on every termination path),
+    `query` / `exec` run a one-shot statement on a fresh
+    client, and their `*Using` variants thread an existing
+    client for in-transaction chaining. `withTransaction`
+    wraps a block in `BEGIN` / `COMMIT`, rolling back on any
+    typed failure on the chosen tag and re-raising it.
+    Re-exports `Pool`, `Client`, `AsQuery`, `FromRows`, and
+    the underlying `Error` shape so consumers don't need to
+    depend on the driver package directly.
+  - `RIO.Postgres.Layer.postgresLayer` builds a fresh pool
+    from a `node-postgres` config record and registers the
+    pool's `Pool.end` shutdown as a finalizer on the
+    surrounding scope, so pool drain is guaranteed on every
+    exit path of the scope the layer is built into.
+- CI builds `rio-postgres` on every PR and the `purs-tidy`
+  format check covers the `rio-postgres/` source tree.
+
 ### Changed
 
 - `examples/todo-api/Middleware.purs` is now a thin app-shim

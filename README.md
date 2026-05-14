@@ -217,13 +217,18 @@ testing), plus the larger surface listed above — `RIO.Schedule`,
 `RIO.STM` and its derived structures, `RIO.Tracer` and
 `RIO.Metrics` with an OpenTelemetry adapter (`rio-otel`),
 `RIO.Local`, `RIO.Logger`, the qualified-do sugar
-(`RIO.Resource.Do`, `RIO.Concurrency.Par`), and the
-`rio-http` companion package (an HTTPurple adapter).
+(`RIO.Resource.Do`, `RIO.Concurrency.Par`), the
+`rio-http` companion package (an HTTPurple adapter), and
+the `rio-postgres` adapter (wraps `purescript-postgresql` /
+`node-postgres`).
 
-What's open: streaming, `rio-postgres` / `rio-node` / `rio-aws`
-integration packages, custom `Fail` instances for the worst row /
-variant error messages, and a property-testing harness tuned for
-RIO. See [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
+What's open: streaming, `rio-node` / `rio-aws` integration
+packages, real-Postgres CI coverage for `rio-postgres`
+(currently builds against the driver but has no integration
+tests; Docker-backed locally is the intended setup), custom
+`Fail` instances for the worst row / variant error messages,
+and a property-testing harness tuned for RIO. See
+[`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License
 
