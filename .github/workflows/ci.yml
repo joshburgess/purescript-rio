@@ -203,3 +203,8 @@ jobs:
         env:
           PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
         run: npx spago test -p rio-postgres-migrate
+
+      - name: Run notify example against the service container
+        env:
+          DATABASE_URL: postgres://rio:rio@localhost:5432/rio_test
+        run: npx spago run -p rio-example-notify
