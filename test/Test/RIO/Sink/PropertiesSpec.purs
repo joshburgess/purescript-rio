@@ -252,6 +252,21 @@ spec = describe "RIO.Sink (property tests)" do
         )
       left `shouldEqual` right
 
+  it "last ≡ mapResult Array.last collect" do
+    -- Dual of `head ≡ mapResult Array.head (take 1)`. The two
+    -- paths differ in consumption (`last` walks the whole stream,
+    -- `collect` materializes the whole array), but their values
+    -- agree on every input. Pin the value-level duality so a
+    -- regression in either primitive surfaces against the other.
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      left <- runRIO' (Sink.runSink Sink.last (Stream.fromArray xs))
+      right <- runRIO'
+        ( Sink.runSink
+            (Sink.mapResult Array.last Sink.collect)
+            (Stream.fromArray xs)
+        )
+      left `shouldEqual` right
+
   it "any p ≡ mapResult (case _ of Just _ -> true; Nothing -> false) (find p)" do
     forAll (arbitrary :: Gen (Array Int)) \xs -> do
       let
