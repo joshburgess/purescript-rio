@@ -6,6 +6,8 @@ import Data.Either (Either(..))
 import Data.Foldable (traverse_)
 import Data.Variant as Variant
 import Effect.Aff (Aff)
+import Effect.Class (liftEffect)
+import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Assertions (fail) as TS
@@ -118,6 +120,31 @@ spec = do
           checkEq
             (runRIO (pureFn (<<<) <*> u <*> v <*> pureInt n))
             (runRIO (u <*> (v <*> pureInt n)))
+
+      it "Apply short-circuits: a failing left side skips the right side's effect" do
+        -- The Apply instance docstring (`src/RIO/Internal.purs`)
+        -- promises: "If the function side produces `Left`, the
+        -- argument side is not run; this matches the monadic
+        -- short-circuit semantics of the error channel."
+        -- The Applicative laws above all use `pureFn` / `pureInt`,
+        -- which have no observable side effects, so a regression
+        -- that ran both sides and threaded the Left at the end
+        -- would still satisfy every law. Pin the short-circuit
+        -- by observing that an effectful right side does NOT
+        -- increment a Ref when the function side raises a typed
+        -- failure.
+        ref <- liftEffect (Ref.new 0)
+        let
+          failing :: RIO () (boom :: Unit) (Int -> Int)
+          failing = fail (Proxy :: Proxy "boom") unit
+
+          counting :: RIO () (boom :: Unit) Int
+          counting = do
+            liftEffect (Ref.modify_ (_ + 1) ref)
+            pure 7
+        _ <- runRIO (failing <*> counting)
+        n <- liftEffect (Ref.read ref)
+        n `shouldEqual` 0
 
     describe "Monad laws (Phase 1.2)" do
       it "left identity: pure a >>= f = f a" $ forSamples \n ->
