@@ -1,0 +1,21 @@
+package:
+  name: rio-example-worker-pool
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - datetime
+    - effect
+    - either
+    - exceptions
+    - foldable-traversable
+    - integers
+    - maybe
+    - prelude
+    - random
+    - refs
+    - rio
+    - tuples
+    - variant
+  run:
+    main: Example.WorkerPool.Main
