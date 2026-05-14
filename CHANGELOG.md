@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Concurrency.Par`: two additional unit tests pinning the
+  module's documented semantics. The first verifies the
+  "no short-circuit" promise: when the left branch raises a
+  typed failure, the right branch still runs every one of its
+  internal steps to completion (observable via a Ref counter).
+  The second verifies that a right-side typed failure surfaces
+  on the parent's row when the left branch succeeds (the
+  pre-existing test only exercised the leftmost-failure-wins
+  case). Whole-package run goes `378 -> 380` tests passing.
 - `RIO.Stream`: one additional unit test for `repeatM`
   (an exported function with no test). The new case pairs
   `repeatM` with `take 4`, asserting that the inner action

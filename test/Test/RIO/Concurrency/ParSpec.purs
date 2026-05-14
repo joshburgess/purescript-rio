@@ -5,10 +5,12 @@ import Prelude
 import Data.DateTime.Instant (unInstant)
 import Data.Either (Either(..))
 import Data.Newtype (unwrap)
+import Data.Variant as Variant
 import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Now (now) as Now
+import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Assertions (fail) as Spec
@@ -60,3 +62,40 @@ spec = do
         case result of
           Left _ -> pure unit
           Right _ -> Spec.fail "expected typed failure"
+
+      it "no short-circuit: right branch runs to completion even when left fails" do
+        rightSteps <- liftEffect (Ref.new 0)
+        let
+          rightWork :: RIO () (boom :: Unit) Int
+          rightWork = do
+            liftEffect (Ref.modify_ (_ + 1) rightSteps)
+            liftAff (delay (Milliseconds 10.0))
+            liftEffect (Ref.modify_ (_ + 1) rightSteps)
+            liftAff (delay (Milliseconds 10.0))
+            liftEffect (Ref.modify_ (_ + 1) rightSteps)
+            pure 7
+
+          program :: RIO () (boom :: Unit) Int
+          program = Par.ado
+            a <- fail (Proxy :: Proxy "boom") unit
+            b <- rightWork
+            in a + b
+
+        _ <- runRIO program
+        steps <- liftEffect (Ref.read rightSteps)
+        steps `shouldEqual` 3
+
+      it "right typed failure surfaces when the left branch succeeds" do
+        let
+          program :: RIO () (right :: String) Int
+          program = Par.ado
+            a <- pure 10
+            b <- fail (Proxy :: Proxy "right") "from-right"
+            in a + b
+
+        result <- runRIO program
+        case result of
+          Left v ->
+            (Variant.case_ # Variant.on (Proxy :: Proxy "right") identity $ v)
+              `shouldEqual` "from-right"
+          Right _ -> Spec.fail "expected right-branch failure to surface"
