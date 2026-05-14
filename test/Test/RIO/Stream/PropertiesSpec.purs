@@ -2,8 +2,10 @@ module Test.RIO.Stream.PropertiesSpec (spec) where
 
 import Prelude
 
-import Data.Array (concatMap, drop, filter, take) as Array
+import Data.Array (concatMap, drop, filter, range, take) as Array
 import Data.Foldable (for_, sum)
+import Data.Maybe (Maybe(..))
+import Data.Tuple (Tuple(..))
 import Data.Tuple.Nested (type (/\), (/\))
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
@@ -20,11 +22,13 @@ import RIO.Stream
   , flatMap
   , fromArray
   , map
+  , mapM
   , runCollect
   , runFold
   , runFoldM
   , single
   , take
+  , unfoldM
   )
 
 -- Run `prop` against 50 randomly generated samples from `gen`. A
@@ -195,4 +199,33 @@ spec = describe "RIO.Stream (property tests)" do
     forAll gen \(n /\ m /\ xs) -> do
       left <- runRIO' (runCollect (drop n (drop m (fromArray xs))))
       right <- runRIO' (runCollect (drop (n + m) (fromArray xs)))
+      left `shouldEqual` right
+
+  -- unfoldM and mapM correspondence properties. The unit pins fix
+  -- specific seeds and specific effect bodies; here we pin the
+  -- pure shape across a range of inputs.
+
+  it "unfoldM (counter to k) ≡ range 0 (k - 1)" do
+    -- Use a small natural so the generated stream length stays
+    -- bounded and the pure model (`Array.range 0 (k - 1)`) is
+    -- easy to compute. Covers the `k = 0` boundary (empty
+    -- stream) and small-`k` cases.
+    let
+      smallNat :: Gen Int
+      smallNat = (\j -> (if j < 0 then -j else j) `mod` 21) <$> arbitrary
+    forAll smallNat \k -> do
+      let
+        step :: Int -> _
+        step n =
+          if n >= k then pure Nothing
+          else pure (Just (Tuple n (n + 1)))
+      r <- runRIO' (runCollect (unfoldM 0 step))
+      let expected = if k <= 0 then [] else Array.range 0 (k - 1)
+      r `shouldEqual` expected
+
+  it "mapM (pure ∘ f) ≡ map f under runCollect" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let f n = n * 3 + 7
+      left <- runRIO' (runCollect (mapM (\n -> pure (f n)) (fromArray xs)))
+      right <- runRIO' (runCollect (map f (fromArray xs)))
       left `shouldEqual` right
