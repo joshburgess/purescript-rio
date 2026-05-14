@@ -208,6 +208,11 @@ Walkthrough docs:
   logging via `RIO.Logger`, scoped annotations with
   `withFields`, the shipped backends, and the comparison to
   ZIO `ZLogger` / Effect-TS `Effect.logAnnotations`.
+- [`docs/13-streams.md`](./docs/13-streams.md): pull-based
+  `RIO.Stream`, parallel combinators in `RIO.Stream.Par`
+  (`mergeAll`, `broadcast`, `partition`), and resource-safe
+  streams via `RIO.Stream.Resource.bracketStream`. Includes a
+  ZStream comparison table.
 - [`docs/performance.md`](./docs/performance.md): benchmark
   baselines and dominant costs.
 
