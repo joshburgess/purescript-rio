@@ -1,0 +1,198 @@
+-- | Parallel combinators for `RIO.Stream`.
+-- |
+-- | The base `RIO.Stream` is intentionally single-channel and
+-- | pull-based: each step asks the upstream stream for its next
+-- | element. This module adds the "fan in N producers" shape that
+-- | a single pull cannot express: `mergeAll` runs every input
+-- | stream concurrently and yields values as they arrive on a
+-- | shared bounded queue, `merge` is the two-stream convenience,
+-- | and `mergeMap` is the `flatMap`-shaped variant that drains
+-- | each element's inner stream concurrently.
+-- |
+-- | All combinators here share the same failure model: the *first*
+-- | typed failure or defect observed in any producer shuts the
+-- | shared queue down. Sibling producers are still running at that
+-- | point - they'll find the queue closed on their next `offer`
+-- | and exit naturally - but their would-be failures are dropped.
+-- | If you need every concurrent failure preserved as a tree,
+-- | drain each branch separately through
+-- | `RIO.Cause.parTraverseCause` instead.
+-- |
+-- | ```purescript
+-- | -- merge three independent producers; output order is whatever
+-- | -- arrives on the queue first
+-- | runDrain
+-- |   ( mergeAll
+-- |       [ ticker (Milliseconds 100.0)
+-- |       , consumer kafkaPartition0
+-- |       , consumer kafkaPartition1
+-- |       ]
+-- |       # mapM (\msg -> log ("got: " <> show msg))
+-- |   )
+-- | ```
+module RIO.Stream.Par
+  ( merge
+  , mergeAll
+  , mergeMap
+  ) where
+
+import Prelude
+
+import Control.Monad.Error.Class (throwError)
+import Data.Array as Array
+import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
+import Data.Traversable (traverse_)
+import Effect.Aff (error) as Aff
+import Effect.Class (liftEffect)
+import Effect.Ref as Ref
+
+import RIO.Cause (Cause(..), attemptCause)
+import RIO.Concurrency (fork)
+import RIO.Internal (RIO(..))
+import RIO.Queue (Queue)
+import RIO.Queue as Queue
+import RIO.Stream (Step(..), Stream(..), unStream)
+
+-- | The bounded-queue capacity used by `mergeAll`. Small enough to
+-- | apply real backpressure when producers outrun the consumer,
+-- | large enough to absorb short bursts without thrashing.
+defaultBuffer :: Int
+defaultBuffer = 16
+
+-- | Interleave the values of an array of streams. Each input
+-- | stream is drained on its own fiber; the output yields values
+-- | in the order they land on a shared bounded queue.
+-- |
+-- | Output order is non-deterministic across inputs but preserves
+-- | each input's internal order. An empty input array produces an
+-- | empty stream.
+mergeAll :: forall r e a. Array (Stream r e a) -> Stream r e a
+mergeAll streams =
+  let
+    n = Array.length streams
+  in
+    if n == 0 then Stream (pure Done)
+    else Stream do
+      queue <- liftEffect (Queue.bounded defaultBuffer)
+      remainingRef <- liftEffect (Ref.new n)
+      failureRef <- liftEffect (Ref.new (Nothing :: Maybe (Cause e)))
+      traverse_ (\s -> fork (produce queue remainingRef failureRef s))
+        streams
+      unStream (consumer queue failureRef)
+
+-- | Two-stream convenience for `mergeAll`.
+merge :: forall r e a. Stream r e a -> Stream r e a -> Stream r e a
+merge a b = mergeAll [ a, b ]
+
+-- | `flatMap`-shaped variant of `mergeAll`. The outer stream is
+-- | drained into an array first; each element produces an inner
+-- | stream via `f`; all inner streams are then merged with
+-- | `mergeAll`.
+-- |
+-- | This is the natural shape for "fan out each input into a
+-- | bounded amount of downstream work" - e.g. each row of a
+-- | Postgres cursor turns into a stream of derived records that
+-- | should be processed in parallel.
+-- |
+-- | Caveat: the outer stream is materialised eagerly, which means
+-- | this combinator is not suitable for an infinite outer source.
+-- | Reach for a `Sink`-style design when that constraint stops
+-- | being acceptable.
+mergeMap
+  :: forall r e a b
+   . (a -> Stream r e b)
+  -> Stream r e a
+  -> Stream r e b
+mergeMap f outer = Stream do
+  outerValues <- collectOuter outer
+  unStream (mergeAll (map f outerValues))
+  where
+  collectOuter :: Stream r e a -> RIO r e (Array a)
+  collectOuter = go []
+    where
+    go acc s = do
+      step <- unStream s
+      case step of
+        Done -> pure acc
+        Yield a rest -> go (Array.snoc acc a) rest
+
+-- | One producer fiber: drains its input stream onto the shared
+-- | queue under `attemptCause`. On success, decrements the
+-- | outstanding counter and, if it was the last producer, shuts
+-- | the queue down so the consumer sees end-of-stream. On failure
+-- | (typed or defect), records the cause and shuts the queue down
+-- | immediately so the consumer wakes up and propagates the
+-- | failure.
+produce
+  :: forall r e a
+   . Queue a
+  -> Ref.Ref Int
+  -> Ref.Ref (Maybe (Cause e))
+  -> Stream r e a
+  -> RIO r () Unit
+produce queue remainingRef failureRef s = do
+  outcome <- attemptCause (drainInto s)
+  case outcome of
+    Right _ -> do
+      decremented <- liftEffect (Ref.modify (_ - 1) remainingRef)
+      when (decremented <= 0) (Queue.shutdown queue)
+    Left cause -> do
+      liftEffect
+        ( Ref.modify_
+            ( case _ of
+                Nothing -> Just cause
+                existing -> existing
+            )
+            failureRef
+        )
+      Queue.shutdown queue
+  where
+  drainInto :: Stream r e a -> RIO r e Unit
+  drainInto inner = do
+    step <- unStream inner
+    case step of
+      Done -> pure unit
+      Yield a rest -> do
+        _ <- Queue.offer queue a
+        drainInto rest
+
+-- | The consumer side of `mergeAll`: blocks on the shared queue
+-- | until a value is available or the queue is shut down. On
+-- | shutdown, propagates the captured cause (if any) so the
+-- | downstream stream sees the failure on its next pull.
+consumer
+  :: forall r e a
+   . Queue a
+  -> Ref.Ref (Maybe (Cause e))
+  -> Stream r e a
+consumer queue failureRef = Stream do
+  ma <- Queue.take queue
+  case ma of
+    Just a -> pure (Yield a (consumer queue failureRef))
+    Nothing -> do
+      mCause <- liftEffect (Ref.read failureRef)
+      case mCause of
+        Nothing -> pure Done
+        Just cause -> propagateCause cause
+
+-- | Re-raise a captured `Cause` on the current `RIO` channel.
+-- |
+-- | The producer only ever stores leaf causes (`Fail` / `Die`)
+-- | because `attemptCause` returns leaves; the `Parallel` and
+-- | `Sequential` branches are defensive only and re-raise as a
+-- | defect with a clear message so a future regression is loud.
+propagateCause :: forall r e a. Cause e -> RIO r e a
+propagateCause = case _ of
+  Fail v -> RIO \_ -> pure (Left v)
+  Die err -> RIO \_ -> throwError err
+  Parallel _ _ -> RIO \_ ->
+    throwError
+      ( Aff.error
+          "RIO.Stream.Par: unexpected Parallel cause from a single producer"
+      )
+  Sequential _ _ -> RIO \_ ->
+    throwError
+      ( Aff.error
+          "RIO.Stream.Par: unexpected Sequential cause from a single producer"
+      )

@@ -25,8 +25,9 @@
 -- |   )
 -- | ```
 module RIO.Stream
-  ( Stream
+  ( Stream(..)
   , Step(..)
+  , unStream
   , concat
   , drop
   , empty
@@ -60,6 +61,12 @@ data Step r e a
   | Done
 
 -- | A pull-based stream. Run the inner `RIO` to get the next step.
+-- |
+-- | The constructor and `unStream` are exposed so that companion
+-- | modules (e.g. `RIO.Stream.Par`) can build new combinators that
+-- | need to step the underlying `RIO`. End-user code should reach
+-- | for the combinators in this module rather than peeling the
+-- | newtype directly.
 newtype Stream :: Row Type -> Row Type -> Type -> Type
 newtype Stream r e a = Stream (RIO r e (Step r e a))
 
