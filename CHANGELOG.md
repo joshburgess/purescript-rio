@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.STM.THub`: two additional unit tests pinning that
+  `withSubscription` releases the subscription on the defect and
+  fiber-kill termination paths. The docstring promises release
+  "on every termination path of `use` (success, typed failure,
+  defect, interrupt)". Success and typed-failure were pinned;
+  pin the remaining two so the full bracket contract is
+  documented across all four paths. Whole-package run goes
+  `439 -> 441` tests passing.
 - `RIO.Stream.Par`: one additional unit test pinning that
   `mergeAll` propagates a defect raised inside a producer. The
   module-level docstring promises a single failure model for

@@ -6,7 +6,7 @@ import Data.Array (range)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse, traverse_)
-import Effect.Aff (Milliseconds(..), delay)
+import Effect.Aff (Milliseconds(..), attempt, delay, error, forkAff, killFiber)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -14,7 +14,7 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fail, fork, join, runRIO, runRIO')
+import RIO.Core (RIO, die, fail, fork, join, runRIO, runRIO')
 import RIO.STM (atomically)
 import RIO.STM.THub
   ( THub
@@ -247,6 +247,48 @@ spec = describe "RIO.STM.THub" do
       case result of
         Left _ -> pure unit
         Right _ -> 1 `shouldEqual` 0
+      maybeHub <- liftEffect (Ref.read hubRef)
+      case maybeHub of
+        Nothing -> 1 `shouldEqual` 0
+        Just hub -> do
+          after <- runRIO' (atomically (subscriberCount hub))
+          after `shouldEqual` 0
+
+    it "releases the subscription on a defect inside the body" do
+      -- Same docstring contract; pin the defect path so the full
+      -- bracket is documented across all four termination paths.
+      hubRef <- liftEffect (Ref.new Nothing)
+      let
+        program :: RIO () () Unit
+        program = do
+          hub <- atomically (newUnboundedTHub :: _ (THub Int))
+          liftEffect (Ref.write (Just hub) hubRef)
+          withSubscription hub \_ ->
+            die (error "kaboom")
+      _ <- attempt (runRIO' program)
+      maybeHub <- liftEffect (Ref.read hubRef)
+      case maybeHub of
+        Nothing -> 1 `shouldEqual` 0
+        Just hub -> do
+          after <- runRIO' (atomically (subscriberCount hub))
+          after `shouldEqual` 0
+
+    it "releases the subscription on a fiber kill inside the body" do
+      -- Pin the fourth and last termination path. Killing the
+      -- fiber mid-body must still trigger the bracket-based
+      -- unsubscribe.
+      hubRef <- liftEffect (Ref.new Nothing)
+      let
+        program :: RIO () () Unit
+        program = do
+          hub <- atomically (newUnboundedTHub :: _ (THub Int))
+          liftEffect (Ref.write (Just hub) hubRef)
+          withSubscription hub \_ ->
+            liftAff (delay (Milliseconds 50.0))
+      f <- forkAff (runRIO' program)
+      delay (Milliseconds 5.0)
+      killFiber (error "test-cancel") f
+      delay (Milliseconds 10.0)
       maybeHub <- liftEffect (Ref.read hubRef)
       case maybeHub of
         Nothing -> 1 `shouldEqual` 0
