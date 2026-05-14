@@ -193,6 +193,39 @@ spec = do
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "log:ready", "find:42" ]
 
+      it "finalizers from both layers fire LIFO when the scope exits" do
+        -- Docstring promise on `combine`: "Both layers run in the
+        -- same surrounding scope; their finalizers join the
+        -- scope's stack and fire LIFO on exit." Same shape as the
+        -- `andThen` LIFO test above but pinned specifically for
+        -- the horizontal combinator. Layer 1 registers `close-1`,
+        -- layer 2 registers `close-2`; on `buildLayer` exit,
+        -- `close-2` must fire before `close-1`.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          layer1 :: forall e. Layer () e (logger :: Logger)
+          layer1 = fromRIO do
+            scope <- ask (Proxy :: Proxy "scope")
+            liftAff (push "open-1")
+            _ <- addFinalizer scope (push "close-1")
+            pure { logger: { log: \s -> push ("log:" <> s) } }
+
+          layer2 :: forall e. Layer () e (database :: Database)
+          layer2 = fromRIO do
+            scope <- ask (Proxy :: Proxy "scope")
+            liftAff (push "open-2")
+            _ <- addFinalizer scope (push "close-2")
+            pure { database: { find: \i -> pure (i + 1) } }
+        result <- buildLayer (layer1 <+> layer2)
+        case result of
+          Left _ -> 1 `shouldEqual` 0
+          Right _ -> pure unit
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual`
+          [ "open-1", "open-2", "close-2", "close-1" ]
+
       it "propagates failure from either side" do
         let
           failing :: Layer () (boom :: Unit) (a :: Int)

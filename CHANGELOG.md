@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Layer`: one additional unit test pinning that finalizers
+  registered by two horizontally-composed layers fire LIFO when
+  the surrounding scope exits. The `combine` docstring promises
+  "Both layers run in the same surrounding scope; their
+  finalizers join the scope's stack and fire LIFO on exit". The
+  existing tests covered horizontal output-row union and
+  short-circuit-on-failure but not the LIFO ordering. Pin it by
+  registering one finalizer per layer in a two-layer `combine`
+  driven through `buildLayer` and asserting the second layer's
+  finalizer fires first. Whole-package run goes `437 -> 438`
+  tests passing.
 - `RIO.Queue`: one additional unit test pinning that a killed
   offerer removes itself from the bounded queue's offerers list.
   Symmetric to the taker-cleanup contract just pinned: a bounded
