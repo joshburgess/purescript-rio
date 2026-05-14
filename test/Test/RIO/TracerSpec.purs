@@ -158,6 +158,32 @@ spec = describe "RIO.Tracer" do
       [ s ] -> s.status `shouldEqual` SpanFailed
       _ -> 1 `shouldEqual` Array.length spans
 
+  it "nested withSpan: inner typed failure closes both spans with SpanFailed" do
+    -- Docstring promise on `withSpan`: "the span closes with ...
+    -- `SpanFailed` on typed failure". The pinned `marks a span
+    -- SpanFailed when the action raises a typed failure` test
+    -- fails a single top-level span, so the contract is exercised
+    -- only at one nesting level. A regression that routed
+    -- `SpanFailed` only to the directly-raising frame (and closed
+    -- every wrapping span as `SpanOk` because they didn't
+    -- themselves raise) would still pass that test. Pin that the
+    -- typed-failure routing in `withSpan` inspects the result of
+    -- `unRIO action` (which propagates `Left` outward through
+    -- ancestors) so every wrapping span closes `SpanFailed`.
+    rec <- liftAff newRecordingTracer
+    let
+      program :: RIO (tracer :: Tracer) (boom :: Unit) Unit
+      program = withSpan "outer" do
+        withSpan "inner" do
+          fail (Proxy :: Proxy "boom") unit
+    _ <- runRIO (provideAll { tracer: rec.tracer } program)
+    spans <- liftEffect rec.snapshot
+    case spans of
+      [ outer, inner ] -> do
+        inner.status `shouldEqual` SpanFailed
+        outer.status `shouldEqual` SpanFailed
+      _ -> 1 `shouldEqual` Array.length spans
+
   it "addAttribute attaches a key/value to the currently-active span" do
     rec <- liftAff newRecordingTracer
     let
