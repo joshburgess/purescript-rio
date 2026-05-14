@@ -133,6 +133,19 @@ spec = do
           (runCollect (drop 3 (fromArray (Array.range 1 6))))
         r `shouldEqual` [ 4, 5, 6 ]
 
+      it "drop 0 returns the full stream (n <= 0 short-circuits to identity)" do
+        -- `drop`'s guard `n <= 0 = s` returns the original
+        -- stream untouched, mirroring `take`'s `n <= 0 = empty`
+        -- but with the opposite degenerate result. The existing
+        -- `drop` test uses `drop 3`, so a regression that
+        -- copy-pasted `take`'s guard (and wrote
+        -- `drop n s | n <= 0 = empty`) would still pass it but
+        -- would silently turn `drop 0` into a no-yield stream.
+        -- Pin the identity-on-zero half of the contract.
+        r <- runRIO'
+          (runCollect (drop 0 (fromArray (Array.range 1 5))))
+        r `shouldEqual` [ 1, 2, 3, 4, 5 ]
+
     describe "composition" do
       it "concat drains the first then the second" do
         r <- runRIO'
