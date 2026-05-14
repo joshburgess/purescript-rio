@@ -1,242 +1,145 @@
-## `RIO.Sink` design proposal
+## `RIO.Sink` design notes
 
-This is a design pass for a `Sink` layer on top of `RIO.Stream`,
-written before any code so the wire-level shape, fusion story,
-and parallel-sink combinators can be agreed on while everything
-is still cheap to change.
+This doc records *why* `RIO.Sink` looks the way it does. The
+user-facing reference (constructors, primitives, combinators,
+runner) lives in [`docs/13-streams.md`](./13-streams.md) under
+"Composable consumers". Read that first if you just want to
+know what's in the module; come here for the rationale.
 
-It does **not** propose a full ZIO `Channel`. Channels in ZIO are
-parameterized over six type parameters because they unify
-streams, sinks, and pipes into one bidirectional algebra. The
-unification has clear theoretical appeal but pays for it with a
-surface area that's hard for a casual reader to inspect. The
-recommendation here is to ship a focused `Sink` that covers the
-real-world terminating-consumer cases, and to only revisit
-`Channel` if and when a concrete need for stream-to-stream
-transducers shows up that `mapM` / `flatMap` cannot already
-express.
+The headline decisions:
 
-## What we already have
+- `Sink r e i a` is a `RIO r e (Step r e i a)` with
+  `Step = Need (i -> Sink r e i a) (RIO r e a) | Halt a`,
+  not the simpler ZIO 1.x `Need a (i -> Sink)` shape.
+- `zipPar` is single-fiber and pulls each input once. The
+  per-fiber, per-consumer-queue variant is
+  `RIO.Stream.Par.broadcast`.
+- No full `Channel` algebra; no push-based variant.
+- No `Sink.fromQueue` / `Sink.fromHub` family yet.
 
-`RIO.Stream` ships three terminating runners today:
+The rest of this note explains each call.
 
-```purescript
-runDrain   :: Stream r e a -> RIO r e Unit
-runCollect :: Stream r e a -> RIO r e (Array a)
-runFold    :: b -> (b -> a -> b) -> Stream r e a -> RIO r e b
-runFoldM   :: b -> (b -> a -> RIO r e b) -> Stream r e a -> RIO r e b
-```
+## Why `Need k finish` rather than `Need a k`
 
-These cover the common cases (drain for side-effects, collect
-for tests, fold for aggregation). What they do **not** cover:
+The first sketch had `Need a (i -> Sink r e i a)`: every step
+carries a pure default `a` to return if the stream ends now.
+That shape worked for `count`, `foldL`, `find`, and `take`, but
+it broke `andThen`.
 
-1. **Composable consumers**. There is no first-class value that
-   represents "consume a stream into an `a`"; each runner is a
-   distinct top-level function.
-2. **Early termination from the consumer side**. `runFoldM` walks
-   the whole stream even when the accumulator has already settled.
-   Returning `Done` from a step is not expressible in its
-   signature.
-3. **Parallel consumption**. There is no `zipPar`-style
-   combinator that runs two consumers against the same stream
-   without materialising the elements twice.
+`andThen` needs to thread the first sink's result through to the
+second. With `Need a k`, when the upstream stream ends we have
+to feed the first sink's pure default into the continuation,
+even if the continuation needs to do work (run a finalizer,
+read an effect, raise on the error row). The only escape was
+`unsafePartialDefault`-style typeclass hackery to materialise an
+arbitrary `a`. The result was a foreign import smell for what
+should be a tidy combinator.
 
-A `Sink` value addresses all three.
+Switching `finish` from `a` to `RIO r e a` removes the problem
+entirely: end-of-stream handling is itself effectful. `andThen`
+now reads as "if the first sink is still consuming, run its
+`finish`, feed the result into `k`, then run `k`'s sink against
+`Stream.empty`". No partial defaults, no foreign imports, no
+hidden assumptions about the result shape. Every primitive in
+the module already had a perfectly good `RIO r e a` to supply
+for `finish` (often just `pure acc`), so the cost at every
+existing call site was zero.
 
-## Proposed shape
+Conduit and ZIO 1.x's `ZSink` both used the simpler `Need a k`
+shape because their host languages let them play looser with
+end-of-stream behavior. PureScript's row-typed errors make the
+effectful-`finish` variant cleaner.
 
-```purescript
-data SinkStep r e i a
-  = Continue (Sink r e i a)
-  | Final a
+## Why `zipPar` is single-fiber
 
-newtype Sink r e i a = Sink (RIO r e (SinkInit r e i a))
+ZIO and Effect-TS both expose a fan-out primitive that hands
+the same stream to N concurrent consumers, each on its own
+fiber, with backpressure between them. In this library that's
+already `RIO.Stream.Par.broadcast`.
 
-data SinkInit r e i a
-  = SinkInitial a (i -> Sink r e i a)
-```
+`zipPar` is deliberately different: it runs two sinks in
+lockstep on **the same fiber**, pulling each input exactly
+once and offering it to both step functions before the next
+pull. The trade-off:
 
-A `Sink r e i a` is an effectful description of "I will consume
-some prefix of `i`s and produce an `a`". `SinkInitial` carries
-two things:
+- `zipPar` is cheaper (no fibers, no queues, no per-consumer
+  buffer) and preserves first-failure-wins from the underlying
+  `RIO.Stream.Par` semantics without spinning up siblings.
+- `broadcast` is what you want when the two consumers have
+  asymmetric throughput and you want backpressure to hold the
+  slow one back without stalling the fast one.
 
-- the value the sink would return **if the stream is already
-  empty** (the "zero" / identity)
-- a step function: given the next `i`, produce a new `Sink`
-  whose `SinkInitial` either yields another step (`Continue`-like)
-  or signals end-of-consumption by returning a fully-specified
-  initial value with whatever step continuation makes sense
-  (typically one that ignores further input)
+A library that only offered one would force the wrong shape on
+half the use cases. The example in `examples/sink-analytics/`
+is a `zipPar` use case (five small aggregations, all fast,
+share one stream pass); `examples/stream-pipeline/` is a
+`broadcast` use case (a logger and a metrics aggregator with
+different cost models). Naming them differently and shipping
+both is cheaper than picking one and trying to make it serve
+the other.
 
-In practice the inner shape is closer to:
+`zipPar`'s implementation is `combineSteps :: Step r e i a ->
+Step r e i b -> Step r e i (Tuple a b)`. The four cases
+(`Halt × Halt`, `Halt × Need`, `Need × Halt`, `Need × Need`)
+each preserve the natural invariant: once a side halts, its
+final value is remembered and only the other side continues to
+see inputs; both `finish` actions run on stream exhaustion and
+their results are tupled.
 
-```purescript
-newtype Sink r e i a = Sink (RIO r e (Step r e i a))
+## Why no full `Channel` algebra
 
-data Step r e i a
-  = Need a (i -> Sink r e i a)  -- has a default a; please give me more i
-  | Halt a                       -- finalised; ignore remaining input
-```
+ZIO's `Channel` unifies streams, sinks, and pipes into one
+six-parameter algebra. The unification has clear theoretical
+appeal: every transducer is a Channel, every parallel
+combinator is a Channel composition, and the Sink / Stream
+distinction becomes a row-of-types convention rather than two
+separate datatypes.
 
-`Need a k` is "if the stream ends now, I return `a`; otherwise
-push `i` into `k` for the next sink". `Halt a` is "I'm done,
-short-circuit the rest of the stream".
+It pays for that with surface area that's hard for a casual
+reader to inspect. The user-facing type signatures grow six
+type parameters wide. The combinator names overlap with both
+Stream and Sink. The fusion story is a separate body of work
+on top.
 
-This is the shape ZIO 1.x's `ZSink` had before Channels, and the
-one Conduit / Pipes-Sink expose. It's small, it composes well,
-and it's strictly more expressive than `runFoldM`.
+`RIO.Sink` covers the real terminating-consumer cases without
+the Channel framing. The transducer cases that *would* require
+Channel (a stream-to-stream component with both consumer and
+producer behavior) are already covered by `Stream.mapM`,
+`Stream.flatMap`, and `Sink.andThen` for the common patterns.
+The threshold for revisiting Channel is a concrete use case
+that this trio cannot express, not "ZIO has it."
 
-## The runner
+## Why no push-based variant
 
-```purescript
-runSink :: forall r e i a. Sink r e i a -> Stream r e i -> RIO r e a
-```
+The library's `Stream` is pull-based: the consumer asks for
+the next value, the producer hands it over. `Sink` is the
+matching pull-based consumer.
 
-`runSink sink stream` pulls from `stream` and feeds each yielded
-value into the sink's step. The loop stops on:
+A push-based `Stream` would be a different design conversation
+(different cost model, different fusion story, different
+interaction with `scoped` and backpressure). Adding both
+shapes side-by-side would double the surface area for a
+benefit that does not show up in the current example set. If
+real pressure for push-based shapes appears, it should drive
+its own design pass rather than be retro-fitted onto this one.
 
-- the stream signalling `Done` (return the sink's current
-  default `a`)
-- the sink signalling `Halt a` (ignore the rest of the stream;
-  resources still release via `scoped`)
+## What's deliberately not shipped (yet)
 
-Note the argument order: `Sink` first, `Stream` second. This
-mirrors `>>=` (consumer comes after producer) but makes
-`runSink mySink` partially applicable for re-use across
-streams, which is the whole point of having a Sink value.
+- `Sink.fromQueue` / `Sink.fromHub` family. Once `Sink` exists,
+  these are 5-line aliases over `Sink.foldM` pointing at the
+  `RIO.Queue` / `RIO.Hub` modules. Ship them in a follow-up
+  when an example actually needs them; until then they add
+  surface area without earning their keep.
+- Sink-side fusion / rewriting. Today every `mapResult`,
+  `mapInput`, and `filterIn` allocates a fresh wrapper per
+  step. A real workload that shows up in a profile is the
+  right driver for a fusion pass, not a speculative one.
+- Channel (see above).
 
-## Primitive sinks
+## Pointers
 
-The minimum interesting set:
-
-```purescript
--- terminal values
-drain     :: forall r e i. Sink r e i Unit
-head      :: forall r e i. Sink r e i (Maybe i)
-last      :: forall r e i. Sink r e i (Maybe i)
-count     :: forall r e i. Sink r e i Int
-collect   :: forall r e i. Sink r e i (Array i)
-
--- folds
-foldL     :: forall r e i a. a -> (a -> i -> a) -> Sink r e i a
-foldM     :: forall r e i a. a -> (a -> i -> RIO r e a) -> Sink r e i a
-
--- short-circuiting
-take      :: forall r e i. Int -> Sink r e i (Array i)
-find      :: forall r e i. (i -> Boolean) -> Sink r e i (Maybe i)
-any       :: forall r e i. (i -> Boolean) -> Sink r e i Boolean
-all       :: forall r e i. (i -> Boolean) -> Sink r e i Boolean
-```
-
-`take n` and `find p` are the headline examples for the
-`Halt`-case. Today's `runFoldM` can express `count` but cannot
-express `take 5` against an infinite stream without leaking
-fibers; `Sink.take 5` finalises cleanly via `Halt`.
-
-## Combinators
-
-```purescript
-mapResult :: (a -> b) -> Sink r e i a -> Sink r e i b
-mapInput  :: (j -> i) -> Sink r e i a -> Sink r e j a
-filterIn  :: (i -> Boolean) -> Sink r e i a -> Sink r e i a
-```
-
-`mapResult` is `Functor`; `mapInput` is contravariant on the
-input side. `filterIn` is the obvious convenience.
-
-Parallel composition (the real reason this layer exists):
-
-```purescript
-zipPar    :: Sink r e i a -> Sink r e i b -> Sink r e i (Tuple a b)
-zipParWith
-  :: (a -> b -> c)
-  -> Sink r e i a
-  -> Sink r e i b
-  -> Sink r e i c
-```
-
-`zipPar a b` runs `a` and `b` against the same stream. Each
-input element is offered to both sinks; both step functions run
-on the same fiber, sequentially, before the next stream pull.
-This is *not* "two fibers each draining their own copy" — that's
-what `RIO.Stream.Par.broadcast` is for. `zipPar` is the
-single-fiber, single-pass variant. It halts when **both** sinks
-have halted; if one halts early its previous default `a` is
-remembered.
-
-Sequential composition (Sinks form a `Monad` on the output side
-only — input remains a parameter):
-
-```purescript
-andThen
-  :: Sink r e i a
-  -> (a -> Sink r e i b)
-  -> Sink r e i b
-```
-
-`andThen` runs the first sink to completion, then resumes from
-the same stream position with the second. `Bind` for `Sink r e i`
-follows the same pattern as `runFoldM` chained through `>>=`.
-
-## Failure model
-
-Sinks live in `RIO r e`, so each step can raise on any of the
-error rows. The runner surfaces typed failures unchanged. If
-the upstream `Stream` raises, the sink's current default `a` is
-discarded and the failure propagates — same shape as `runFoldM`
-today.
-
-`zipPar` follows the existing first-failure-wins rule from
-`RIO.Stream.Par`: the first sink to raise wins; the sibling's
-step is not consulted again.
-
-## Interaction with `RIO.Stream.Par`
-
-`broadcast n bufferSize stream` is the existing primitive that
-hands one stream to `n` concurrent consumers, each on its own
-fiber, with end-to-end backpressure. The new `Sink` layer
-composes with it:
-
-```purescript
-runMany :: forall r e i a. Sink r e i a -> Int -> Stream r e i -> RIO r e (Array a)
-runMany sink n stream = do
-  consumers <- broadcast n bufferSize stream
-  fibers <- traverse (\s -> fork (runSink sink s)) consumers
-  traverse join fibers
-```
-
-`zipPar` and `runMany` are two distinct operations: `zipPar` is
-"two different sinks, one fiber, one pull per element";
-`runMany` is "same sink shape, N fibers, N pulls per element".
-Picking between them is a backpressure decision, not a syntax
-decision.
-
-## What this does **not** propose
-
-- `Channel` as a six-parameter algebra. The convenience of
-  unifying streams, sinks, and pipes does not pay for its
-  surface area in the demo-sized library this is targeting.
-- A full ZIO `ZSink.fromQueue` / `ZSink.fromHub` family. Once
-  `Sink` exists, those are 5-line aliases over `Sink.foldM`
-  pointing at the `RIO.Queue` / `RIO.Hub` modules; ship them
-  in a follow-up only when an example actually needs them.
-- A push-based variant. The pull-based `Stream` already in the
-  library composes with this pull-based `Sink` directly. A
-  push-based `Stream` would be a different design conversation.
-
-## Recommended landing order
-
-1. Land `RIO.Sink` with `drain`, `head`, `last`, `count`,
-   `collect`, `foldL`, `foldM`, `take`, `find`, `any`, `all`,
-   `mapResult`, `mapInput`, `filterIn`, `andThen`, and the
-   `runSink` runner.
-2. Land `zipPar` / `zipParWith` once (1) is stable.
-3. Update `RIO.Stream` runners to delegate: `runDrain = runSink
-   Sink.drain`, etc. The old top-level names stay as ergonomic
-   aliases.
-4. Update `docs/13-streams.md` with a Sink section and the
-   ZSink-comparison row that today reads "TODO".
-
-If a real Channel use-case shows up after that (a stream-to-
-stream transducer that `mapM` / `flatMap` cannot express),
-revisit the design then with that concrete shape in mind.
+- User-facing reference: [`docs/13-streams.md`](./13-streams.md)
+  ("Composable consumers" section).
+- Source: [`src/RIO/Sink.purs`](../src/RIO/Sink.purs).
+- Worked example: [`examples/sink-analytics/`](../examples/sink-analytics/).
+- Spec coverage: [`test/Test/RIO/SinkSpec.purs`](../test/Test/RIO/SinkSpec.purs).

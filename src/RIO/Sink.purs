@@ -23,9 +23,9 @@
 -- | runSink (filterIn even (take 10)) (fromArray [ 1 .. 1000 ])
 -- | ```
 -- |
--- | See `docs/sink-design.md` for the full design discussion,
--- | including what is intentionally *not* shipped (a full Channel
--- | algebra) and the planned `zipPar` follow-up.
+-- | User-facing reference: `docs/13-streams.md` ("Composable
+-- | consumers"). Design rationale (why `Need k finish`, why
+-- | single-fiber `zipPar`, why no Channel): `docs/sink-design.md`.
 module RIO.Sink
   ( Sink(..)
   , Step(..)
