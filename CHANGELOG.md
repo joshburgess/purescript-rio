@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Config`: one additional unit test pinning that
+  `combine` flattens `Multi` so accumulated errors stay at one
+  level. The `combine` docstring promises "Flattens `Multi`
+  so nesting stays shallow regardless of how the descriptor
+  tree was assembled". The existing two-failure test cannot
+  distinguish a flat `Multi [a, b]` from any alternative
+  two-element layout. Pin the flatten promise with three
+  independent failures from a record-shaped descriptor (three
+  missing keys) and assert the resulting `Multi` carries
+  exactly three children at the top level. Whole-package run
+  goes `423 -> 424` tests passing.
 - `RIO.Hub`: one additional unit test pinning that a slow
   consumer does not block publishes or other subscribers.
   The module's docstring promises "a slow consumer does not

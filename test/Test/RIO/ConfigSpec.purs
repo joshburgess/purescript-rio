@@ -201,6 +201,34 @@ spec = do
                 ("expected Multi error, got: " <> show other)
           Right _ -> fail "expected a failure"
 
+      it "flattens Multi so three accumulated errors come back at one level" do
+        -- The `combine` docstring promises "Flattens `Multi` so
+        -- nesting stays shallow regardless of how the descriptor
+        -- tree was assembled." The existing two-failure test
+        -- cannot distinguish a flat `Multi [a, b]` from any
+        -- alternative two-element layout. Pin the flatten promise
+        -- with three independent failures from a record-shaped
+        -- descriptor (3 missing keys) and assert the resulting
+        -- `Multi` carries exactly three children at the top level.
+        let
+          threeFieldConfig
+            :: Config { a :: String, b :: String, c :: String }
+          threeFieldConfig = { a: _, b: _, c: _ }
+            <$> string "A"
+            <*> string "B"
+            <*> string "C"
+
+          src = mapSource Map.empty
+        r <- runWith src threeFieldConfig
+        case r of
+          Left v ->
+            case Variant.case_ # Variant.on cfgTag identity $ v of
+              Multi children ->
+                NEL.length children `shouldEqual` 3
+              other -> fail
+                ("expected flat Multi of length 3, got: " <> show other)
+          Right _ -> fail "expected a failure"
+
     describe "mkSource" do
       -- The whole suite uses `mapSource` to build sources for
       -- tests. `mkSource` is the more general escape hatch: it
