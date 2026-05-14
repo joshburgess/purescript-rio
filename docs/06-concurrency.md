@@ -311,3 +311,8 @@ the current surface.
 - `spikes/aff-interruption/FINDINGS.md`: the authoritative source
   for `Aff`'s cancellation behaviour and the canonical
   cooperative-cancellation caveat.
+- Worked example:
+  [`examples/worker-pool/`](../examples/worker-pool/) fans work
+  out over a fixed `Semaphore`-bounded pool, drives it with
+  `parTraverseCause` for fail-fast accumulation, and demonstrates
+  `forkScoped` plus a `Deferred`-gated shutdown signal.

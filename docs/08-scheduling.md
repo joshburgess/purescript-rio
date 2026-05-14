@@ -235,3 +235,9 @@ its delays in band over 100 samples.
 - `docs/06-concurrency.md`: how cancellation interacts with the
   same `Clock`-based sleep.
 - `docs/07-testing.md`: more on the virtual-time test clock.
+- Worked example:
+  [`examples/worker-pool/`](../examples/worker-pool/) wires a
+  `retry` policy onto each worker using
+  `intersect (recurs maxRetries) (exponential base 2.0)` so the
+  retry budget bounds the count while the delay grows
+  exponentially.

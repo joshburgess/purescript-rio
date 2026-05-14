@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- Worked-example cross-links added to three more numbered
+  reference docs: `docs/05-resources.md` now points at
+  `examples/notify/` and `examples/todo-api/` for resource-safe
+  service shutdown; `docs/06-concurrency.md` points at
+  `examples/worker-pool/` for the fan-out / `parTraverseCause` /
+  `forkScoped` / `Deferred` mix; and `docs/08-scheduling.md`
+  points at `examples/worker-pool/` for the
+  `intersect (recurs n) (exponential base 2.0)` retry shape.
 - CI now exercises every adapter test suite and every example
   runtime. The build matrix runs `npx spago test` for
   `rio-config-file`, `rio-http`, and `rio-otel`; builds

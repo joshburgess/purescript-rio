@@ -244,3 +244,11 @@ uninterruptible release phase.
   [`docs/04-layers.md`](./04-layers.md).
 - Interrupt guarantees: `spikes/aff-interruption/FINDINGS.md`,
   scenarios S5 and S6.
+- Worked examples:
+  [`examples/notify/`](../examples/notify/) holds the
+  `RIO.Postgres.Notify` subscriber connection inside a `scoped`
+  block so the dedicated client tears down on every exit path;
+  [`examples/todo-api/`](../examples/todo-api/) takes the
+  `postgresLayer` + HTTPurple server through `provideLayer`, so
+  the pool and the listening socket release together when the
+  surrounding scope ends.
