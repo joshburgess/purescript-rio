@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Error`: one additional unit test pinning `rethrow`'s
+  direct behaviour. `rethrow` is the "dual of `fail`" at the
+  Variant level: given an already-constructed `Variant e`, it
+  wraps the variant back into a `Left` on the same row. The
+  existing coverage only exercised `rethrow` through the
+  `catchAll rethrow ≡ identity` composition, which can be
+  satisfied by other equivalent implementations. Pin the raw
+  contract by constructing a `Variant (boom :: String)`,
+  passing it directly to `rethrow`, and asserting `runRIO`
+  surfaces the exact tagged failure. Whole-package run goes
+  `421 -> 422` tests passing.
 - `RIO.Semaphore`: one additional unit test pinning that
   `withPermit` releases the permit after a fiber kill
   mid-action. `withPermits` wires release through

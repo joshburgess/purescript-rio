@@ -163,6 +163,34 @@ spec = do
         result <- runRIO outer
         result `shouldEqual` Right 11
 
+    describe "rethrow" do
+      it "wraps an already-constructed Variant back into a Left" do
+        -- The `rethrow` docstring promises it is the "dual of `fail`"
+        -- at the Variant level: it takes an existing `Variant e` (not
+        -- a tag + payload) and re-raises it as `Left v` in the same
+        -- row. `catchAll rethrow ≡ identity` already exercises it in
+        -- composition; this pins the raw behaviour so any future
+        -- internal change to `rethrow` that breaks direct callers
+        -- (such as a `catchAll` handler that pattern-matches on the
+        -- Variant and re-raises unmatched cases) is caught.
+        let
+          v :: Variant (boom :: String)
+          v = Variant.inj (Proxy :: Proxy "boom") "kaboom"
+
+          program :: RIO () (boom :: String) Int
+          program = rethrow v
+        result <- runRIO program
+        case result of
+          Left v' ->
+            let
+              tagOf :: Variant (boom :: String) -> String
+              tagOf =
+                Variant.case_
+                  # Variant.on (Proxy :: Proxy "boom") identity
+            in
+              tagOf v' `shouldEqual` "kaboom"
+          Right _ -> Assertions.fail "expected Left, got Right"
+
     describe "mapError (Phase 3.2)" do
       it "transforms the failure value into a different row" do
         let
