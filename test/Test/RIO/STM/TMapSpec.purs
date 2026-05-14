@@ -134,3 +134,45 @@ spec = describe "RIO.STM.TMap" do
         atomically (awaitKey 1 m)
     result <- runRIO' program
     result `shouldEqual` "ready"
+
+  it "awaitKey re-checks (and stays blocked) on writes to unrelated keys" do
+    -- The docstring promises that `awaitKey` wakes up "when any
+    -- write to the underlying TRef fires (so an insert of a
+    -- different key will re-check; this is the standard STM
+    -- wakeup model, not an indexed one)". Pin the observable
+    -- consequence: unrelated inserts must not cause the awaiter
+    -- to resume early or return a wrong value, and a later
+    -- insert of the awaited key must still resolve it correctly.
+    events <- liftEffect (Ref.new [])
+    let
+      push :: forall r e. String -> RIO r e Unit
+      push s = liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) events)
+
+      program :: RIO () () String
+      program = do
+        m <- atomically (newTMap :: _ (_ Int String))
+        push "before-fork"
+        waiter <- fork do
+          v <- atomically (awaitKey 42 m)
+          push "after-await"
+          pure v
+        liftAff (delay (Milliseconds 10.0))
+        push "insert-1"
+        atomically (insertTMap 1 "one" m)
+        liftAff (delay (Milliseconds 10.0))
+        push "insert-2"
+        atomically (insertTMap 2 "two" m)
+        liftAff (delay (Milliseconds 10.0))
+        push "insert-42"
+        atomically (insertTMap 42 "found-it" m)
+        join waiter
+    result <- runRIO' program
+    result `shouldEqual` "found-it"
+    order <- liftEffect (Ref.read events)
+    order `shouldEqual`
+      [ "before-fork"
+      , "insert-1"
+      , "insert-2"
+      , "insert-42"
+      , "after-await"
+      ]
