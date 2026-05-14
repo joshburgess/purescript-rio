@@ -8,7 +8,7 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 
 import RIO.Core (RIO, runRIO')
-import RIO.Hub (make, publish, subscribe, subscriberCount)
+import RIO.Hub (make, publish, publishAll, subscribe, subscriberCount)
 import RIO.Queue (poll, take)
 
 spec :: Spec Unit
@@ -71,3 +71,70 @@ spec = do
       r <- runRIO' program
       r.afterAdd `shouldEqual` 2
       r.afterRemove `shouldEqual` 1
+
+    it "make starts with zero subscribers" do
+      hub <- liftEffect (make :: _ (_ Int))
+      n <- liftEffect (subscriberCount hub)
+      n `shouldEqual` 0
+
+    it "publish with no subscribers is a no-op" do
+      hub <- liftEffect (make :: _ (_ Int))
+      let
+        program :: RIO () () { drained :: Maybe Int, count :: Int }
+        program = do
+          publish hub 1
+          publish hub 2
+          count <- liftEffect (subscriberCount hub)
+          -- subscribe after the publishes so we can confirm nothing
+          -- was retroactively queued for a brand-new subscriber.
+          sub <- subscribe hub
+          drained <- poll sub.queue
+          pure { drained, count }
+      r <- runRIO' program
+      r.count `shouldEqual` 0
+      r.drained `shouldEqual` Nothing
+
+    it "publishAll delivers a batch to every subscriber in order" do
+      hub <- liftEffect (make :: _ (_ Int))
+      let
+        program
+          :: RIO ()
+               ()
+               { a :: Array (Maybe Int), b :: Array (Maybe Int) }
+        program = do
+          subA <- subscribe hub
+          subB <- subscribe hub
+          publishAll hub [ 1, 2, 3 ]
+          a1 <- take subA.queue
+          a2 <- take subA.queue
+          a3 <- take subA.queue
+          b1 <- take subB.queue
+          b2 <- take subB.queue
+          b3 <- take subB.queue
+          pure { a: [ a1, a2, a3 ], b: [ b1, b2, b3 ] }
+      r <- runRIO' program
+      r.a `shouldEqual` [ Just 1, Just 2, Just 3 ]
+      r.b `shouldEqual` [ Just 1, Just 2, Just 3 ]
+
+    it "an unsubscribed consumer does not receive subsequent publishes" do
+      hub <- liftEffect (make :: _ (_ Int))
+      let
+        program
+          :: RIO ()
+               ()
+               { firstA :: Maybe Int, drainedA :: Maybe Int, firstB :: Maybe Int }
+        program = do
+          subA <- subscribe hub
+          subB <- subscribe hub
+          publish hub 1
+          firstA <- take subA.queue
+          firstB <- take subB.queue
+          subA.unsubscribe
+          publish hub 2
+          drainedA <- poll subA.queue
+          _ <- take subB.queue
+          pure { firstA, drainedA, firstB }
+      r <- runRIO' program
+      r.firstA `shouldEqual` Just 1
+      r.firstB `shouldEqual` Just 1
+      r.drainedA `shouldEqual` Nothing

@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Hub`: four additional unit tests covering coverage gaps.
+  `publishAll` (an exported function with no test) now has a
+  batch-order assertion across two subscribers; the
+  `make`-starts-empty contract is pinned; publishing to a hub
+  with zero subscribers is shown to be a no-op (and not silently
+  buffered for a later `subscribe`); and the unsubscribe path is
+  exercised across a sequence of publishes to confirm the
+  unsubscribed consumer stops receiving while peers continue.
+  Hub describe count goes `4 -> 8` and the whole-package run
+  goes `349 -> 353` tests passing.
 - `RIO.Deferred`: five additional unit tests covering the
   write-once boundary between succeed and fail, the polled-after-
   fill content for both kinds, and the multi-awaiter wake on a
