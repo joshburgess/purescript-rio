@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Stream.Par`: one additional unit test pinning that
+  `mergeAll` propagates a defect raised inside a producer. The
+  module-level docstring promises a single failure model for
+  every combinator: "the first typed failure or defect observed
+  in any producer shuts the shared queue down". Typed failure
+  was pinned for `mergeAll`, `mergeMap`, `broadcast`, and
+  `partition`; pin the defect path on `mergeAll` so the full
+  failure contract is documented. Whole-package run goes
+  `438 -> 439` tests passing.
 - `RIO.Layer`: one additional unit test pinning that finalizers
   registered by two horizontally-composed layers fire LIFO when
   the surrounding scope exits. The `combine` docstring promises

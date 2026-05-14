@@ -6,7 +6,7 @@ import Data.Array (length, range, sort) as Array
 import Data.Either (Either(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (traverse)
-import Effect.Aff (delay)
+import Effect.Aff (attempt, delay, error)
 import Effect.Aff.Class (liftAff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -14,7 +14,7 @@ import Test.Spec.Assertions (fail) as Spec
 import Type.Proxy (Proxy(..))
 
 import RIO.Concurrency (fork, join)
-import RIO.Core (RIO, fail, runRIO)
+import RIO.Core (RIO, die, fail, runRIO, runRIO')
 import RIO.Stream (Stream, fromArray, mapM, runCollect)
 import RIO.Stream.Par (broadcast, merge, mergeAll, mergeMap, partition)
 
@@ -75,6 +75,29 @@ spec = do
         case r of
           Left _ -> pure unit
           Right _ -> Spec.fail "expected mergeAll to surface the typed failure"
+
+      it "propagates a defect from one producer" do
+        -- Module docstring promises a single failure model for
+        -- every combinator here: "the first typed failure or
+        -- defect observed in any producer shuts the shared queue
+        -- down". Typed failure is pinned above; pin the defect
+        -- path so the full contract is documented. A defect
+        -- raised by `die` inside a producer must surface as an
+        -- `Aff` exception on the consumer's pull, observable via
+        -- `attempt`.
+        let
+          bad :: Stream () () Int
+          bad = mapM
+            (\_ -> die (error "kaboom"))
+            (fromArray [ 1 ])
+
+          good :: Stream () () Int
+          good = fromArray [ 2, 3 ]
+        r <- attempt
+          (runRIO' (runCollect (mergeAll [ good, bad ])))
+        case r of
+          Left _ -> pure unit
+          Right _ -> Spec.fail "expected mergeAll to surface the defect"
 
     describe "merge" do
       it "two-stream merge collects every element" do
