@@ -2,8 +2,10 @@ module Test.RIO.CauseSpec (spec) where
 
 import Prelude
 
+import Data.Array as Array
 import Data.Either (Either(..))
-import Data.String (contains)
+import Data.Maybe (Maybe(..), isJust)
+import Data.String (contains, split, stripPrefix)
 import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
@@ -26,6 +28,7 @@ import RIO.Cause
   , parSequenceCause
   , parTraverseCause
   , prettyCause
+  , prettyCauseWithStack
   , raceCause
   )
 import RIO.Core (RIO, die, fail, runRIO)
@@ -201,6 +204,44 @@ spec = do
               <> "    fail: oops: 5\n"
               <> "    fail: boom: c"
           )
+
+    describe "prettyCauseWithStack" do
+      it "behaves like prettyCause on a Fail leaf" do
+        let
+          v = Variant.inj (Proxy :: Proxy "boom") "x" :: Variant Errs
+          out = prettyCauseWithStack renderErrs (Fail v)
+        out `shouldEqual` "fail: boom: x"
+
+      it "always includes the defect's message" do
+        let
+          out = prettyCauseWithStack renderErrs
+            (Die (Exception.error "kaboom"))
+        (contains (Pattern "defect: kaboom") out) `shouldEqual` true
+
+      it "indents stack lines under the defect header when present" do
+        let
+          out = prettyCauseWithStack renderErrs
+            (Die (Exception.error "kaboom"))
+        case stripStackHead out of
+          Just rest ->
+            -- Every stack line that appears must be indented under
+            -- the defect header. We accept either zero lines (no
+            -- stack from this engine) or one or more correctly
+            -- indented lines.
+            (allLinesIndented "  " rest) `shouldEqual` true
+          Nothing -> shouldEqual "" "expected 'defect: kaboom' prefix"
+
+      it "preserves Parallel structure around defects" do
+        let
+          tree = Parallel
+            (Die (Exception.error "left-defect"))
+            (Die (Exception.error "right-defect"))
+          out = prettyCauseWithStack renderErrs tree
+        (contains (Pattern "parallel failures:") out) `shouldEqual` true
+        (contains (Pattern "  defect: left-defect") out) `shouldEqual`
+          true
+        (contains (Pattern "  defect: right-defect") out) `shouldEqual`
+          true
 
       it "works end-to-end with bothPar output" do
         let
@@ -468,3 +509,24 @@ spec = do
                   <> "  defect: close failed"
               )
           Left _ -> shouldEqual "" "expected Right"
+
+-- | Strip the leading `defect: kaboom` head, optionally followed
+-- | by a newline, from a `prettyCauseWithStack` rendering. Returns
+-- | whatever stack lines follow (possibly empty) or `Nothing` if
+-- | the head isn't there at all.
+stripStackHead :: String -> Maybe String
+stripStackHead s = case stripPrefix (Pattern "defect: kaboom\n") s of
+  Just rest -> Just rest
+  Nothing ->
+    if s == "defect: kaboom" then Just ""
+    else Nothing
+
+-- | Every line in `s` (split on `\n`) must start with `ind`. Empty
+-- | lines are tolerated.
+allLinesIndented :: String -> String -> Boolean
+allLinesIndented ind s =
+  Array.all
+    ( \line ->
+        line == "" || isJust (stripPrefix (Pattern ind) line)
+    )
+    (split (Pattern "\n") s)

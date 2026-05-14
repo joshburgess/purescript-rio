@@ -35,6 +35,7 @@ module RIO.Cause
   , attemptCause
   , bothPar
   , prettyCause
+  , prettyCauseWithStack
   , fromOutcome
   , concatParallel
   , concatSequential
@@ -55,7 +56,9 @@ import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Aff (attempt, bracket)
 import Effect.Class (liftEffect)
-import Effect.Exception (Error, message)
+import Data.String (joinWith, split) as String
+import Data.String.Pattern (Pattern(..)) as String
+import Effect.Exception (Error, message, stack)
 import Effect.Exception (error) as Exception
 import Effect.Ref as Ref
 
@@ -345,7 +348,9 @@ combineParallel arr = case Array.uncons arr of
 -- |
 -- | The caller supplies a renderer for typed failures (`Variant e
 -- | -> String`) because `Variant` does not have a generic `Show`.
--- | Defects are rendered via `Effect.Exception.message`.
+-- | Defects are rendered via `Effect.Exception.message`; if you
+-- | also want the JS stack underneath the message, reach for
+-- | `prettyCauseWithStack` instead.
 -- |
 -- | The output format:
 -- |
@@ -354,15 +359,34 @@ combineParallel arr = case Array.uncons arr of
 -- |   * `Sequential` does the same, with a different header so
 -- |     readers can tell the two apart.
 prettyCause :: forall e. (Variant e -> String) -> Cause e -> String
-prettyCause renderFail = go 0
-  where
-  pad :: Int -> String
-  pad n = repeatStr n "  "
+prettyCause renderFail =
+  prettyCauseGo renderFail dieMessageOnly 0
 
-  go :: Int -> Cause e -> String
+-- | Like `prettyCause`, but each `Die` leaf renders the JS stack
+-- | trace underneath its message (when one is available). Each
+-- | stack line is indented one level deeper than the `defect:`
+-- | header so the tree structure stays readable.
+-- |
+-- | This is the renderer to reach for when a defect is going to a
+-- | log file or a bug report and the developer wants to know where
+-- | the underlying `Aff` exception originated.
+prettyCauseWithStack
+  :: forall e. (Variant e -> String) -> Cause e -> String
+prettyCauseWithStack renderFail =
+  prettyCauseGo renderFail dieMessageWithStack 0
+
+prettyCauseGo
+  :: forall e
+   . (Variant e -> String)
+  -> (Int -> Error -> String)
+  -> Int
+  -> Cause e
+  -> String
+prettyCauseGo renderFail renderDie = go
+  where
   go depth = case _ of
     Fail v -> pad depth <> "fail: " <> renderFail v
-    Die err -> pad depth <> "defect: " <> message err
+    Die err -> renderDie depth err
     Parallel a b ->
       pad depth <> "parallel failures:\n"
         <> Array.intercalate "\n"
@@ -371,6 +395,35 @@ prettyCause renderFail = go 0
       pad depth <> "sequenced failures:\n"
         <> Array.intercalate "\n"
           [ go (depth + 1) a, go (depth + 1) b ]
+
+dieMessageOnly :: Int -> Error -> String
+dieMessageOnly depth err = pad depth <> "defect: " <> message err
+
+dieMessageWithStack :: Int -> Error -> String
+dieMessageWithStack depth err = case stack err of
+  Nothing -> dieMessageOnly depth err
+  Just s ->
+    pad depth <> "defect: " <> message err <> "\n"
+      <> indentLines (depth + 1) s
+
+-- | Split a multi-line string and re-emit each non-empty line
+-- | prefixed with `pad depth`. Empty lines (e.g. a trailing blank
+-- | from the JS stack) are dropped to keep the output compact.
+indentLines :: Int -> String -> String
+indentLines depth s =
+  let
+    lines = String.split (String.Pattern "\n") s
+    kept = Array.mapMaybe
+      ( \line ->
+          if line == "" then Nothing
+          else Just (pad depth <> line)
+      )
+      lines
+  in
+    String.joinWith "\n" kept
+
+pad :: Int -> String
+pad n = repeatStr n "  "
 
 -- A tiny utility kept private so the module stays self-contained.
 repeatStr :: Int -> String -> String
