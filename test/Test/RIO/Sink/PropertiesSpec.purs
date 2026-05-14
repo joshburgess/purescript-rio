@@ -267,3 +267,18 @@ spec = describe "RIO.Sink (property tests)" do
             (Stream.fromArray xs)
         )
       left `shouldEqual` right
+
+  -- Cross-module duality: `Stream.runFold` and the
+  -- `Sink.foldL`-driven runner must agree on the same fold. They
+  -- are two paths to the same observable result; pinning the
+  -- equivalence locks the duality so a refactor of either side
+  -- cannot drift the other.
+  it "Stream.runFold ≡ Sink.runSink (foldL ...)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      left <- runRIO' (Stream.runFold 0 (+) (Stream.fromArray xs))
+      right <- runRIO'
+        ( Sink.runSink
+            (Sink.foldL 0 (+))
+            (Stream.fromArray xs)
+        )
+      left `shouldEqual` right
