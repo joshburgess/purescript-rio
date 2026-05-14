@@ -17,7 +17,8 @@ import Type.Proxy (Proxy(..))
 import RIO.Core (RIO, die, fail, fork, join, runRIO, runRIO')
 import RIO.STM (atomically)
 import RIO.STM.THub
-  ( THub
+  ( Strategy(..)
+  , THub
   , isEmptySubscription
   , lengthSubscription
   , newBoundedTHub
@@ -35,6 +36,26 @@ import RIO.STM.THub
 
 spec :: Spec Unit
 spec = describe "RIO.STM.THub" do
+  describe "Strategy instances" do
+    -- `Strategy`'s `Show` instance is hand-written (case _ of
+    -- Bounded n -> "Bounded " <> show n ...), parallel to
+    -- `SpanStatus`'s pinned Show in TracerSpec, `LogLevel`'s in
+    -- LoggerSpec, and `MetricKind`'s in MetricsSpec. Every other
+    -- test in this suite constructs a Strategy via the smart
+    -- constructors (newBoundedTHub etc.) and never inspects `show
+    -- strategy`, so a regression that namespaced the constructors
+    -- ("Strategy.Bounded 5") or accidentally swapped `Unbounded ->
+    -- "Unbounded"` for `Unbounded -> "unbounded"` would compile
+    -- and pass every existing test; only a downstream log line
+    -- or exporter that relied on `show strategy` to label the
+    -- back-pressure policy would silently break. Pin the four
+    -- rendered constructors directly so that channel is protected.
+    it "Show renders each strategy by its constructor name" do
+      show (Bounded 5) `shouldEqual` "Bounded 5"
+      show (Sliding 7) `shouldEqual` "Sliding 7"
+      show (Dropping 3) `shouldEqual` "Dropping 3"
+      show Unbounded `shouldEqual` "Unbounded"
+
   describe "subscribers and basic delivery" do
     it "a single subscriber receives every value in publish order" do
       let
