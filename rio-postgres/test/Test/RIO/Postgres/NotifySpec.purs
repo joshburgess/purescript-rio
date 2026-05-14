@@ -24,9 +24,10 @@ import Type.Proxy (Proxy(..))
 
 import RIO.Core (RIO, provideLayer, runRIO)
 import RIO.Layer ((<+>))
-import RIO.Postgres (PgError, Postgres, pgErrorMessage)
+import RIO.Error (catchTag, fail) as RIO
+import RIO.Postgres (PgError, Postgres, pgErrorMessage, withTransaction)
 import RIO.Postgres.Layer (postgresLayer)
-import RIO.Postgres.Notify (Notify, notify, withListen)
+import RIO.Postgres.Notify (Notify, notify, notifyUsing, withListen)
 import RIO.Postgres.Notify.Layer (notifyLayer)
 import Data.Variant as Variant
 
@@ -36,6 +37,11 @@ dbTag = Proxy
 type DbErr = (db :: PgError)
 
 type AppRow = (postgres :: Postgres, notify :: Notify)
+
+forcedTag :: Proxy "forced"
+forcedTag = Proxy
+
+type ErrPlus = (db :: PgError, forced :: Unit)
 
 runApp
   :: forall e a
@@ -135,6 +141,57 @@ spec conn = do
           )
           do
             notify dbTag "rio_test_chan_b" "ignored"
+            liftAff (delay (Milliseconds 300.0))
+            liftEffect (Ref.read ref)
+      result <- runApp conn program
+      case result of
+        Left v -> fail
+          ( "program failed: "
+              <> (Variant.case_ # Variant.on dbTag pgErrorMessage) v
+          )
+        Right got -> got `shouldEqual` Nothing
+
+    it "notifyUsing inside a committed transaction delivers" do
+      ref <- liftEffect (Ref.new Nothing)
+      let
+        channel = "rio_test_chan_tx_commit"
+        payload = "committed"
+
+        program :: RIO AppRow DbErr (Maybe String)
+        program = withListen dbTag channel
+          ( \n -> Ref.write n.payload ref
+          )
+          do
+            withTransaction dbTag \client ->
+              notifyUsing dbTag channel payload client
+            liftAff (waitFor (Milliseconds 2000.0) ref)
+      result <- runApp conn program
+      case result of
+        Left v -> fail
+          ( "program failed: "
+              <> (Variant.case_ # Variant.on dbTag pgErrorMessage) v
+          )
+        Right got -> got `shouldEqual` Just payload
+
+    it "notifyUsing inside a rolled-back transaction does not deliver" do
+      ref <- liftEffect (Ref.new Nothing)
+      let
+        channel = "rio_test_chan_tx_rollback"
+        payload = "rolled-back"
+
+        attempt :: RIO AppRow ErrPlus Unit
+        attempt = withTransaction dbTag \client -> do
+          notifyUsing dbTag channel payload client
+          RIO.fail forcedTag unit
+
+        program :: RIO AppRow DbErr (Maybe String)
+        program = withListen dbTag channel
+          ( \n -> Ref.write n.payload ref
+          )
+          do
+            RIO.catchTag forcedTag (\_ -> pure unit) attempt
+            -- give Postgres time to deliver a NOTIFY if one were
+            -- (incorrectly) emitted; we then assert nothing arrived.
             liftAff (delay (Milliseconds 300.0))
             liftEffect (Ref.read ref)
       result <- runApp conn program

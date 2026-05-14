@@ -32,6 +32,7 @@ module RIO.Postgres.Notify
   , Notification
   , withListen
   , notify
+  , notifyUsing
   ) where
 
 import Prelude
@@ -60,7 +61,7 @@ import RIO.Env (ask)
 import RIO.Error (fail)
 import RIO.Internal (RIO(..), unRIO)
 import RIO.Resource (acquireRelease)
-import RIO.Postgres (PgError(..), Postgres, execParams)
+import RIO.Postgres (PgError(..), Postgres, execParams, execParamsUsing)
 
 -- | The Notify service token. Holds the dedicated subscriber
 -- | client plus a dispatch table indexed by channel name and an
@@ -132,6 +133,30 @@ notify sym channel payload = do
   _ <- execParams sym
     "select pg_notify($1, $2)"
     (channel /\ payload)
+  pure unit
+
+-- | Variant of `notify` that runs `pg_notify` on a supplied client
+-- | rather than borrowing one from the pool. Use inside
+-- | `withTransaction` to make a notification part of the same
+-- | transaction's commit: the NOTIFY is held until the transaction
+-- | commits, and rolled back with the rest of the transaction if
+-- | the body fails. The pool-borrowing `notify` instead sends on a
+-- | fresh connection, which races the surrounding transaction's
+-- | commit and is visible to subscribers immediately.
+notifyUsing
+  :: forall sym r e e'
+   . IsSymbol sym
+  => Row.Cons sym PgError e' e
+  => Proxy sym
+  -> String
+  -> String
+  -> PG.Client
+  -> RIO r e Unit
+notifyUsing sym channel payload client = do
+  _ <- execParamsUsing sym
+    "select pg_notify($1, $2)"
+    (channel /\ payload)
+    client
   pure unit
 
 -- | Add `handler` to the dispatch table under `channel`. If this
