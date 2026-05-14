@@ -166,3 +166,34 @@ spec = do
         ran <- liftEffect (Ref.read flag)
         ran `shouldEqual` false
         killFiber (error "test-cleanup") f
+
+      it "a killed waiter removes itself from the waiters list" do
+        -- Source-level comment on `acquire` promises that a fiber
+        -- "interrupted while waiting is removed from the waiter
+        -- list cleanly". If the registered Canceler did not run,
+        -- the dead waiter would still sit at the head of the
+        -- queue; when the held permit is released, `drain` would
+        -- deduct one permit from `available` and call the dead
+        -- waiter's resume (a no-op), silently swallowing the
+        -- permit. Pin the cleanup by parking a waiter behind a
+        -- held permit, killing it, releasing the permit, and
+        -- observing that `available` returns to 1.
+        sem <- liftEffect (make 1)
+        holder <- forkAff
+          ( runRIO'
+              ( withPermit sem (liftAff (delay (Milliseconds 30.0)))
+                  :: RIO () () Unit
+              )
+          )
+        delay (Milliseconds 5.0)
+        waiter <- forkAff
+          ( runRIO'
+              ( withPermit sem (pure unit)
+                  :: RIO () () Unit
+              )
+          )
+        delay (Milliseconds 5.0)
+        killFiber (error "test-cancel") waiter
+        joinFiber holder
+        a <- liftEffect (available sem)
+        a `shouldEqual` 1

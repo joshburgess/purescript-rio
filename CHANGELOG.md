@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Semaphore`: one additional unit test pinning that a fiber
+  killed while parked on `withPermit` removes itself from the
+  waiters list cleanly. The source comment on `acquire` promises
+  this cleanup, but the existing tests only killed a parked
+  waiter for cleanup without observing it. Pin the contract by
+  parking a waiter behind a held permit, killing it, releasing
+  the permit, and asserting that `available` returns to 1 (a
+  stale entry would silently consume the permit during `drain`).
+  Whole-package run goes `443 -> 444` tests passing.
 - `RIO.Resource.Do`: two additional unit tests pinning that a
   multi-acquire `Resource.do` block releases in LIFO order on the
   defect and fiber-kill termination paths. The module docstring
