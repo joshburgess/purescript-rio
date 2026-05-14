@@ -15,8 +15,12 @@ in a single shape you can run:
 - **Layers** (`src/Example/TodoApi/Layers.purs`): `appLayer`
   horizontally combines `RIO.Logger.consoleLogger` with a
   `postgresLayer` that owns the `node-postgres` pool's lifetime
-  via a scope finalizer. `migrate` runs an idempotent
-  `create table if not exists rio_todos (...)` on startup.
+  via a scope finalizer. `migrate` defers to
+  `RIO.Postgres.Migrate.migrate`, which takes a Postgres
+  advisory lock, records applied versions in
+  `__rio_migrations`, and applies any pending step. Adding a
+  new column or index later is a new entry in the `Map Int
+  Migration`, not a one-off DDL re-run.
 - **Middleware** (`src/Example/TodoApi/Middleware.purs`):
   `withRequestContext` wraps every handler with a per-request
   log-annotation block and times the body. `requireAuth` is a

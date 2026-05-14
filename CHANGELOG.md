@@ -24,6 +24,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   a top-level empty object yielding an empty map. `npx
   spago test -p rio-config-file` now reports `30/30 tests
   passed` (up from 18).
+- Top-level `README.md` and `examples/todo-api/README.md`:
+  the todo-api blurb said "in-memory persistence" (stale; the
+  example has used real Postgres since the rio-postgres
+  driver wrapper landed) and the per-example README still
+  described migrations as "an idempotent create table if not
+  exists" (also stale; the example goes through
+  `RIO.Postgres.Migrate.migrate` with a recorded version,
+  an advisory lock, and the `__rio_migrations` bookkeeping
+  table). Both descriptions updated to match the actual
+  shape.
 - `rio-postgres/README.md`: refreshed the Testing section. The
   previous text claimed CI did not run the integration suite
   yet, which is stale: the `postgres-integration` job exercises

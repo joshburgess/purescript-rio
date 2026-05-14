@@ -264,8 +264,12 @@ Worked examples:
   spans so the parent / child / attribute / status round-trip
   is visible.
 - [`examples/todo-api/`](./examples/todo-api/): a small
-  HTTPurple service demonstrating layers, typed failures,
-  in-memory persistence, and JSON codec bridging.
+  HTTPurple service demonstrating layers, typed failures, real
+  Postgres persistence via `rio-postgres` (with a startup
+  schema bootstrap through `rio-postgres-migrate`), middleware
+  that stamps `request.id` / `request.method` / `request.path`
+  on every emission, bearer-token auth, and JSON codec
+  bridging.
 - [`examples/worker-pool/`](./examples/worker-pool/): a
   producer + bounded queue + fan-out of N workers + per-job
   retry schedule + spans + metrics, with a `parTraverseCause`
