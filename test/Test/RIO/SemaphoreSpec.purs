@@ -126,6 +126,24 @@ spec = do
         a <- liftEffect (available sem)
         a `shouldEqual` 3
 
+      it "withPermit returns the permit after a fiber kill mid-action" do
+        -- The `withPermits` source wires release through
+        -- `Effect.Aff.finally`, which is documented to fire on
+        -- every termination path. Typed-failure and defect
+        -- paths are already pinned above; pin the kill case
+        -- so the full bracket contract is documented across
+        -- all four termination paths.
+        sem <- liftEffect (make 1)
+        let
+          program :: RIO () () Unit
+          program = withPermit sem (liftAff (delay (Milliseconds 50.0)))
+        f <- forkAff (runRIO' program)
+        delay (Milliseconds 5.0)
+        killFiber (error "test-cancel") f
+        delay (Milliseconds 10.0)
+        a <- liftEffect (available sem)
+        a `shouldEqual` 1
+
     describe "withPermits boundary cases" do
       it "withPermits 0 runs without waiting and without changing the count" do
         sem <- liftEffect (make 2)

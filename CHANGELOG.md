@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Semaphore`: one additional unit test pinning that
+  `withPermit` releases the permit after a fiber kill
+  mid-action. `withPermits` wires release through
+  `Effect.Aff.finally`, which is documented to fire on every
+  termination path; the typed-failure and defect paths were
+  already pinned. Pin the kill case by forking an `Aff` that
+  runs a `withPermit` action which sleeps, killing the fiber
+  mid-action, and asserting the permit count returns to its
+  initial value. Whole-package run goes `420 -> 421` tests
+  passing.
 - `RIO.STM`: one additional unit test pinning that `orElse`
   rolls back staged writes from a retried left branch. The
   docstring promises "the log effect of a fallen-through
