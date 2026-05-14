@@ -5,7 +5,7 @@ import Prelude
 import Data.Array (range)
 import Data.Either (Either(..))
 import Data.Traversable (traverse)
-import Effect.Aff (Milliseconds(..), delay)
+import Effect.Aff (Milliseconds(..), delay, error, forkAff, killFiber)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -92,6 +92,36 @@ spec = do
         result `shouldEqual` 0
 
     describe "retry" do
+      it "a retry waiting on a TRef can be killed by the parent fiber" do
+        -- The `atomically` docstring promises that "a retrying
+        -- transaction awaits an `AVar` signal in `Aff`, so a
+        -- parent fiber's `interrupt` cancels the wait at the
+        -- next async boundary." Pin this by forking a transaction
+        -- that retries on a TRef no other fiber will ever write,
+        -- killing the fiber, and confirming the kill lands (the
+        -- post-kill marker fires while the never-completed
+        -- transaction does not).
+        events <- liftEffect (Ref.new [])
+        let
+          push :: forall r e. String -> RIO r e Unit
+          push s = liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) events)
+
+          program :: RIO () () Unit
+          program = do
+            ref <- atomically (newTRef 0)
+            push "before-retry"
+            _ <- atomically do
+              x <- readTRef ref
+              check (x > 0)
+              pure x
+            push "after-retry"
+        f <- forkAff (runRIO' program)
+        liftAff (delay (Milliseconds 10.0))
+        killFiber (error "test-cancel") f
+        liftAff (delay (Milliseconds 10.0))
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "before-retry" ]
+
       it "suspends until another fiber writes a read TRef" do
         events <- liftEffect (Ref.new [])
         let
