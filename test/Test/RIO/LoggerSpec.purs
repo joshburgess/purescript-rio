@@ -28,6 +28,26 @@ import RIO.Test.Logger (newRecordingLogger)
 
 spec :: Spec Unit
 spec = describe "RIO.Logger" do
+  describe "LogLevel instances" do
+    -- The docstring promises a five-band order from `LogTrace`
+    -- (noisiest) to `LogError` (loudest non-defect signal). Pin
+    -- the derived `Ord` follows that order, and the `Show`
+    -- instance renders each constructor by its name so log
+    -- pipelines that rely on these instances don't silently
+    -- break.
+    it "Show renders each level by its constructor name" do
+      show LogTrace `shouldEqual` "LogTrace"
+      show LogDebug `shouldEqual` "LogDebug"
+      show LogInfo `shouldEqual` "LogInfo"
+      show LogWarn `shouldEqual` "LogWarn"
+      show LogError `shouldEqual` "LogError"
+
+    it "Ord orders LogTrace < LogDebug < LogInfo < LogWarn < LogError" do
+      (LogTrace < LogDebug) `shouldEqual` true
+      (LogDebug < LogInfo) `shouldEqual` true
+      (LogInfo < LogWarn) `shouldEqual` true
+      (LogWarn < LogError) `shouldEqual` true
+
   describe "level smart constructors" do
     it "logTrace emits at LogTrace" do
       rec <- liftAff newRecordingLogger

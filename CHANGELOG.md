@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Logger`: two additional unit tests pinning the `Show`
+  and derived `Ord` instances on `LogLevel`. The docstring
+  promises a five-band order from `LogTrace` (noisiest) to
+  `LogError` (loudest non-defect signal). The new tests pin
+  (a) `Show` renders each constructor by its name and (b) the
+  derived `Ord` follows the documented declaration order, so
+  any log pipeline that relies on either instance can't be
+  silently broken. Whole-package run goes `414 -> 416` tests
+  passing.
 - `RIO.STM.TSemaphore`: one additional unit test pinning that
   `withTSemaphore` releases the permit after a fiber kill. The
   docstring promises release on every termination path
