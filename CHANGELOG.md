@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Schedule`: six additional unit tests covering five
+  previously-untested exported combinators: `once`,
+  `forever`, `mapSchedule`, `andThen`, and `whileInput`
+  (two cases for the last, one for predicate-false and one
+  for predicate-true delegation). Together with the existing
+  coverage of `recurs`, `spaced`, `exponential`, `intersect`,
+  `jittered`, `repeat`, `retry`, `retryOrElse`, and `step`,
+  every exported Schedule symbol now has at least one direct
+  test. Whole-package run goes `371 -> 377` tests passing.
 - `RIO.STM`: two additional `orElse` unit tests filling in the
   documented behaviour matrix. The first pins the left-commits
   happy path (left side returns a value, right side is not

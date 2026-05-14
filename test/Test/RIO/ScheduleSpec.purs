@@ -19,15 +19,20 @@ import RIO.Core (RIO, fail, provideAll, runRIO, runRIO')
 import RIO.Schedule
   ( Schedule
   , Step(..)
+  , andThen
   , exponential
+  , forever
   , intersect
   , jittered
+  , mapSchedule
+  , once
   , recurs
   , repeat
   , retry
   , retryOrElse
   , spaced
   , step
+  , whileInput
   )
 import RIO.Test.Clock (newTestClock)
 
@@ -188,6 +193,78 @@ spec = do
             in
               n >= 80.0 && n <= 120.0
         delays `shouldSatisfy` Array.all inBand
+
+    describe "once" do
+      it "runs the action twice under repeat" do
+        counter <- liftEffect (Ref.new 0)
+        let
+          action :: RIO () () Int
+          action = liftEffect (Ref.modify (_ + 1) counter)
+
+          program :: RIO (clock :: Clock) () Int
+          program = repeat once action
+
+        tc <- newTestClock
+        result <- runRIO' (provideAll { clock: tc.clock } program)
+        count <- liftEffect (Ref.read counter)
+        result `shouldEqual` 2
+        count `shouldEqual` 2
+
+    describe "forever" do
+      it "never returns Done; emits an increasing iteration count" do
+        outputs <- runRIO' (collectOutputs 5 (forever :: Schedule () Unit Int))
+        outputs `shouldEqual` [ 1, 2, 3, 4, 5 ]
+
+    describe "mapSchedule" do
+      it "transforms output while preserving cadence" do
+        let sched = mapSchedule (\n -> n * 10) (recurs 3) :: Schedule () Unit Int
+        outputs <- runRIO' (collectOutputs 5 sched)
+        outputs `shouldEqual` [ 10, 20, 30 ]
+
+    describe "andThen" do
+      it "emits Left outputs from the first schedule, then Right from the second" do
+        let
+          sched =
+            andThen (recurs 2) (recurs 2)
+              :: Schedule () Unit (Either Int Int)
+        outputs <- runRIO' (collectOutputs 10 sched)
+        outputs `shouldEqual` [ Left 1, Left 2, Right 1, Right 2 ]
+
+    describe "whileInput" do
+      it "stops immediately when the predicate is false" do
+        let
+          sched =
+            whileInput (\(n :: Int) -> n < 5) (recurs 10)
+              :: Schedule () Int Int
+        out0 <- runRIO' (step sched 99)
+        case out0 of
+          Done -> pure unit
+          Continue _ _ _ -> 1 `shouldEqual` 0
+
+      it "delegates to the inner schedule when the predicate holds" do
+        let
+          sched =
+            whileInput (\(n :: Int) -> n < 5) (recurs 3)
+              :: Schedule () Int Int
+        out0 <- runRIO' (step sched 0)
+        case out0 of
+          Continue o _ _ -> o `shouldEqual` 1
+          Done -> 1 `shouldEqual` 0
+
+collectOutputs
+  :: forall o
+   . Int
+  -> Schedule () Unit o
+  -> RIO () () (Array o)
+collectOutputs n0 sched0 = go n0 sched0 []
+  where
+  go k s acc
+    | k <= 0 = pure acc
+    | otherwise = do
+        out <- step s unit
+        case out of
+          Done -> pure acc
+          Continue o _ next -> go (k - 1) next (Array.snoc acc o)
 
 collectDelays
   :: forall o
