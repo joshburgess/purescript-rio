@@ -11,6 +11,18 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Stream`: two additional unit tests pinning typed-failure
+  propagation through the pull-based pipeline. The existing
+  suite covered happy-path accumulation through `mapM` and
+  `runFoldM` but never exercised what happens when their
+  effectful step raises a typed failure. The new tests assert
+  that a `mapM` step failure surfaces on the parent's row and
+  short-circuits the pipeline (later elements are never
+  visited), and the analogous contract for `runFoldM`'s
+  effectful accumulator. Both tests use a `Ref`-based visit
+  log to pin the exact prefix of elements that were stepped
+  before the failure propagated. Whole-package run goes
+  `394 -> 396` tests passing.
 - `RIO.Schedule`: two additional unit tests pinning `spaced`
   directly. The combinator was previously exercised only as
   the inner schedule for `jittered` and indirectly via

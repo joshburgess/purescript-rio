@@ -3,14 +3,17 @@ module Test.RIO.StreamSpec (spec) where
 import Prelude
 
 import Data.Array (range) as Array
+import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
+import Test.Spec.Assertions (fail) as Spec
+import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, runRIO')
+import RIO.Core (RIO, fail, runRIO, runRIO')
 import RIO.Stream
   ( Stream
   , concat
@@ -153,3 +156,46 @@ spec = do
               (fromArray [ 1, 2, 3, 4 ])
           )
         r `shouldEqual` 10
+
+    describe "typed-failure propagation" do
+      -- The pull-based pipeline propagates a typed failure raised
+      -- inside any effectful step (mapM, runFoldM, ...) on the
+      -- parent's row, and short-circuits the remaining stream so
+      -- later elements are never visited.
+      it "mapM failure surfaces and halts the pipeline" do
+        visited <- liftEffect (Ref.new ([] :: Array Int))
+        let
+          program :: RIO () (boom :: Int) (Array Int)
+          program = runCollect
+            ( mapM
+                ( \n -> do
+                    liftEffect (Ref.modify_ (\xs -> xs <> [ n ]) visited)
+                    if n == 2 then fail (Proxy :: Proxy "boom") n
+                    else pure (n * 10)
+                )
+                (fromArray [ 1, 2, 3, 4 ])
+            )
+        result <- runRIO program
+        seen <- liftEffect (Ref.read visited)
+        case result of
+          Left _ -> pure unit
+          Right _ -> Spec.fail "expected mapM failure to surface"
+        seen `shouldEqual` [ 1, 2 ]
+
+      it "runFoldM failure surfaces and halts the fold" do
+        visited <- liftEffect (Ref.new ([] :: Array Int))
+        let
+          program :: RIO () (boom :: Int) Int
+          program = runFoldM 0
+            ( \acc n -> do
+                liftEffect (Ref.modify_ (\xs -> xs <> [ n ]) visited)
+                if n == 3 then fail (Proxy :: Proxy "boom") n
+                else pure (acc + n)
+            )
+            (fromArray [ 1, 2, 3, 4 ])
+        result <- runRIO program
+        seen <- liftEffect (Ref.read visited)
+        case result of
+          Left _ -> pure unit
+          Right _ -> Spec.fail "expected runFoldM failure to surface"
+        seen `shouldEqual` [ 1, 2, 3 ]
