@@ -490,6 +490,36 @@ spec = do
           Right (Left (Fail _)) -> pure unit
           _ -> shouldEqual "" "expected Right (Left (Fail _))"
 
+      it "skips the release when acquire fails with a defect" do
+        -- Docstring promise: "Acquire failures short-circuit
+        -- before any release runs, just like the existing
+        -- primitive: a failure during acquire becomes a single
+        -- `Fail` / `Die` cause and the use / release phases are
+        -- skipped entirely." The pinned "skips the release when
+        -- acquire itself fails" test only covers the typed
+        -- failure half (`Fail`). The defect half — where
+        -- acquire raises via `die` and the implementation hits
+        -- the `Left err -> pure (Right (Left (Die err)))` branch
+        -- — has no test. A regression that called the release
+        -- when acquire threw a defect would still pass every
+        -- existing test, since the typed-failure path is
+        -- handled by a separate case.
+        countRef <- liftEffect (Ref.new 0)
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program = acquireReleaseCause
+            ( die (Exception.error "acq-defect")
+                :: RIO () Errs Int
+            )
+            (\_ -> liftEffect (Ref.modify_ (_ + 1) countRef))
+            (\a -> pure a)
+        r <- runRIO program
+        releases <- liftEffect (Ref.read countRef)
+        releases `shouldEqual` 0
+        case r of
+          Right (Left (Die _)) -> pure unit
+          _ -> shouldEqual "" "expected Right (Left (Die _))"
+
       it "returns a release Die when only the release fails" do
         let
           program :: RIO () () (Either (Cause Errs) Int)
