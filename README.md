@@ -264,6 +264,11 @@ Worked examples:
   error, max-latency, distinct-path, and first-slow summaries
   via `RIO.Sink.zipPar`, showing how five small sinks compose
   into one lockstep consumer.
+- [`examples/config-loader/`](./examples/config-loader/):
+  loads typed configuration from a sample `.env` file via
+  `rio-config-file`, showing the `Config` DSL end-to-end with
+  `dotenvFileSource`, `withDefault`, `Secret` redaction, and a
+  `prettyConfigError` failure path.
 
 ## Build
 

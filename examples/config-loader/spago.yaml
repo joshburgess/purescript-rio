@@ -1,0 +1,15 @@
+package:
+  name: rio-example-config-loader
+  dependencies:
+    - aff
+    - console
+    - effect
+    - either
+    - maybe
+    - node-process
+    - prelude
+    - rio
+    - rio-config-file
+    - variant
+  run:
+    main: Example.ConfigLoader.Main

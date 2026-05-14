@@ -24,6 +24,12 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 - `docs/sink-design.md` rewritten as design notes (why the
   shape, why single-fiber `zipPar`, why no Channel) now that
   `RIO.Sink` has shipped.
+- `examples/config-loader/`: loads typed configuration from a
+  sample `.env` file via `rio-config-file`. Exercises
+  `dotenvFileSource`, the `Config` DSL (with `withDefault` and
+  `secret`), `Secret` redaction at print time, and the
+  failure path through `prettyConfigError`. First example
+  that uses `rio-config-file` end-to-end.
 - `examples/sink-analytics/`: a single-pass analytics demo over
   a synthetic HTTP request log. Composes five small sinks
   (`count`, `filterIn isError count`, `mapInput _.latencyMs`
