@@ -65,14 +65,25 @@ demonstration has had time to settle.
 resource-acquiring stream whose release is registered with the
 enclosing `scoped` block.
 
+`RIO.Sink` ships the minimal slice of the design in
+`docs/sink-design.md`: primitives (`drain`, `head`, `last`,
+`count`, `collect`, `foldL`, `foldM`), short-circuiting sinks
+(`take`, `find`, `any`, `all`), combinators (`mapResult`,
+`mapInput`, `filterIn`, `andThen`), and a `runSink` runner.
+
 Still open:
 
-- `Sink` / `Channel` style for composable, terminating consumers.
-  `docs/sink-design.md` proposes a focused `Sink r e i a`
-  layer (no full Channel algebra) with the primitives,
-  combinators, `runSink` runner, and parallel-composition
-  semantics laid out so implementation is mechanical. The
-  recommended landing order is also documented there.
+- Parallel sink composition (`zipPar`, `zipParWith`): one fiber,
+  one pull per element, two sinks each fed the same inputs.
+  Designed in `docs/sink-design.md`. The runner shape is "step
+  both sinks per input; halt when both have halted; first
+  failure wins" — mechanical to add once the existing layer has
+  settled.
+- A full `Channel` algebra (stream-to-stream transducers as
+  first-class values). Currently deferred: `mapM` / `flatMap` /
+  `Sink.andThen` already cover the common cases. Revisit only
+  if a concrete use case shows up that this trio cannot
+  express.
 
 ### Cause integration
 

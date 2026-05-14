@@ -225,15 +225,85 @@ The shape is intentionally smaller than ZIO's `ZStream`:
 | `ZStream.broadcast`           | `RIO.Stream.Par.broadcast`    |
 | `ZStream.partition`           | `RIO.Stream.Par.partition`    |
 | `ZStream.scoped`              | `RIO.Stream.Resource.bracketStream` |
+| `ZSink` (subset)              | `RIO.Sink`                    |
 
-What's intentionally missing: a `Sink` / `Channel` style for
-composable terminating consumers. Sinks are the next major
-addition (see `FUTURE_WORK.md`) and warrant a focused design
-pass because the wire-level shape, fusion story, and parallel
-sink combinators are all intertwined.
+## Composable consumers (`RIO.Sink`)
 
-In the meantime, the existing `runFold` / `runFoldM` /
-`runDrain` runners cover the common terminating-consumer cases.
-For multi-output consumers or `Sink.zipPar`-style composition,
-either compose `runFoldM` against multiple `Ref`s or wait for
-the dedicated `Sink` design.
+`RIO.Sink` ships first-class terminating consumers. A
+`Sink r e i a` consumes some prefix of `i`s from a `Stream` and
+produces an `a`. The shape is `Need k finish | Halt a`:
+
+```purescript
+data Step r e i a
+  = Need (i -> Sink r e i a) (RIO r e a)
+  | Halt a
+
+newtype Sink r e i a = Sink (RIO r e (Step r e i a))
+
+runSink :: forall r e i a. Sink r e i a -> Stream r e i -> RIO r e a
+```
+
+`Need k finish` is "give me the next `i` via `k`, or run `finish`
+on end-of-stream". `Halt a` finalises the sink early; the runner
+stops pulling and any `scoped` finalizers in the stream still
+release.
+
+Primitives:
+
+```purescript
+drain   :: Sink r e i Unit
+head    :: Sink r e i (Maybe i)
+last    :: Sink r e i (Maybe i)
+count   :: Sink r e i Int
+collect :: Sink r e i (Array i)
+foldL   :: a -> (a -> i -> a) -> Sink r e i a
+foldM   :: a -> (a -> i -> RIO r e a) -> Sink r e i a
+take    :: Int -> Sink r e i (Array i)
+find    :: (i -> Boolean) -> Sink r e i (Maybe i)
+any     :: (i -> Boolean) -> Sink r e i Boolean
+all     :: (i -> Boolean) -> Sink r e i Boolean
+```
+
+Combinators:
+
+```purescript
+mapResult :: (a -> b) -> Sink r e i a -> Sink r e i b
+mapInput  :: (j -> i) -> Sink r e i a -> Sink r e j a
+filterIn  :: (i -> Boolean) -> Sink r e i a -> Sink r e i a
+andThen   :: Sink r e i a -> (a -> Sink r e i b) -> Sink r e i b
+```
+
+`take`, `find`, `any`, and `all` short-circuit through `Halt`, so
+they finalise cleanly against infinite streams without leaking
+fibers:
+
+```purescript
+import RIO.Sink as Sink
+
+firstTenEvens :: forall r e. Stream r e Int -> RIO r e (Array Int)
+firstTenEvens = Sink.runSink
+  (Sink.filterIn (\n -> n `mod` 2 == 0) (Sink.take 10))
+```
+
+`andThen` sequences two sinks against the same stream position.
+The first sink runs to completion; its result is fed into the
+continuation, which produces the second sink to consume the
+remainder.
+
+```purescript
+import RIO.Sink as Sink
+
+headAndRest = Sink.head `Sink.andThen` \mFirst ->
+  Sink.mapResult (\rest -> { first: mFirst, rest }) Sink.collect
+```
+
+What's still open: parallel sink composition. `Sink.zipPar` and
+`Sink.zipParWith` (one fiber, one pull per element, two sinks
+each fed the same inputs) are designed in `docs/sink-design.md`
+but not yet implemented. For now, use `RIO.Stream.Par.broadcast`
+to fan a stream to multiple sink-consumers on separate fibers,
+or chain folds through `Ref`s in a single `runFoldM` if the
+combine logic must stay sequential.
+
+The full design discussion, including what is intentionally not
+shipped (a Channel algebra), lives in `docs/sink-design.md`.
