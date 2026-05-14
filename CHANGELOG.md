@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Config.Rotating`: two additional unit tests pinning the
+  `withRotation` docstring contract about loader failure on a
+  subsequent refresh. The first asserts that the failure
+  propagates from `refresh` on the chosen error row (the
+  pre-existing tests only exercised the happy refresh path).
+  The second asserts the cell keeps its last successful value
+  when a refresh fails: build a cell whose loader succeeds on
+  call 1 and fails on call 2, call refresh, observe that the
+  cell still reads back the initial value. Whole-package run
+  goes `382 -> 384` tests passing.
 - `RIO.Logger`: two additional unit tests covering `noopLogger`,
   the discarding logger constructor previously without direct
   coverage. The first runs every level smart constructor
