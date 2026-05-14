@@ -156,6 +156,27 @@ spec = do
           )
         r `shouldEqual` [ 1, 2, 3, 4 ]
 
+      it "concat with empty left yields the right stream" do
+        -- Docstring promise: "Concatenate two streams: drain
+        -- the first, then drain the second." The pinned "concat
+        -- drains the first then the second" test uses two
+        -- non-empty arrays, so the `Done -> unStream r` branch
+        -- in the implementation is never reached. A regression
+        -- that changed that branch to `Done -> pure Done`
+        -- (silently dropping the right stream once the left
+        -- runs out) would still pass the existing test because
+        -- the left stream's elements would be yielded first
+        -- and only after that would the regression fire. With
+        -- an empty left, the regression would fire immediately
+        -- and yield no elements at all.
+        r <- runRIO'
+          ( runCollect
+              ( concat (empty :: Stream () () Int)
+                  (fromArray [ 1, 2, 3 ])
+              )
+          )
+        r `shouldEqual` [ 1, 2, 3 ]
+
       it "flatMap replaces and concatenates" do
         let
           program :: RIO () () (Array Int)
