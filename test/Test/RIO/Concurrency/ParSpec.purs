@@ -16,7 +16,7 @@ import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Assertions (fail) as Spec
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, die, fail, runRIO)
+import RIO.Core (RIO, asks, die, fail, provideAll, runRIO)
 import RIO.Concurrency.Par as Par
 
 spec :: Spec Unit
@@ -99,6 +99,28 @@ spec = do
             (Variant.case_ # Variant.on (Proxy :: Proxy "right") identity $ v)
               `shouldEqual` "from-right"
           Right _ -> Spec.fail "expected right-branch failure to surface"
+
+      it "shared environment: every branch reads from the same record" do
+        -- Docstring promise: "Shared environment. Each branch sees
+        -- the same environment record. There is no per-branch
+        -- override." Every other `Par.ado` test in this file runs
+        -- against the empty `()` row, so none of them observes
+        -- whether the same env record is threaded into every
+        -- branch. A regression that mutated the env between branch
+        -- invocations (e.g. `unRIO rf r *> unRIO ra (someEdit r)`)
+        -- would still pass them all because no branch reaches into
+        -- `r`. Pin the contract by reading the same service from
+        -- two parallel branches and asserting they observe the
+        -- identical value.
+        let
+          program :: RIO (config :: { port :: Int }) () { a :: Int, b :: Int }
+          program = Par.ado
+            a <- asks (Proxy :: Proxy "config") _.port
+            b <- asks (Proxy :: Proxy "config") _.port
+            in { a, b }
+        result <- runRIO
+          (provideAll { config: { port: 8080 } } program)
+        result `shouldEqual` Right { a: 8080, b: 8080 }
 
       it "a defect in any branch propagates and interrupts the siblings" do
         -- Docstring promise: "A defect (Aff exception) in any
