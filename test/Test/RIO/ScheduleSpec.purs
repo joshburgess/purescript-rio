@@ -194,6 +194,28 @@ spec = do
               n >= 80.0 && n <= 120.0
         delays `shouldSatisfy` Array.all inBand
 
+    describe "spaced" do
+      -- The other tests use `spaced` indirectly (as the inner schedule
+      -- for `jittered`, or via `forever = spaced 0.0`). These two pin
+      -- the bare docstring promise that `spaced ms` is a fixed delay
+      -- between firings, forever, with the output as an iteration
+      -- counter starting at 1.
+      it "emits the supplied delay verbatim at every step" do
+        let sched = spaced (Milliseconds 100.0) :: Schedule () Unit Int
+        delays <- runRIO' (collectDelays 5 sched)
+        delays `shouldEqual`
+          [ Milliseconds 100.0
+          , Milliseconds 100.0
+          , Milliseconds 100.0
+          , Milliseconds 100.0
+          , Milliseconds 100.0
+          ]
+
+      it "outputs an increasing iteration count starting at 1" do
+        let sched = spaced (Milliseconds 50.0) :: Schedule () Unit Int
+        outputs <- runRIO' (collectOutputs 4 sched)
+        outputs `shouldEqual` [ 1, 2, 3, 4 ]
+
     describe "once" do
       it "runs the action twice under repeat" do
         counter <- liftEffect (Ref.new 0)

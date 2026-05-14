@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Schedule`: two additional unit tests pinning `spaced`
+  directly. The combinator was previously exercised only as
+  the inner schedule for `jittered` and indirectly via
+  `forever = spaced 0.0`, leaving its own surface untested.
+  The new tests pin the docstring promise that `spaced ms`
+  emits the supplied delay verbatim at every step, and that
+  its output is an iteration counter starting at 1. Whole-
+  package run goes `392 -> 394` tests passing.
 - `RIO.Stream.Par`: one additional unit test pinning `mergeMap`'s
   typed-failure propagation. The module-level docstring states
   that every combinator in `RIO.Stream.Par` shares the same
