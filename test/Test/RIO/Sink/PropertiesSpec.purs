@@ -192,3 +192,35 @@ spec = describe "RIO.Sink (property tests)" do
             (Stream.fromArray xs)
         )
       left `shouldEqual` right
+
+  -- Sequencing law: `andThen head (\_ -> count)` consumes the first
+  -- element with `head` then counts the rest. The result equals the
+  -- count of remaining elements, i.e. `max 0 (length xs - 1)` (zero
+  -- for empty and singleton inputs because `head`'s `finish` returns
+  -- `Nothing` on empty input and `count` then runs on the empty
+  -- tail). Pin the docstring promise that `andThen` resumes from
+  -- the same stream position the first sink halted at.
+  it "andThen head (\\_ -> count) ≡ max 0 (length xs - 1)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      r <- runRIO'
+        ( Sink.runSink
+            (Sink.andThen Sink.head (\_ -> Sink.count))
+            (Stream.fromArray xs)
+        )
+      r `shouldEqual` max 0 (Array.length xs - 1)
+
+  it "andThen (take n) (\\_ -> collect) ≡ Array.drop n xs" do
+    -- Generate non-negative `n` so the property reads cleanly. The
+    -- unit pins cover `take 0` and `take` overshooting; here we
+    -- pin the algebraic equivalence across the regular regime.
+    let
+      smallNat :: Gen Int
+      smallNat = (\k -> (if k < 0 then -k else k) `mod` 12) <$> arbitrary
+    forAll ((/\) <$> smallNat <*> arbitrary :: Gen (Int /\ Array Int))
+      \(n /\ xs) -> do
+        r <- runRIO'
+          ( Sink.runSink
+              (Sink.andThen (Sink.take n) (\_ -> Sink.collect))
+              (Stream.fromArray xs)
+          )
+        r `shouldEqual` Array.drop n xs
