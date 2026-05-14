@@ -52,14 +52,24 @@ demonstration has had time to settle.
 
 ### Stream extensions
 
-- `Sink` / `Channel` style for composable, terminating consumers
-- Parallel stream combinators (`mergeAll`, `flatMapPar`)
-- Backpressured fan-out (`broadcast`, `partition`)
-- Resource-safe streams that thread `Scope` through their pull
+`RIO.Stream.Par` ships the parallel combinators:
 
-The current `RIO.Stream` is intentionally pull-based and
-single-channel. The above are the obvious follow-ups when the
-demo workload outgrows the minimal surface.
+- `mergeAll` / `merge` / `mergeMap` fan in N producers onto a
+  shared bounded queue; first failure shuts everything down
+- `broadcast` fans one upstream out to N consumer streams over
+  per-consumer bounded queues (backpressure end-to-end)
+- `partition` routes each upstream element to exactly one of N
+  buckets via a key function
+
+`RIO.Stream.Resource` adds `bracketStream`, a single-element
+resource-acquiring stream whose release is registered with the
+enclosing `scoped` block.
+
+Still open:
+
+- `Sink` / `Channel` style for composable, terminating consumers.
+  This is the biggest remaining gap against `ZStream` and would
+  benefit from a focused design pass before implementation.
 
 ### Cause integration
 
@@ -112,9 +122,12 @@ non-goals for the "is this real" milestone.
 
 ## Recommended priority order
 
-With the cause-integration work landed (`parTraverseCause`,
-`raceCause`, `acquireReleaseCause`, `prettyCauseWithStack`), the
-next highest-leverage step is Stream extensions. The parallel
-combinators (`mergeAll`, `flatMapPar`) earn their keep against
-ZStream comparisons most directly. Richer config sources are
-useful for real deployments but lower conceptual leverage.
+With the parallel + resource-safe stream extensions landed
+(`mergeAll`, `merge`, `mergeMap`, `broadcast`, `partition`,
+`bracketStream`), the remaining single biggest demo gap against
+ZStream is a `Sink` / `Channel` design. That work is large enough
+to warrant a focused design pass: the wire-level shape, fusion
+story, and parallel-sink combinators are all intertwined, and
+getting them wrong is more costly than getting them late. Richer
+config sources (JSON file, `.env`) are useful for real deployments
+but carry lower conceptual leverage.

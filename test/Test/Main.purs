@@ -30,6 +30,7 @@ import Test.RIO.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.StreamSpec as StreamSpec
 import Test.RIO.Stream.ParSpec as StreamParSpec
+import Test.RIO.Stream.ResourceSpec as StreamResourceSpec
 import Test.RIO.STMSpec as STMSpec
 import Test.RIO.STM.TMapSpec as TMapSpec
 import Test.RIO.STM.THubSpec as THubSpec
@@ -60,6 +61,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   HubSpec.spec
   StreamSpec.spec
   StreamParSpec.spec
+  StreamResourceSpec.spec
   STMSpec.spec
   TQueueSpec.spec
   TMapSpec.spec
