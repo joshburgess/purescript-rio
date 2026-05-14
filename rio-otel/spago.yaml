@@ -1,5 +1,8 @@
 package:
   name: rio-otel
+  publish:
+    version: 0.1.0
+    license: MIT
   dependencies:
     - arrays
     - effect
