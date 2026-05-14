@@ -105,6 +105,20 @@ spec = describe "RIO.Tracer.OTel.makeOTelTracer" do
     cur <- liftEffect tracer.currentSpan
     cur `shouldEqual` Nothing
 
+  it "treats addAttribute on an already-closed SpanId as a no-op" do
+    -- This module's docstring promises "addAttribute safety
+    -- against already-closed or unknown span ids". The unknown
+    -- case is pinned above; pin the already-closed case here so
+    -- a future change that, say, retains closed spans in the
+    -- internal map and forwards attribute writes to a finalized
+    -- OTel span (which would throw at runtime) is caught.
+    tracer <- liftEffect (makeOTelTracer "rio-otel-test")
+    a <- liftEffect (tracer.startSpan "soon-closed")
+    liftEffect (tracer.endSpan a SpanOk)
+    liftEffect (tracer.addAttribute a "k" "v")
+    cur <- liftEffect tracer.currentSpan
+    cur `shouldEqual` Nothing
+
   it "treats endSpan with SpanInterrupted the same as other statuses for bookkeeping" do
     tracer <- liftEffect (makeOTelTracer "rio-otel-test")
     outer <- liftEffect (tracer.startSpan "outer")

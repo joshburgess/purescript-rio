@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Tracer.OTel`: one additional unit test pinning
+  `addAttribute` safety on an already-closed `SpanId`. The
+  spec module's docstring promises "addAttribute safety
+  against already-closed or unknown span ids"; the unknown
+  case was already pinned, but the already-closed case was
+  only covered indirectly through `endSpan` idempotence. Pin
+  it directly so a future change that retains closed spans in
+  the internal map and forwards attribute writes to a
+  finalized OTel span (which would throw at runtime) is
+  caught. rio-otel package run goes `12 -> 13` tests passing.
 - `RIO.Error`: one additional unit test pinning `rethrow`'s
   direct behaviour. `rethrow` is the "dual of `fail`" at the
   Variant level: given an already-constructed `Variant e`, it
