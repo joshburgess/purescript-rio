@@ -2,9 +2,10 @@ module Test.RIO.Queue.PropertiesSpec (spec) where
 
 import Prelude
 
-import Data.Foldable (for_)
+import Data.Array (length) as Array
+import Data.Foldable (and, for_)
 import Data.Maybe (Maybe(..))
-import Data.Traversable (sequence)
+import Data.Traversable (sequence, traverse)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Test.QuickCheck.Arbitrary (arbitrary)
@@ -13,7 +14,7 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 
 import RIO.Core (RIO, runRIO')
-import RIO.Queue (offer, poll, take, unbounded)
+import RIO.Queue (offer, poll, size, take, unbounded)
 
 forAll :: forall a. Gen a -> (a -> Aff Unit) -> Aff Unit
 forAll gen prop = do
@@ -51,3 +52,37 @@ spec = describe "RIO.Queue (property tests)" do
           poll q
       r <- runRIO' program
       r `shouldEqual` Nothing
+
+  it "unbounded: size after N offers equals N (and 0 after full drain)" do
+    -- The unit pin checks `size` after one offer / one take. Pin
+    -- the linear relationship across arbitrary batches so a
+    -- regression that, e.g., decremented size on offer or failed
+    -- to decrement on take would be caught.
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      q <- liftEffect (unbounded :: _ (_ Int))
+      for_ xs \x -> do
+        _ <- runRIO' (offer q x)
+        pure unit
+      afterOffer <- liftEffect (size q)
+      for_ xs \_ -> do
+        _ <- runRIO' (take q)
+        pure unit
+      afterDrain <- liftEffect (size q)
+      afterOffer `shouldEqual` Array.length xs
+      afterDrain `shouldEqual` 0
+
+  it "unbounded: offer always returns true" do
+    -- Docstring promise: "`offer` ... always non-blocking on
+    -- unbounded queues". The non-blocking half is observable
+    -- through the `Boolean` return: `false` means "rejected"
+    -- (shutdown), `true` means "accepted". On a live unbounded
+    -- queue, every offer must report `true`. A regression that
+    -- spuriously rejected an offer on an unbounded queue would
+    -- surface here, regardless of the size of the input batch.
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      q <- liftEffect (unbounded :: _ (_ Int))
+      let
+        program :: RIO () () (Array Boolean)
+        program = traverse (\x -> offer q x) xs
+      results <- runRIO' program
+      and results `shouldEqual` true
