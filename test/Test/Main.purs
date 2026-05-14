@@ -9,6 +9,7 @@ import Test.Spec.Runner.Node (runSpecAndExitProcess)
 import Test.RIO.ClockSpec as ClockSpec
 import Test.RIO.ConcurrencySpec as ConcurrencySpec
 import Test.RIO.Concurrency.ParSpec as ParSpec
+import Test.RIO.Concurrency.PropertiesSpec as ConcurrencyPropertiesSpec
 import Test.RIO.ConfigSpec as ConfigSpec
 import Test.RIO.Config.RotatingSpec as RotatingSpec
 import Test.RIO.CauseSpec as CauseSpec
@@ -62,6 +63,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   LayerSpec.spec
   ConcurrencySpec.spec
   ParSpec.spec
+  ConcurrencyPropertiesSpec.spec
   CauseSpec.spec
   DeferredSpec.spec
   ClockSpec.spec
