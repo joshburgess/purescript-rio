@@ -8,6 +8,8 @@ import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (traverse)
 import Effect.Aff (attempt, delay, error)
 import Effect.Aff.Class (liftAff)
+import Effect.Class (liftEffect)
+import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Assertions (fail) as Spec
@@ -208,6 +210,39 @@ spec = do
         case r of
           Right xs -> Array.length xs `shouldEqual` 0
           Left _ -> Spec.fail "expected zero-consumer broadcast to succeed"
+
+      it "n = 0 does not touch the upstream (no upstream effects ever run)" do
+        -- Docstring promise: "`n <= 0` returns an empty array
+        -- immediately and does not touch the upstream." The
+        -- pinned `n = 0` test uses a pure `fromArray` upstream
+        -- and only checks the consumer-array length, so it
+        -- can't observe whether upstream effects were run. A
+        -- regression that always forked the producer (even for
+        -- n = 0) would still pass that test: the consumer array
+        -- would still be empty because the producer's queue
+        -- list is empty. Pin the "does not touch upstream" half
+        -- with an effectful counting upstream: any pull from
+        -- inside a producer fiber would increment the counter.
+        -- After running broadcast and giving any rogue producer
+        -- fiber time to start, the counter must still be zero.
+        pulls <- liftEffect (Ref.new 0)
+        let
+          counted :: Stream () () Int
+          counted = mapM
+            ( \n -> do
+                _ <- liftEffect (Ref.modify (_ + 1) pulls)
+                pure n
+            )
+            (fromArray [ 1, 2, 3 ])
+
+          program :: RIO () () (Array (Stream () () Int))
+          program = broadcast 0 4 counted
+        _ <- runRIO program
+        -- Give any incorrectly-forked producer fiber a chance to
+        -- start pulling before we check.
+        liftAff (delay (Milliseconds 20.0))
+        n <- liftEffect (Ref.read pulls)
+        n `shouldEqual` 0
 
       it "propagates a typed failure to every consumer" do
         let
