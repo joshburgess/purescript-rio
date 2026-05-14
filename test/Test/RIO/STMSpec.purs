@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Array (range)
 import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
 import Effect.Aff (Milliseconds(..), delay, error, forkAff, killFiber)
 import Effect.Aff.Class (liftAff)
@@ -220,6 +221,63 @@ spec = do
             pure { fromOr, afterCommit }
         result <- runRIO' program
         result `shouldEqual` { fromOr: 99, afterCommit: 0 }
+
+      it
+        "orElse rolls back the read-set of a retried left branch (stale read does not wake the waiter)"
+        do
+          -- The `orElse` docstring promises: "The log effect of a
+          -- fallen-through `left` is rolled back before `right`
+          -- runs, so a retried branch leaves no reads or writes
+          -- behind." The existing "rolls back staged writes" test
+          -- above pins the WRITE-rollback half of this promise.
+          -- The READ-rollback half is unpinned: if the failed
+          -- left branch's reads were not rolled back when both
+          -- branches retry, a subsequent write to the left's read
+          -- target would spuriously wake the suspended waiter,
+          -- which would then replay and commit on stale data.
+          -- Pin the read-rollback half by suspending an `orElse`
+          -- in which both branches retry, writing the LEFT
+          -- branch's read target, and observing that the waiter
+          -- is NOT awoken by that write.
+          doneRef <- liftEffect (Ref.new (Nothing :: Maybe Int))
+          let
+            program :: RIO () () (Maybe Int)
+            program = do
+              refA <- atomically (newTRef 0)
+              refB <- atomically (newTRef 0)
+              waiter <- fork do
+                v <- atomically do
+                  orElse
+                    ( do
+                        a <- readTRef refA
+                        check (a > 100)
+                        pure a
+                    )
+                    ( do
+                        b <- readTRef refB
+                        check (b > 100)
+                        pure b
+                    )
+                liftEffect (Ref.write (Just v) doneRef)
+                pure unit
+              liftAff (delay (Milliseconds 20.0))
+              -- Write the LEFT branch's read target. If reads
+              -- were rolled back, refA is no longer in the
+              -- waiter's read-set and this write must not wake
+              -- it. (If we wrote a value greater than 100, a
+              -- broken-rollback impl would also commit the
+              -- left branch successfully and surface that in
+              -- `doneRef`.)
+              atomically (writeTRef refA 999)
+              liftAff (delay (Milliseconds 30.0))
+              mid <- liftEffect (Ref.read doneRef)
+              -- Wake the waiter via the RIGHT branch's read
+              -- target so the test does not hang.
+              atomically (writeTRef refB 999)
+              _ <- join waiter
+              pure mid
+          result <- runRIO' program
+          result `shouldEqual` Nothing
 
       it "outer transaction retries when both sides retry" do
         events <- liftEffect (Ref.new [])
