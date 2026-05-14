@@ -51,6 +51,30 @@ spec = do
         result <- runRIO' program
         result `shouldEqual` 2
 
+      it "readTRef returns the latest of multiple writes to the same TRef in one tx" do
+        -- `readTRef`'s docstring promises "If the transaction
+        -- has already written to this `TRef`, returns the
+        -- pending value". The implementation backs this with
+        -- `findLatestWrite`, which calls `last (filter (\\e ->
+        -- e.id == k) xs)` over the write log. The pinned
+        -- "subsequent reads in the same tx see staged writes"
+        -- test only writes once, so a regression that returned
+        -- the FIRST matching write (e.g. swapping `last` for
+        -- `head`, or replacing the filter with `Array.find`)
+        -- would still pass: with a single staged write, first
+        -- and last coincide. Pin the last-write-wins guarantee
+        -- with three writes in one transaction.
+        let
+          program :: RIO () () Int
+          program = atomically do
+            ref <- newTRef 0
+            writeTRef ref 1
+            writeTRef ref 2
+            writeTRef ref 3
+            readTRef ref
+        result <- runRIO' program
+        result `shouldEqual` 3
+
       it "modifyTRef composes a read and a write" do
         let
           program :: RIO () () Int
