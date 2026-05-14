@@ -143,6 +143,30 @@ spec = describe "RIO.Sink" do
       r <- runRIO' (Sink.runSink (Sink.find (_ > 3)) source)
       r `shouldEqual` Just 4
 
+    it "find does not pull elements after the first match" do
+      -- The pinned "find returns the first match and halts"
+      -- test names the halt half but only asserts the result
+      -- equals `Just 4`. A regression that kept scanning after
+      -- the match while remembering the first match (e.g.
+      -- `Need (\_ -> ...) (pure (Just i))` in place of
+      -- `Halt (Just i)`) would still return `Just 4` and pass
+      -- that test. Symmetric to the just-pinned `any` and `all`
+      -- short-circuit tests: assert that exactly the prefix up
+      -- to and including the matching element is pulled.
+      counter <- liftEffect (Ref.new 0)
+      let
+        tick :: Int -> RIO () () Int
+        tick i = liftEffect (Ref.modify (_ + 1) counter) *> pure i
+
+        program :: RIO () () (Maybe Int)
+        program = Sink.runSink
+          (Sink.find (_ > 3))
+          (Stream.mapM tick (Stream.fromArray [ 1, 2, 3, 4, 5 ]))
+      r <- runRIO' program
+      r `shouldEqual` Just 4
+      pulled <- liftEffect (Ref.read counter)
+      pulled `shouldEqual` 4
+
     it "find returns Nothing when nothing matches" do
       r <- runRIO' (Sink.runSink (Sink.find (_ > 100)) source)
       r `shouldEqual` Nothing
