@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Resource.Do`: two additional unit tests pinning that a
+  multi-acquire `Resource.do` block releases in LIFO order on the
+  defect and fiber-kill termination paths. The module docstring
+  promises that "every release [runs] on every termination path
+  (success, typed failure, defect, kill)" in LIFO order. Success,
+  typed failure, and acquire-failure were pinned; pin the defect
+  and kill paths on the qualified-do surface so the whole
+  contract is documented through `Resource.do` (not only through
+  the lower-level `acquireRelease`). Whole-package run goes
+  `441 -> 443` tests passing.
 - `RIO.STM.THub`: two additional unit tests pinning that
   `withSubscription` releases the subscription on the defect and
   fiber-kill termination paths. The docstring promises release
