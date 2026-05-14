@@ -189,6 +189,33 @@ spec = do
         r <- runRIO' program
         r `shouldEqual` [ 1, 10, 2, 20, 3, 30 ]
 
+      it "flatMap skips outer elements whose inner stream is empty" do
+        -- Docstring promise: "Replace each element with a stream
+        -- and concatenate." The pinned "flatMap replaces and
+        -- concatenates" test uses a non-empty inner stream for
+        -- every outer element (`fromArray [ n, n * 10 ]`), so
+        -- the case where `f` returns `empty` for some outer
+        -- element is never exercised. The implementation routes
+        -- empty inners through `concat (f a) (flatMap rest f)`,
+        -- which falls through via concat's `Done -> unStream r`
+        -- branch. A regression that short-circuited an empty
+        -- inner to `pure Done` (instead of continuing to the
+        -- next outer element) would still pass the existing
+        -- test because none of its inners are empty. Pin the
+        -- empty-inner skip case here, separately from the
+        -- already-pinned `concat` empty-left invariant.
+        let
+          program :: RIO () () (Array Int)
+          program = runCollect
+            ( flatMap (fromArray [ 1, 2, 3 ])
+                ( \n ->
+                    if n == 2 then empty
+                    else single n
+                )
+            )
+        r <- runRIO' program
+        r `shouldEqual` [ 1, 3 ]
+
     describe "runners" do
       it "runDrain visits each element" do
         log <- liftEffect (Ref.new ([] :: Array Int))
