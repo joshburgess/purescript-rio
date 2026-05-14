@@ -225,6 +225,40 @@ spec = do
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "body", "f3", "f1" ]
 
+      it "first-to-run (LIFO) finalizer throwing does not suppress the others" do
+        -- Docstring promise: "each finalizer is allowed to
+        -- throw; its exception is caught and does not stop
+        -- subsequent finalizers from running." The pinned
+        -- "does not let one finalizer's exception suppress
+        -- the others" test only puts the throwing finalizer
+        -- in the MIDDLE LIFO position (f2-boom, with f3 first
+        -- and f1 last). The implementation folds with
+        -- `foldr (\fin acc -> attempt fin *> acc) (pure unit)
+        -- fins`, which wraps every finalizer in `attempt`.
+        -- A subtle refactor that wrapped only the inner
+        -- finalizers (e.g. `\fin acc -> fin *> attempt acc`)
+        -- would still pass the middle-position test, because
+        -- `f2`'s `throwError` lives inside the outer `attempt`
+        -- — but it would let the LIFO-first finalizer's
+        -- exception propagate out of the bracket release and
+        -- silently skip every other finalizer. Pin the
+        -- LIFO-first throwing case explicitly.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () Unit
+          program = scoped do
+            scope <- ask (Proxy :: Proxy "scope")
+            _ <- addFinalizer scope (push "f1")
+            _ <- addFinalizer scope (push "f2")
+            _ <- addFinalizer scope
+              (Aff.throwError (error "f3-boom"))
+            liftAff (push "body")
+        _ <- runRIO program
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "body", "f2", "f1" ]
+
     describe "ensuring" do
       it "runs the finalizer after a successful action" do
         events <- liftEffect (Ref.new [])
