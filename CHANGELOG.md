@@ -11,6 +11,19 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `rio-config-file`: 12 additional edge-case tests for the
+  pure `parseDotenv` / `flattenJson` helpers. `parseDotenv`
+  picks up unterminated-single-quote rejection, the full
+  `\t` / `\r` / `\\` / `\"` escape set in double-quoted
+  values, `=` inside the value, empty bare and empty quoted
+  values, `#` literal inside single quotes, `#` adjacent to
+  non-whitespace not being treated as a comment, and
+  whitespace-around-key trimming. `flattenJson` picks up
+  nested-null-with-sibling, three-level nesting, deeply
+  nested array rejection with the full path preserved, and
+  a top-level empty object yielding an empty map. `npx
+  spago test -p rio-config-file` now reports `30/30 tests
+  passed` (up from 18).
 - Worked-example cross-links added to three more numbered
   reference docs: `docs/05-resources.md` now points at
   `examples/notify/` and `examples/todo-api/` for resource-safe

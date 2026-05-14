@@ -71,6 +71,35 @@ dotenvSpec = describe "parseDotenv" do
   it "rejects unterminated double quotes" do
     isLeft (parseDotenv "OOPS=\"never closed\n") `shouldEqual` true
 
+  it "rejects unterminated single quotes" do
+    isLeft (parseDotenv "OOPS='never closed\n") `shouldEqual` true
+
+  it "decodes \\t, \\r, \\\\, and \\\" escapes inside double quotes" do
+    parseDotenv "MIXED=\"a\\tb\\rc\\\\d\\\"e\"\n"
+      `shouldYield` Map.singleton "MIXED" "a\tb\rc\\d\"e"
+
+  it "preserves an `=` inside the value" do
+    parseDotenv "URL=postgres://u:p@h/db?sslmode=require\n"
+      `shouldYield` Map.singleton "URL" "postgres://u:p@h/db?sslmode=require"
+
+  it "accepts an empty bare value" do
+    parseDotenv "EMPTY=\n" `shouldYield` Map.singleton "EMPTY" ""
+
+  it "accepts an empty quoted value" do
+    parseDotenv "EMPTY=\"\"\n" `shouldYield` Map.singleton "EMPTY" ""
+
+  it "keeps `#` literal inside single quotes" do
+    parseDotenv "RAW='a # b'\n"
+      `shouldYield` Map.singleton "RAW" "a # b"
+
+  it "does not treat `#` adjacent to non-whitespace as a comment" do
+    parseDotenv "TAG=v1.2#3\n"
+      `shouldYield` Map.singleton "TAG" "v1.2#3"
+
+  it "trims surrounding whitespace from a bare key" do
+    parseDotenv "  PORT  =8080\n"
+      `shouldYield` Map.singleton "PORT" "8080"
+
 jsonSpec :: Spec Unit
 jsonSpec = describe "flattenJson" do
   it "flattens nested objects with `_` joins" do
@@ -106,6 +135,34 @@ jsonSpec = describe "flattenJson" do
   it "rejects non-object top-level values" do
     isLeft (flattenJson (parseJsonOrCrash "42")) `shouldEqual` true
     isLeft (flattenJson (parseJsonOrCrash "\"oops\"")) `shouldEqual` true
+
+  it "drops a nested null but keeps its siblings" do
+    flattenJson
+      ( parseJsonOrCrash
+          """{ "DB": { "URL": "x", "PASSWORD": null } }"""
+      )
+      `shouldYield` Map.singleton "DB_URL" "x"
+
+  it "flattens three levels of nesting with `_` joins" do
+    flattenJson
+      ( parseJsonOrCrash
+          """{ "APP": { "DB": { "URL": "x" } } }"""
+      )
+      `shouldYield` Map.singleton "APP_DB_URL" "x"
+
+  it "rejects a deeply nested array with its full path" do
+    case
+      flattenJson
+        ( parseJsonOrCrash
+            """{ "APP": { "DB": { "HOSTS": [1, 2] } } }"""
+        )
+      of
+      Left (JsonShapeError path _) ->
+        path `shouldEqual` [ "APP", "DB", "HOSTS" ]
+      Right _ -> fail "expected JsonShapeError"
+
+  it "treats a top-level empty object as an empty map" do
+    flattenJson (parseJsonOrCrash "{}") `shouldYield` Map.empty
 
 shouldYield
   :: forall e a
