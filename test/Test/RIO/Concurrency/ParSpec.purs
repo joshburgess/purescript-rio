@@ -6,7 +6,7 @@ import Data.DateTime.Instant (unInstant)
 import Data.Either (Either(..))
 import Data.Newtype (unwrap)
 import Data.Variant as Variant
-import Effect.Aff (Milliseconds(..), delay)
+import Effect.Aff (Milliseconds(..), attempt, delay, error)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Now (now) as Now
@@ -16,7 +16,7 @@ import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Assertions (fail) as Spec
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fail, runRIO)
+import RIO.Core (RIO, die, fail, runRIO)
 import RIO.Concurrency.Par as Par
 
 spec :: Spec Unit
@@ -99,3 +99,35 @@ spec = do
             (Variant.case_ # Variant.on (Proxy :: Proxy "right") identity $ v)
               `shouldEqual` "from-right"
           Right _ -> Spec.fail "expected right-branch failure to surface"
+
+      it "a defect in any branch propagates and interrupts the siblings" do
+        -- Docstring promise: "A defect (Aff exception) in any
+        -- branch propagates; the other branches are interrupted
+        -- by the underlying ParAff runtime." Pin both halves:
+        -- the defect raised by one branch surfaces as an Aff
+        -- exception (visible through `attempt`), and the
+        -- sibling's post-delay side effect never runs because
+        -- ParAff cancels it.
+        siblingFinished <- liftEffect (Ref.new false)
+        let
+          program :: RIO () () Int
+          program = Par.ado
+            a <-
+              liftAff (delay (Milliseconds 50.0))
+                *> liftEffect (Ref.write true siblingFinished)
+                *> pure 1
+            b <-
+              liftAff (delay (Milliseconds 5.0))
+                *> die (error "kaboom")
+            in a + b
+
+        outcome <- attempt (runRIO program)
+        case outcome of
+          Left _ -> pure unit
+          Right _ -> Spec.fail "expected defect to propagate as an Aff exception"
+        -- Wait past the sibling's original delay; if it had not
+        -- been interrupted, the post-delay write would land in
+        -- this window.
+        delay (Milliseconds 100.0)
+        finished <- liftEffect (Ref.read siblingFinished)
+        finished `shouldEqual` false

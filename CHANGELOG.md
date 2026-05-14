@@ -11,6 +11,18 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Concurrency.Par`: one additional unit test pinning the
+  module's defect-propagation contract. The module docstring
+  promises "A defect (`Aff` exception) in any branch
+  propagates; the other branches are interrupted by the
+  underlying `ParAff` runtime". The existing spec covered
+  parallel timing, leftmost typed-failure bias, no-short-
+  circuit on typed failures, and right-branch failure surfacing,
+  but did not pin defect handling. Pin both halves: a defect
+  raised by one branch surfaces as an `Aff` exception
+  observable through `attempt`, and the sibling branch's
+  post-delay side effect never lands because `ParAff` cancels
+  it. Whole-package run goes `427 -> 428` tests passing.
 - `RIO.Test.Clock`: one additional unit test pinning that
   `sleep (Milliseconds 0.0)` returns immediately, without
   waiting on an `advance`. The test clock's `sleep` takes a
