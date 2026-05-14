@@ -227,6 +227,30 @@ spec = do
           Right _ ->
             Spec.fail "expected broadcast to surface the typed failure"
 
+      it "bufferSize <= 0 is clamped to at least 1 (no crash, all elements delivered)" do
+        -- The docstring promises "`bufferSize` is clamped to
+        -- at least 1." Every other `broadcast` test passes a
+        -- positive bufferSize (4 or 2), so a regression that
+        -- removed the `let cap = max 1 bufferSize` clamp and
+        -- forwarded the raw size to `Queue.bounded` would
+        -- silently break only the zero/negative path: bounded
+        -- queue capacity of 0 would block the producer's first
+        -- offer forever (no consumer slot to fill). Pin the
+        -- clamp with `bufferSize = 0`: with the clamp,
+        -- every consumer must still observe the full input
+        -- stream.
+        let
+          program :: RIO () () (Array (Array Int))
+          program = do
+            consumers <- broadcast 2 0 (fromArray [ 1, 2, 3 ])
+            fibers <- traverse (\s -> fork (runCollect s)) consumers
+            traverse join fibers
+        r <- runRIO program
+        case r of
+          Right outs ->
+            outs `shouldEqual` [ [ 1, 2, 3 ], [ 1, 2, 3 ] ]
+          Left _ -> Spec.fail "expected clamped-bufferSize broadcast to succeed"
+
     describe "partition" do
       it "routes each element to exactly one bucket (even/odd)" do
         let
