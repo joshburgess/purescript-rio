@@ -31,24 +31,33 @@
 -- | ```
 module RIO.Cause
   ( Cause(..)
+  , acquireReleaseCause
+  , attemptCause
   , bothPar
   , prettyCause
   , fromOutcome
   , concatParallel
   , concatSequential
+  , parTraverseCause
+  , parSequenceCause
+  , raceCause
   ) where
 
 import Prelude
 
 import Control.Parallel (parallel, sequential)
-import Data.Array (intercalate) as Array
+import Control.Parallel (parTraverse) as Parallel
+import Data.Array (foldl, intercalate, mapMaybe, uncons) as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
-import Effect.Aff (attempt)
+import Data.Variant as Variant
+import Effect.Aff (attempt, bracket)
+import Effect.Class (liftEffect)
 import Effect.Exception (Error, message)
 import Effect.Exception (error) as Exception
+import Effect.Ref as Ref
 
 import RIO.Internal (RIO(..), unRIO)
 
@@ -130,6 +139,207 @@ bothPar ra rb = RIO \r -> do
     -- two separate `case` scrutinees, hence the explicit fallback.
     _, _, _, _ -> Left
       (Die (Exception.error "RIO.Cause.bothPar: impossible"))
+
+-- | Run an `RIO` action and reify its outcome as `Either (Cause e) a`.
+-- |
+-- | This is the foundational primitive for cause-aware error
+-- | handling: it converts the standard `attempt`-style outcome into
+-- | a `Cause` leaf without changing the underlying semantics. A
+-- | typed failure becomes `Fail v`, a defect becomes `Die err`.
+-- |
+-- | The caller's error row is left polymorphic because the result
+-- | never carries a typed failure on the outer channel.
+-- |
+-- | ```purescript
+-- | outcome <- attemptCause (fetchUser uid)
+-- | case outcome of
+-- |   Right user -> useUser user
+-- |   Left cause -> logCause cause
+-- | ```
+attemptCause
+  :: forall r e e' a
+   . RIO r e a
+  -> RIO r e' (Either (Cause e) a)
+attemptCause action = RIO \r -> do
+  outcome <- attempt (unRIO action r)
+  pure (Right (fromOutcome outcome))
+
+-- | Like `RIO.Concurrency.parTraverse`, but every branch runs to
+-- | completion under `attempt` and every failure is collected into a
+-- | left-leaning `Parallel` cause tree. No branch is short-circuited
+-- | when a sibling fails.
+-- |
+-- | If every branch succeeds, returns `Right` of the result array
+-- | in the original input order. If any branch fails (typed or
+-- | defect), returns `Left` of a `Cause` that captures *every*
+-- | failure observed, not just the first.
+-- |
+-- | This is the combinator the `Cause` renderer was written for:
+-- | use it when "tell me everything that broke" matters more than
+-- | "tell me as fast as possible". For first-failure-wins fan-out,
+-- | reach for `RIO.Concurrency.parTraverse` instead.
+-- |
+-- | ```purescript
+-- | outcome <- parTraverseCause validate inputs
+-- | case outcome of
+-- |   Right validated -> useAll validated
+-- |   Left cause -> Console.log (prettyCause showFailure cause)
+-- | ```
+parTraverseCause
+  :: forall r e e' a b
+   . (a -> RIO r e b)
+  -> Array a
+  -> RIO r e' (Either (Cause e) (Array b))
+parTraverseCause f as = RIO \r -> do
+  outcomes <- Parallel.parTraverse
+    (\a -> attempt (unRIO (f a) r))
+    as
+  let
+    classified = map fromOutcome outcomes
+    failures = Array.mapMaybe
+      ( case _ of
+          Left c -> Just c
+          Right _ -> Nothing
+      )
+      classified
+    successes = Array.mapMaybe
+      ( case _ of
+          Right b -> Just b
+          Left _ -> Nothing
+      )
+      classified
+  pure $ Right $ case combineParallel failures of
+    Nothing -> Right successes
+    Just cause -> Left cause
+
+-- | The identity case of `parTraverseCause`: run an array of actions
+-- | concurrently, collect every failure into a `Parallel` cause, and
+-- | return all successes only if every branch succeeded.
+parSequenceCause
+  :: forall r e e' a
+   . Array (RIO r e a)
+  -> RIO r e' (Either (Cause e) (Array a))
+parSequenceCause = parTraverseCause identity
+
+-- | Race two actions: the first one to *succeed* wins. If both fail,
+-- | the combined `Parallel` cause is returned. Unlike
+-- | `RIO.Concurrency.race` (which surfaces the first completion,
+-- | success or failure), `raceCause` waits for at least one success
+-- | before giving up on the other side, so a fast failure does not
+-- | beat a slow success.
+-- |
+-- | Both branches run under `attempt`; defects on either side are
+-- | captured as `Die` rather than propagated as `Aff` exceptions.
+-- |
+-- | ```purescript
+-- | -- prefer the primary cache, but fall back to the backup; only
+-- | -- fail if *both* caches fail
+-- | result <- raceCause (fromPrimary key) (fromBackup key)
+-- | ```
+raceCause
+  :: forall r e e' a
+   . RIO r e a
+  -> RIO r e a
+  -> RIO r e' (Either (Cause e) a)
+raceCause ra rb = RIO \r -> do
+  let
+    runSide side = do
+      outcome <- attempt (unRIO side r)
+      case fromOutcome outcome of
+        Right a -> pure (Right a)
+        Left c -> pure (Left c)
+  Tuple oa ob <- sequential
+    ( Tuple <$> parallel (runSide ra)
+        <*> parallel (runSide rb)
+    )
+  pure $ Right $ case oa, ob of
+    Right a, _ -> Right a
+    _, Right b -> Right b
+    Left cA, Left cB -> Left (Parallel cA cB)
+
+-- | Cause-aware bracket. Like `RIO.Resource.acquireRelease`, but if
+-- | the body and the release *both* fail, the result is a
+-- | `Sequential` cause that pairs the body's failure with the
+-- | finalizer's, rather than silently dropping the finalizer
+-- | exception while propagating the body's.
+-- |
+-- | The release retains the same row `()` as the regular
+-- | `acquireRelease`: typed errors have nowhere to surface, but
+-- | defects (whether raised by `die` or by the underlying `Aff`)
+-- | are captured as `Die` leaves and combined into the cause tree.
+-- |
+-- | Acquire failures short-circuit before any release runs, just
+-- | like the existing primitive: a failure during acquire becomes
+-- | a single `Fail` / `Die` cause and the use / release phases are
+-- | skipped entirely.
+-- |
+-- | The release is run through `Aff.bracket`'s uninterruptible
+-- | release phase, so a kill landing during the body is queued
+-- | until the release completes.
+-- |
+-- | ```purescript
+-- | -- ensure the handle is closed even if the writer fails, and
+-- | -- record both failures if the close itself blows up
+-- | outcome <- acquireReleaseCause
+-- |   (openHandle path)
+-- |   (\h -> closeHandle h)
+-- |   (\h -> writeBatch h batch)
+-- | ```
+acquireReleaseCause
+  :: forall r e e' a b
+   . RIO r e a
+  -> (a -> RIO r () Unit)
+  -> (a -> RIO r e b)
+  -> RIO r e' (Either (Cause e) b)
+acquireReleaseCause acquire release use = RIO \r -> do
+  acqOutcome <- attempt (unRIO acquire r)
+  case acqOutcome of
+    Left err -> pure (Right (Left (Die err)))
+    Right (Left v) -> pure (Right (Left (Fail v)))
+    Right (Right a) -> do
+      releaseRef <- liftEffect
+        (Ref.new (Right unit :: Either Error Unit))
+      useOutcome <- attempt
+        ( bracket
+            (pure unit)
+            ( \_ -> do
+                ro <- attempt (unRIO (release a) r)
+                case ro of
+                  Right (Right _) -> pure unit
+                  Right (Left v) -> Variant.case_ v
+                  Left err ->
+                    liftEffect (Ref.write (Left err) releaseRef)
+            )
+            (\_ -> unRIO (use a) r)
+        )
+      releaseResult <- liftEffect (Ref.read releaseRef)
+      let
+        useCause = case useOutcome of
+          Right (Right _) -> Nothing
+          Right (Left v) -> Just (Fail v)
+          Left err -> Just (Die err)
+        releaseCause = case releaseResult of
+          Right _ -> Nothing
+          Left err -> Just (Die err)
+      pure $ Right $ case useOutcome, useCause, releaseCause of
+        Right (Right b), _, Nothing -> Right b
+        Right (Right _), _, Just rc -> Left rc
+        _, Just uc, Nothing -> Left uc
+        _, Just uc, Just rc -> Left (Sequential uc rc)
+        _, _, _ -> Left
+          ( Die
+              ( Exception.error
+                  "RIO.Cause.acquireReleaseCause: impossible"
+              )
+          )
+
+-- | Fold an array of causes into a single `Parallel` tree. Returns
+-- | `Nothing` if the array is empty, the cause itself for a
+-- | singleton, and a left-leaning `Parallel` chain otherwise.
+combineParallel :: forall e. Array (Cause e) -> Maybe (Cause e)
+combineParallel arr = case Array.uncons arr of
+  Nothing -> Nothing
+  Just { head, tail } -> Just (Array.foldl Parallel head tail)
 
 -- | Render a `Cause` as a multi-line, human-readable tree.
 -- |

@@ -8,18 +8,25 @@ import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
+import Effect.Class (liftEffect)
 import Effect.Exception (error) as Exception
+import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Proxy (Proxy(..))
 
 import RIO.Cause
   ( Cause(..)
+  , acquireReleaseCause
+  , attemptCause
   , bothPar
   , concatParallel
   , concatSequential
   , fromOutcome
+  , parSequenceCause
+  , parTraverseCause
   , prettyCause
+  , raceCause
   )
 import RIO.Core (RIO, die, fail, runRIO)
 
@@ -214,4 +221,250 @@ spec = do
           Right out ->
             out `shouldEqual`
               "parallel failures:\n  fail: boom: left\n  fail: oops: 7"
+          Left _ -> shouldEqual "" "expected Right"
+
+    describe "attemptCause" do
+      it "wraps a success as Right" do
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program = attemptCause (pure 42 :: RIO () Errs Int)
+        r <- runRIO program
+        case r of
+          Right (Right 42) -> pure unit
+          _ -> shouldEqual "" "expected Right (Right 42)"
+
+      it "wraps a typed failure as Left (Fail _)" do
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program =
+            attemptCause
+              ( fail (Proxy :: Proxy "boom") "nope" :: RIO () Errs Int
+              )
+        r <- runRIO program
+        case r of
+          Right (Left (Fail _)) -> pure unit
+          _ -> shouldEqual "" "expected Right (Left (Fail _))"
+
+      it "wraps a defect as Left (Die _)" do
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program =
+            attemptCause
+              ( die (Exception.error "kaboom") :: RIO () Errs Int
+              )
+        r <- runRIO program
+        case r of
+          Right (Left (Die _)) -> pure unit
+          _ -> shouldEqual "" "expected Right (Left (Die _))"
+
+    describe "parTraverseCause" do
+      it "returns Right (Array b) when every branch succeeds" do
+        let
+          program :: RIO () Errs (Either (Cause Errs) (Array Int))
+          program = parTraverseCause (\n -> pure (n * 2)) [ 1, 2, 3 ]
+        r <- runRIO program
+        case r of
+          Right (Right xs) -> xs `shouldEqual` [ 2, 4, 6 ]
+          _ -> shouldEqual "" "expected Right (Right [2,4,6])"
+
+      it "captures every typed failure into a Parallel tree" do
+        let
+          step n =
+            if n `mod` 2 == 0 then pure n
+            else fail (Proxy :: Proxy "oops") n
+
+          program :: RIO () Errs (Either (Cause Errs) (Array Int))
+          program = parTraverseCause step [ 1, 2, 3 ]
+        r <- runRIO program
+        case r of
+          Right (Left (Parallel (Fail _) (Fail _))) -> pure unit
+          _ ->
+            shouldEqual "" "expected Parallel of two Fails"
+
+      it "captures a defect alongside a typed failure" do
+        let
+          step n
+            | n == 1 = fail (Proxy :: Proxy "boom") "bad-1"
+            | n == 2 = die (Exception.error "bad-2")
+            | otherwise = pure n
+
+          program :: RIO () Errs (Either (Cause Errs) (Array Int))
+          program = parTraverseCause step [ 1, 2, 3 ]
+        r <- runRIO program
+        case r of
+          Right (Left (Parallel (Fail _) (Die _))) -> pure unit
+          _ ->
+            shouldEqual "" "expected Parallel (Fail _) (Die _)"
+
+      it "returns Right [] for an empty input" do
+        let
+          program :: RIO () Errs (Either (Cause Errs) (Array Int))
+          program = parTraverseCause pure []
+        r <- runRIO program
+        case r of
+          Right (Right xs) -> xs `shouldEqual` []
+          _ -> shouldEqual "" "expected Right (Right [])"
+
+    describe "parSequenceCause" do
+      it "runs every action and collects failures" do
+        let
+          actions :: Array (RIO () Errs Int)
+          actions =
+            [ pure 1
+            , fail (Proxy :: Proxy "boom") "two"
+            , fail (Proxy :: Proxy "oops") 3
+            ]
+
+          program :: RIO () Errs (Either (Cause Errs) (Array Int))
+          program = parSequenceCause actions
+        r <- runRIO program
+        case r of
+          Right (Left (Parallel (Fail _) (Fail _))) -> pure unit
+          _ -> shouldEqual "" "expected Parallel of two Fails"
+
+    describe "raceCause" do
+      it "returns the success when one side succeeds" do
+        let
+          program :: RIO () Errs (Either (Cause Errs) Int)
+          program = raceCause
+            (fail (Proxy :: Proxy "boom") "slow-fail")
+            (pure 7)
+        r <- runRIO program
+        case r of
+          Right (Right 7) -> pure unit
+          _ -> shouldEqual "" "expected Right (Right 7)"
+
+      it "prefers the left side when both succeed" do
+        let
+          program :: RIO () Errs (Either (Cause Errs) Int)
+          program = raceCause (pure 1) (pure 2)
+        r <- runRIO program
+        case r of
+          Right (Right 1) -> pure unit
+          _ -> shouldEqual "" "expected Right (Right 1)"
+
+      it "returns Parallel when both sides fail" do
+        let
+          program :: RIO () Errs (Either (Cause Errs) Int)
+          program = raceCause
+            (fail (Proxy :: Proxy "boom") "left")
+            (fail (Proxy :: Proxy "oops") 9)
+        r <- runRIO program
+        case r of
+          Right (Left (Parallel (Fail _) (Fail _))) -> pure unit
+          _ -> shouldEqual "" "expected Parallel of two Fails"
+
+      it "renders both failures via prettyCause" do
+        let
+          program :: RIO () Errs String
+          program = do
+            r <- raceCause
+              (fail (Proxy :: Proxy "boom") "left")
+              (fail (Proxy :: Proxy "oops") 9)
+            pure case r of
+              Right _ -> "ok"
+              Left c -> prettyCause renderErrs c
+        res <- runRIO program
+        case res of
+          Right out ->
+            out `shouldEqual`
+              "parallel failures:\n  fail: boom: left\n  fail: oops: 9"
+          Left _ -> shouldEqual "" "expected Right"
+
+    describe "acquireReleaseCause" do
+      it "returns the body's value when both phases succeed" do
+        countRef <- liftEffect (Ref.new 0)
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program = acquireReleaseCause
+            (pure 1 :: RIO () Errs Int)
+            (\_ -> liftEffect (Ref.modify_ (_ + 1) countRef))
+            (\a -> pure (a + 41))
+        r <- runRIO program
+        releases <- liftEffect (Ref.read countRef)
+        releases `shouldEqual` 1
+        case r of
+          Right (Right 42) -> pure unit
+          _ -> shouldEqual "" "expected Right (Right 42)"
+
+      it "runs the release even when the body fails typed" do
+        countRef <- liftEffect (Ref.new 0)
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program = acquireReleaseCause
+            (pure 1 :: RIO () Errs Int)
+            (\_ -> liftEffect (Ref.modify_ (_ + 1) countRef))
+            ( \_ ->
+                fail (Proxy :: Proxy "boom") "body-bad"
+                  :: RIO () Errs Int
+            )
+        r <- runRIO program
+        releases <- liftEffect (Ref.read countRef)
+        releases `shouldEqual` 1
+        case r of
+          Right (Left (Fail _)) -> pure unit
+          _ -> shouldEqual "" "expected Right (Left (Fail _))"
+
+      it "skips the release when acquire itself fails" do
+        countRef <- liftEffect (Ref.new 0)
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program = acquireReleaseCause
+            ( fail (Proxy :: Proxy "boom") "acq-bad"
+                :: RIO () Errs Int
+            )
+            (\_ -> liftEffect (Ref.modify_ (_ + 1) countRef))
+            (\a -> pure a)
+        r <- runRIO program
+        releases <- liftEffect (Ref.read countRef)
+        releases `shouldEqual` 0
+        case r of
+          Right (Left (Fail _)) -> pure unit
+          _ -> shouldEqual "" "expected Right (Left (Fail _))"
+
+      it "returns a release Die when only the release fails" do
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program = acquireReleaseCause
+            (pure 1 :: RIO () Errs Int)
+            (\_ -> die (Exception.error "release-bad"))
+            (\a -> pure (a + 41))
+        r <- runRIO program
+        case r of
+          Right (Left (Die _)) -> pure unit
+          _ -> shouldEqual "" "expected Right (Left (Die _))"
+
+      it "returns Sequential (body, release) when both fail" do
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program = acquireReleaseCause
+            (pure 1 :: RIO () Errs Int)
+            (\_ -> die (Exception.error "release-bad"))
+            (\_ -> fail (Proxy :: Proxy "boom") "body-bad")
+        r <- runRIO program
+        case r of
+          Right (Left (Sequential (Fail _) (Die _))) -> pure unit
+          _ ->
+            shouldEqual ""
+              "expected Sequential (Fail _) (Die _)"
+
+      it "renders the Sequential cause via prettyCause" do
+        let
+          program :: RIO () () String
+          program = do
+            r <- acquireReleaseCause
+              (pure 1 :: RIO () Errs Int)
+              (\_ -> die (Exception.error "close failed"))
+              (\_ -> fail (Proxy :: Proxy "boom") "write failed")
+            pure case r of
+              Right _ -> "ok"
+              Left c -> prettyCause renderErrs c
+        res <- runRIO program
+        case res of
+          Right out ->
+            out `shouldEqual`
+              ( "sequenced failures:\n"
+                  <> "  fail: boom: write failed\n"
+                  <> "  defect: close failed"
+              )
           Left _ -> shouldEqual "" "expected Right"
