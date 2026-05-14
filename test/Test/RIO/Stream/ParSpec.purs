@@ -2,7 +2,7 @@ module Test.RIO.Stream.ParSpec (spec) where
 
 import Prelude hiding (join)
 
-import Data.Array (length, range, sort) as Array
+import Data.Array (filter, length, range, sort) as Array
 import Data.Either (Either(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (traverse)
@@ -48,6 +48,25 @@ spec = do
         case r of
           Right xs -> Array.sort xs `shouldEqual` [ 1, 2, 3, 4, 5 ]
           Left _ -> Spec.fail "expected single-stream mergeAll to succeed"
+
+      it "preserves each input's internal order in the merged output" do
+        -- Docstring promise: "Output order is non-deterministic
+        -- across inputs but preserves each input's internal
+        -- order." Existing tests sort the output, so a regression
+        -- that scrambled per-input order would not be caught.
+        -- Pin the contract by filtering the merged output back
+        -- into each input's slice and checking each is in order.
+        let
+          s1 = fromArray [ 1, 2, 3, 4, 5 ]
+          s2 = fromArray [ 100, 200, 300, 400, 500 ]
+        r <- runRIO (runCollect (mergeAll [ s1, s2 ]))
+        case r of
+          Right xs -> do
+            Array.filter (_ < 100) xs `shouldEqual`
+              [ 1, 2, 3, 4, 5 ]
+            Array.filter (_ >= 100) xs `shouldEqual`
+              [ 100, 200, 300, 400, 500 ]
+          Left _ -> Spec.fail "expected mergeAll to succeed"
 
       it "interleaves slow producers (both contribute)" do
         let
