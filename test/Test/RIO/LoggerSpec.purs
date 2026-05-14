@@ -5,13 +5,14 @@ import Prelude
 import Data.Array (length) as Array
 import Data.Either (Either(..))
 import Data.Tuple (Tuple(..))
+import Effect.Aff (Milliseconds(..), attempt, delay, error, forkAff, killFiber)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, catchTag, fail, provideAll, runRIO)
+import RIO.Core (RIO, catchTag, die, fail, provideAll, runRIO, runRIO')
 import RIO.Logger
   ( LogLevel(..)
   , Logger
@@ -180,6 +181,55 @@ spec = describe "RIO.Logger" do
           r1.fields `shouldEqual` [ Tuple "scope" "inner" ]
           r2.message `shouldEqual` "after-catch"
           r2.fields `shouldEqual` []
+        _ -> 1 `shouldEqual` Array.length records
+
+    it "annotation set is restored after withFields exits on defect" do
+      -- Docstring promise: "Restoration is guaranteed by
+      -- `Aff.finally` on every termination path (success, typed
+      -- failure, defect, fiber interruption)". Success and
+      -- typed-failure are pinned above; pin the defect path so
+      -- the full bracket contract is documented.
+      rec <- liftAff newRecordingLogger
+      let
+        inner :: RIO (logger :: Logger) () Unit
+        inner = withField "scope" "inner" (die (error "kaboom"))
+      _ <- attempt
+        (runRIO' (provideAll { logger: rec.logger } inner))
+      -- A fresh emission through the same logger should observe
+      -- the previous (empty) annotation set restored.
+      let
+        observe :: RIO (logger :: Logger) () Unit
+        observe = logInfo "after-defect"
+      _ <- runRIO' (provideAll { logger: rec.logger } observe)
+      records <- liftEffect rec.snapshot
+      case records of
+        [ r ] -> do
+          r.message `shouldEqual` "after-defect"
+          r.fields `shouldEqual` []
+        _ -> 1 `shouldEqual` Array.length records
+
+    it "annotation set is restored after the fiber is killed mid-body" do
+      -- Pin the last termination path the `withFields` docstring
+      -- promises: a fiber kill mid-action must still trigger the
+      -- `finally`-wired restore.
+      rec <- liftAff newRecordingLogger
+      let
+        inner :: RIO (logger :: Logger) () Unit
+        inner = withField "scope" "inner"
+          (liftAff (delay (Milliseconds 50.0)))
+      f <- forkAff (runRIO' (provideAll { logger: rec.logger } inner))
+      delay (Milliseconds 5.0)
+      killFiber (error "test-cancel") f
+      delay (Milliseconds 10.0)
+      let
+        observe :: RIO (logger :: Logger) () Unit
+        observe = logInfo "after-kill"
+      _ <- runRIO' (provideAll { logger: rec.logger } observe)
+      records <- liftEffect rec.snapshot
+      case records of
+        [ r ] -> do
+          r.message `shouldEqual` "after-kill"
+          r.fields `shouldEqual` []
         _ -> 1 `shouldEqual` Array.length records
 
     it "nested withFields: inner shadows outer; outer restored on inner exit" do

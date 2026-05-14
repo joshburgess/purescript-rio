@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Logger`: two additional unit tests pinning the remaining
+  termination paths of `withFields`'s restore-on-exit bracket.
+  The docstring promises restoration "by `Aff.finally` on every
+  termination path (success, typed failure, defect, fiber
+  interruption)". Success and typed-failure were pinned; pin the
+  defect and fiber-kill paths so the full bracket contract is
+  documented across all four termination paths. Whole-package
+  run goes `430 -> 432` tests passing.
 - `RIO.Stream.Resource`: one additional unit test pinning that
   `bracketStream`'s registered finalizer fires on the defect
   termination path. The module docstring promises release "on
