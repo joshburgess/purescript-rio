@@ -15,6 +15,7 @@ package:
     main: Test.Main
     dependencies:
       - aff
+      - arrays
       - effect
       - either
       - httpurple

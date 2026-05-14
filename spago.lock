@@ -1575,6 +1575,7 @@
         "test": {
           "dependencies": [
             "aff",
+            "arrays",
             "effect",
             "either",
             "httpurple",

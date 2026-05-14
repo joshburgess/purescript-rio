@@ -23,15 +23,20 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   the end-to-end SDK round-trip lives in `examples/otel-demo/`.
   `npx spago test -p rio-otel` now reports `12/12 tests
   passed`.
-- `rio-http`: test suite for `RIO.HTTPurple.Auth` and
-  `RIO.HTTPurple.Request`. Covers `bearerAuthConfig` prefix
-  shape, `requireAuth` success / missing-header / mismatched-
-  header / case-insensitive-header / scheme-required paths,
-  `defaultRequestIdHeader`, and `mkRequestContext`'s header-
+- `rio-http`: test suite for `RIO.HTTPurple.Auth`,
+  `RIO.HTTPurple.Request`, and `RIO.HTTPurple.Middleware`.
+  Covers `bearerAuthConfig` prefix shape, `requireAuth`
+  success / missing-header / mismatched-header / case-
+  insensitive-header / scheme-required paths,
+  `defaultRequestIdHeader`, `mkRequestContext`'s header-
   honouring, monotonic-fallback, custom-header-name, and
-  counter-isolation behaviours. Fills the previously empty test
-  stanza on the package; `npx spago test -p rio-http` now
-  reports `14/14 tests passed`.
+  counter-isolation behaviours, and `withRequestContext`'s
+  log-line pair, `request.id` / `request.method` /
+  `request.path` annotation stamping, `requestId` `Local`
+  set/restore, and `duration_ms` annotation on completion
+  (driven by `RIO.Test.Logger` and `RIO.Test.Clock`). Fills
+  the previously empty test stanza on the package; `npx spago
+  test -p rio-http` now reports `20/20 tests passed`.
 - Numbered reference docs filled in for every substantive module:
   `docs/04-layers.md` (`Layer` construction, composition,
   `provideLayer`, resource-safe layers), `docs/05-resources.md`
