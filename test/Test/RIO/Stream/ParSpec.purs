@@ -1,6 +1,6 @@
 module Test.RIO.Stream.ParSpec (spec) where
 
-import Prelude
+import Prelude hiding (join)
 
 import Data.Array (length, range, sort) as Array
 import Data.Either (Either(..))
@@ -16,7 +16,7 @@ import Type.Proxy (Proxy(..))
 import RIO.Concurrency (fork, join)
 import RIO.Core (RIO, fail, runRIO)
 import RIO.Stream (Stream, fromArray, mapM, runCollect)
-import RIO.Stream.Par (broadcast, merge, mergeAll, mergeMap)
+import RIO.Stream.Par (broadcast, merge, mergeAll, mergeMap, partition)
 
 spec :: Spec Unit
 spec = do
@@ -163,6 +163,78 @@ spec = do
           Right _ ->
             Spec.fail "expected broadcast to surface the typed failure"
 
+    describe "partition" do
+      it "routes each element to exactly one bucket (even/odd)" do
+        let
+          program :: RIO () () (Array (Array Int))
+          program = do
+            buckets <- partition 2 4 identity
+              (fromArray (Array.range 1 6))
+            fibers <- traverse (\s -> fork (runCollect s)) buckets
+            traverse join fibers
+        r <- runRIO program
+        case r of
+          Right outs ->
+            outs `shouldEqual` [ [ 2, 4, 6 ], [ 1, 3, 5 ] ]
+          Left _ -> Spec.fail "expected partition to succeed"
+
+      it "preserves per-bucket input order" do
+        let
+          program :: RIO () () (Array (Array Int))
+          program = do
+            buckets <- partition 3 4 (\n -> n `mod` 3)
+              (fromArray (Array.range 1 9))
+            fibers <- traverse (\s -> fork (runCollect s)) buckets
+            traverse join fibers
+        r <- runRIO program
+        case r of
+          Right outs ->
+            outs `shouldEqual`
+              [ [ 3, 6, 9 ], [ 1, 4, 7 ], [ 2, 5, 8 ] ]
+          Left _ -> Spec.fail "expected partition to succeed"
+
+      it "handles negative keys (mod normalises)" do
+        let
+          program :: RIO () () (Array (Array Int))
+          program = do
+            buckets <- partition 2 4 negate
+              (fromArray [ 1, 2, 3, 4 ])
+            fibers <- traverse (\s -> fork (runCollect s)) buckets
+            traverse join fibers
+        r <- runRIO program
+        case r of
+          Right outs ->
+            outs `shouldEqual` [ [ 2, 4 ], [ 1, 3 ] ]
+          Left _ -> Spec.fail "expected partition to succeed"
+
+      it "n = 0 returns no buckets" do
+        let
+          program :: RIO () () (Array (Stream () () Int))
+          program = partition 0 4 identity (fromArray [ 1, 2, 3 ])
+        r <- runRIO program
+        case r of
+          Right xs -> Array.length xs `shouldEqual` 0
+          Left _ -> Spec.fail "expected zero-bucket partition to succeed"
+
+      it "propagates a typed failure to every bucket" do
+        let
+          source :: Stream () (boom :: String) Int
+          source = mapM
+            (\_ -> fail (Proxy :: Proxy "boom") "kaboom")
+            (fromArray [ 1 ])
+
+          program :: RIO () (boom :: String) (Array (Array Int))
+          program = do
+            buckets <- partition 2 4 identity source
+            fibers <- traverse (\s -> fork (runCollect s)) buckets
+            traverse join fibers
+        r <- runRIO program
+        case r of
+          Left _ -> pure unit
+          Right _ ->
+            Spec.fail "expected partition to surface the typed failure"
+
+    describe "backpressure timing" do
       it "slow consumers don't lose elements (buffer + backpressure)" do
         let
           program :: RIO () () (Array (Array Int))

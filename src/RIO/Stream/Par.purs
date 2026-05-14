@@ -13,6 +13,10 @@
 -- | consumer streams over bounded per-consumer queues, with the
 -- | slowest consumer applying backpressure to the producer.
 -- |
+-- | `partition` is the routing variant of `broadcast`: each
+-- | element goes to exactly one bucket selected by a key function,
+-- | so the N consumers see disjoint slices of the input.
+-- |
 -- | All combinators here share the same failure model: the *first*
 -- | typed failure or defect observed in any producer shuts the
 -- | shared queue down. Sibling producers are still running at that
@@ -39,6 +43,7 @@ module RIO.Stream.Par
   , merge
   , mergeAll
   , mergeMap
+  , partition
   ) where
 
 import Prelude
@@ -155,6 +160,77 @@ broadcast n bufferSize upstream
       failureRef <- liftEffect (Ref.new (Nothing :: Maybe (Cause e)))
       _ <- fork (broadcastProducer queues failureRef upstream)
       pure (map (\q -> consumer q failureRef) queues)
+
+-- | Route each upstream element to one of `n` buckets via a key
+-- | function. The bucket is `(toBucket x) \`mod\` n` clamped to a
+-- | non-negative index, so a key function with arbitrary integer
+-- | range routes safely. Each bucket has its own bounded queue of
+-- | size `bufferSize` (clamped to at least 1); a full bucket
+-- | applies backpressure to the producer.
+-- |
+-- | Failure model matches `broadcast`: the first observed
+-- | producer-side failure or defect shuts every bucket down, and
+-- | every consumer surfaces the same captured cause on its next
+-- | pull.
+-- |
+-- | `n <= 0` returns an empty array immediately and does not touch
+-- | the upstream.
+partition
+  :: forall r e a
+   . Int
+  -> Int
+  -> (a -> Int)
+  -> Stream r e a
+  -> RIO r e (Array (Stream r e a))
+partition n bufferSize toBucket upstream
+  | n <= 0 = pure []
+  | otherwise = do
+      let cap = max 1 bufferSize
+      queues <- liftEffect
+        (traverse (\_ -> Queue.bounded cap) (Array.range 1 n))
+      failureRef <- liftEffect (Ref.new (Nothing :: Maybe (Cause e)))
+      _ <- fork
+        (partitionProducer n queues failureRef toBucket upstream)
+      pure (map (\q -> consumer q failureRef) queues)
+
+-- | The producer side of `partition`: drains upstream under
+-- | `attemptCause`, routes each element to a single bucket, and
+-- | shuts every bucket down on completion or failure.
+partitionProducer
+  :: forall r e a
+   . Int
+  -> Array (Queue a)
+  -> Ref.Ref (Maybe (Cause e))
+  -> (a -> Int)
+  -> Stream r e a
+  -> RIO r () Unit
+partitionProducer n queues failureRef toBucket upstream = do
+  outcome <- attemptCause (drainTo upstream)
+  case outcome of
+    Right _ -> traverse_ Queue.shutdown queues
+    Left cause -> do
+      liftEffect
+        ( Ref.modify_
+            ( case _ of
+                Nothing -> Just cause
+                existing -> existing
+            )
+            failureRef
+        )
+      traverse_ Queue.shutdown queues
+  where
+  drainTo :: Stream r e a -> RIO r e Unit
+  drainTo s = do
+    step <- unStream s
+    case step of
+      Done -> pure unit
+      Yield a rest -> do
+        let raw = toBucket a `mod` n
+        let idx = if raw < 0 then raw + n else raw
+        case Array.index queues idx of
+          Just q -> void (Queue.offer q a)
+          Nothing -> pure unit
+        drainTo rest
 
 -- | The producer side of `broadcast`: drains upstream under
 -- | `attemptCause`. Each value is offered to every subscriber's
