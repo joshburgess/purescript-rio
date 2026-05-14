@@ -149,7 +149,7 @@ A one-line helper that fails the test on `Left` would need a `Show
 
 ## Layered programs
 
-For programs built from layers (`docs/04-layers.md`, forthcoming),
+For programs built from layers (`docs/04-layers.md`),
 the test setup is the same as for any service: build the layer in
 the test body, run the program with `provideLayer`, assert on side
 effects via `recording` or `Ref`. The Phase 5 review at

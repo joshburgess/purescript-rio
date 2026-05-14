@@ -1,0 +1,238 @@
+# Layers
+
+A `Layer rIn e rOut` is a recipe for constructing a record of
+services `rOut` from a record of services `rIn`, possibly
+failing with a typed error in `Variant e`. Layers compose
+vertically (`andThen`, infix `>>>`) and horizontally (`combine`,
+infix `<+>`); they may register finalizers in the surrounding
+scope so resources are released when the providing scope exits.
+
+Phase 4 shipped resource safety (`acquireRelease`, `Scope`,
+`scoped`). Phase 5 builds on that: every layer runs inside a
+`Scope` so resource-owning layers are safe by construction.
+This document covers:
+
+1. Constructing layers (`fromRecord`, `fromRIO`).
+2. Composing them (`andThen`, `combine`, `passthrough`).
+3. Running them (`buildLayer`, `provideLayer`).
+4. The failure model (the `Union` constraint on the error row).
+5. How layers interact with `Scope` (Phase 5.4).
+
+The source is `src/RIO/Layer.purs`. The qualified-do sugar for
+resources, frequently used inside layer bodies, is
+`src/RIO/Resource/Do.purs` (see also `docs/05-resources.md`).
+
+## Constructing layers
+
+The simplest layer is one whose services are statically known:
+
+```purescript
+import RIO.Layer (Layer, fromRecord)
+
+consoleLoggerLayer
+  :: forall rIn e. Layer rIn e (logger :: Logger)
+consoleLoggerLayer = fromRecord
+  { logger: { log: \msg -> liftEffect (Console.log msg) } }
+```
+
+`fromRecord` leaves the input row free, so this layer composes
+into any context. The output row says "I produce a `logger`
+service".
+
+For layers that need to read other services, allocate state, or
+register finalizers, `fromRIO` is the constructor:
+
+```purescript
+import RIO.Layer (Layer, fromRIO)
+
+counterStoreLayer
+  :: forall rIn e. Layer rIn e (counter :: { incr :: Aff Int })
+counterStoreLayer = fromRIO do
+  ref <- liftEffect (Ref.new 0)
+  pure { counter: { incr: liftEffect (Ref.modify (_ + 1) ref) } }
+```
+
+The `RIO` action inside `fromRIO` runs in
+`(scope :: Scope | rIn)`: it can `ask` for upstream services,
+lift `Aff`, and register finalizers with the surrounding scope.
+What it returns is the produced record.
+
+## Sequential composition: `andThen` / `>>>`
+
+`andThen` plumbs the first layer's output into the second
+layer's input:
+
+```purescript
+-- configLayer :: Layer () e (config :: Config)
+-- dbLayer     :: Layer (config :: Config) e (db :: Database)
+appLayer :: Layer () e (db :: Database)
+appLayer = configLayer >>> dbLayer
+```
+
+Both layers run in the same surrounding scope, so finalizers
+from either fire (LIFO) when that scope exits. If the first
+layer fails, the second never runs. If either fails the failure
+propagates unchanged on the shared error row.
+
+The infix `>>>` shadows `Control.Semigroupoid.(>>>)` from
+`Prelude` when both are imported. Hide one or reach for the
+named form (`andThen`) when both are needed in the same module.
+
+## Horizontal composition: `combine` / `<+>`
+
+`combine` runs two layers with the same input requirements and
+unions their outputs:
+
+```purescript
+infraLayer
+  :: forall e
+   . Layer () e (logger :: Logger, store :: Store)
+infraLayer = consoleLoggerLayer <+> inMemoryStoreLayer
+```
+
+Both layers run in the same scope. Their output rows must be
+disjoint; sharing a label produces an ill-formed combined row
+and the compiler rejects the call.
+
+## Carrying inputs forward: `passthrough`
+
+`>>>` "consumes" the input row: `configLayer >>> dbLayer` has
+output `(db :: Database)`, with `(config :: Config)` no longer
+visible downstream. When downstream code wants both:
+
+```purescript
+appLayer :: Layer () e (config :: Config, db :: Database)
+appLayer = configLayer >>> passthrough dbLayer
+```
+
+`passthrough` adds the layer's input row back into its output
+via a `Union rOut rIn rPassed` constraint. If the input and
+output rows aren't disjoint the compiler rejects the call.
+
+## Running layers: `buildLayer`
+
+`buildLayer` opens a fresh scope, runs the layer, and hands back
+the produced record:
+
+```purescript
+buildLayer
+  :: forall e rOut
+   . Layer () e rOut
+  -> Aff (Either (Variant e) (Record rOut))
+```
+
+The scope opens and closes *inside* `buildLayer`, so any
+finalizers the layer registered fire **before** the function
+returns. That makes `buildLayer` appropriate for stateless test
+layers (a recording logger, a static config record) but unsafe
+for resource-owning layers: the returned services would
+reference resources that have already been released. Reach for
+`provideLayer` instead in that case.
+
+## Running layers safely: `provideLayer`
+
+`provideLayer` is the resource-safe runner. It builds the
+layer, feeds the services into a program, and runs the program,
+all inside one shared scope:
+
+```purescript
+provideLayer
+  :: forall rIn rOut e e' eOut a
+   . Union e e' eOut
+  => Layer rIn e rOut
+  -> RIO rOut e' a
+  -> RIO rIn eOut a
+```
+
+The scope spans the entire call: layer-registered finalizers
+run *after* the inner program completes, on every termination
+path (success, typed failure, defect, fiber kill). The
+underlying cancellation guarantee comes from `Aff.bracket`'s
+uninterruptible release phase (verified by
+`spikes/aff-interruption/FINDINGS.md`, scenario S6).
+
+```purescript
+main :: Effect Unit
+main = launchAff_ do
+  result <- runRIO (provideLayer appLayer program)
+  case result of
+    Right a -> ...
+    Left v -> ...
+```
+
+The `Union e e' eOut` constraint unifies the layer's typed
+failures and the program's typed failures into one output error
+row. This is the shape Phase 0.4's row-inference spike
+recommended re-confirming in 5.3; it works as predicted.
+
+## The failure model
+
+A layer's error row is the failures its build phase can raise
+(e.g. `dbConnect :: String` if connecting fails). A program's
+error row is the failures its body can raise. `provideLayer`
+unions both via `Union e e' eOut`.
+
+- If the layer fails, the program never runs and the failure
+  surfaces under the layer's tag.
+- If the layer succeeds and the program fails, the program's
+  failure surfaces under its own tag.
+- A `Variant` is open on its row, so the inferred output row at
+  the call site grows monotonically as more layers are stacked.
+
+Defects (`die`, JavaScript exceptions, fiber kills) flow
+through `Aff` and are observable via `RIO.Error.sandbox` at the
+call site; they bypass the typed `Variant` channel by design.
+
+## Resource-safe layers (Phase 5.4)
+
+A layer that opens a resource is built with `fromRIO` plus
+`addFinalizer`:
+
+```purescript
+import RIO.Resource (Scope, addFinalizer)
+
+dbLayer :: Layer (config :: Config) (dbConnect :: String) (db :: Database)
+dbLayer = fromRIO do
+  cfg <- ask (Proxy :: Proxy "config")
+  scope <- ask (Proxy :: Proxy "scope")
+  conn <- openConnection cfg
+  addFinalizer scope (closeConnection conn)
+  pure { db: connectionToDatabase conn }
+```
+
+When this layer is plumbed via `provideLayer`, the connection
+opens, the program runs, and the connection closes. If the
+program dies mid-flight the connection still closes because the
+finalizer runs in the release phase of `provideLayer`'s
+underlying `bracket`.
+
+If acquiring fails (the `openConnection` call raises), no
+finalizer is registered, and the layer's typed failure
+propagates. The matching mental model is the same as
+`acquireRelease`: nothing was opened, so nothing needs closing.
+
+## Comparison with ZIO / Effect-TS
+
+| Concept                  | ZIO                     | Effect-TS               | `purescript-rio`            |
+| ------------------------ | ----------------------- | ----------------------- | --------------------------- |
+| Layer type               | `ZLayer[RIn, E, ROut]`  | `Layer<RIn, E, ROut>`   | `Layer rIn e rOut`          |
+| Build from value         | `ZLayer.succeed`        | `Layer.succeed`         | `fromRecord`                |
+| Build from effect        | `ZLayer.fromZIO`        | `Layer.effect`          | `fromRIO`                   |
+| Sequential composition   | `>>>`                   | `Layer.provide`         | `>>>` (`andThen`)           |
+| Horizontal composition   | `++`                    | `Layer.merge`           | `<+>` (`combine`)           |
+| Carry inputs forward     | `>+>`                   | `Layer.provideMerge`    | `passthrough`               |
+| Run                      | `ZIO.provideLayer`      | `Effect.provide`        | `provideLayer`              |
+| Resource safety          | `ZLayer.scoped`         | `Layer.scoped`          | built-in via `Scope`        |
+
+The output-row union via `Union` is the row-polymorphism
+analogue of ZIO's `RIn` / `ROut` parameters; the `Variant` error
+row is the analogue of ZIO's `E` channel.
+
+## Pointers
+
+- Source: [`src/RIO/Layer.purs`](../src/RIO/Layer.purs).
+- Spec coverage: [`test/Test/RIO/LayerSpec.purs`](../test/Test/RIO/LayerSpec.purs).
+- Resources (the safety primitives layers build on):
+  [`docs/05-resources.md`](./05-resources.md).
+- Worked layered example:
+  [`examples/todo-api/`](../examples/todo-api/).

@@ -184,9 +184,9 @@ scoped do
 The release runs on every termination path: success,
 typed-failure, defect, interruption. This is the same guarantee
 ZIO provides, implemented on top of `Effect.Aff.bracket`. See
-`docs/05-resources.md` (forthcoming; today, `src/RIO/Resource.purs`
-docstrings and `spikes/phase-4-review/` are the reference) and
-the Phase 0.5 spike for the underlying `Aff` guarantees.
+`docs/05-resources.md` and the Phase 0.5 spike at
+`spikes/aff-interruption/FINDINGS.md` for the underlying `Aff`
+guarantees.
 
 ## Concurrency
 

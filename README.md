@@ -199,6 +199,12 @@ Walkthrough docs:
   convention and idiomatic provision.
 - [`docs/03-errors.md`](./docs/03-errors.md): typed failures,
   catching, and the defect channel.
+- [`docs/04-layers.md`](./docs/04-layers.md): the `Layer` type,
+  vertical (`>>>`) and horizontal (`<+>`) composition,
+  `provideLayer`, and the resource-safe layer story.
+- [`docs/05-resources.md`](./docs/05-resources.md):
+  `acquireRelease`, `ensuring`, `Scope` / `scoped`, and the
+  `RIO.Resource.Do` qualified-do sugar.
 - [`docs/06-concurrency.md`](./docs/06-concurrency.md): fork,
   race, parallel traversal, cancellation caveats.
 - [`docs/07-testing.md`](./docs/07-testing.md): the spec
