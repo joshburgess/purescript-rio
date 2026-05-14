@@ -4,7 +4,6 @@ package:
     - aff
     - argonaut-codecs
     - argonaut-core
-    - arrays
     - console
     - datetime
     - effect
@@ -13,11 +12,15 @@ package:
     - httpurple
     - integers
     - maybe
+    - newtype
+    - node-process
     - now
+    - partial
     - prelude
     - refs
     - rio
     - rio-http
+    - rio-postgres
     - strings
     - tuples
     - variant

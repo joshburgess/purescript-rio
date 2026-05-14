@@ -1,6 +1,7 @@
--- | Entry point: build the layer once, install the HTTPurple
--- | router, run each request as an `RIO` action against the
--- | shared environment.
+-- | Entry point: read `DATABASE_URL`, build the layer, run the
+-- | one-shot schema migration, install the HTTPurple router, and
+-- | park forever so the layer's scope keeps the pool alive while
+-- | the server serves requests.
 -- |
 -- | Each incoming request is wrapped by `withRequestContext` from
 -- | `Example.TodoApi.Middleware`, which scopes a fresh request id
@@ -10,8 +11,15 @@
 -- | which raises the `unauthorized` typed failure if the
 -- | Authorization header doesn't match.
 -- |
--- | Run with `npx spago run -p rio-example-todo-api`; the server
--- | listens on `localhost:8080`. A quick smoke test from another
+-- | Run with:
+-- |
+-- | ```
+-- | docker compose up -d postgres
+-- | export DATABASE_URL="postgres://rio:rio@localhost:55432/rio_test"
+-- | npx spago run -p rio-example-todo-api
+-- | ```
+-- |
+-- | The server listens on `localhost:8080`. Smoke test from another
 -- | terminal:
 -- |
 -- | ```
@@ -19,9 +27,9 @@
 -- | curl -s -X POST -d '{"title":"buy milk"}' \
 -- |      -H 'Authorization: Bearer example-token' localhost:8080/todos
 -- | curl -s localhost:8080/todos
--- | curl -s localhost:8080/todos/0
+-- | curl -s localhost:8080/todos/1
 -- | curl -s -X DELETE -H 'Authorization: Bearer example-token' \
--- |      localhost:8080/todos/0
+-- |      localhost:8080/todos/1
 -- | curl -s -X POST -d '{"title":"x"}' localhost:8080/todos   # 401
 -- | curl -s localhost:8080/todos/999                          # 404
 -- | curl -s -X POST -d 'not-json' \
@@ -37,7 +45,8 @@ import Data.Maybe (Maybe(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect (Effect)
-import Effect.Aff (launchAff_)
+import Effect.Aff (Aff, launchAff_, makeAff, nonCanceler)
+import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Class.Console (log)
 import Effect.Ref as Ref
@@ -57,12 +66,16 @@ import HTTPurple
   )
 import HTTPurple.Json (fromJsonE, toJson)
 import HTTPurple.Status as Status
+import Node.Process (lookupEnv)
 
 import RIO.Clock (Clock, liveClock)
 import RIO.Core (RIO, provideAll, runRIO)
-import RIO.Layer (buildLayer)
+import RIO.Env (ask)
+import RIO.Layer (provideLayer)
 import RIO.Local (Local, newLocalEffect)
 import RIO.Logger (Logger)
+import RIO.Postgres (PgError, Postgres, pgErrorMessage)
+import Type.Proxy (Proxy(..))
 
 import Example.TodoApi.Codecs
   ( CreateTodo
@@ -79,7 +92,7 @@ import Example.TodoApi.Handlers
   , getHandler
   , listHandler
   )
-import Example.TodoApi.Layers (appLayer)
+import Example.TodoApi.Layers (appLayer, migrate)
 import Example.TodoApi.Middleware
   ( RequestContext
   , defaultAuthConfig
@@ -87,11 +100,10 @@ import Example.TodoApi.Middleware
   , withRequestContext
   )
 import Example.TodoApi.Routes (Route(..), route)
-import Example.TodoApi.Services (TodoStore)
 
 type AppEnv =
   { logger :: Logger
-  , todoStore :: TodoStore
+  , postgres :: Postgres
   , clock :: Clock
   , requestId :: Local String
   , counter :: Ref.Ref Int
@@ -99,22 +111,69 @@ type AppEnv =
 
 main :: Effect Unit
 main = launchAff_ do
-  built <- buildLayer appLayer
-  case built of
-    Left _ -> liftEffect (log "todo-api: layer build failed")
-    Right base -> liftEffect do
-      requestId <- newLocalEffect "<unset>"
-      counter <- Ref.new 0
-      let
-        env =
-          { logger: base.logger
-          , todoStore: base.todoStore
-          , clock: liveClock
-          , requestId
-          , counter
-          }
-      _ <- serve { port: 8080 } { route, router: mkRouter env }
-      log "todo-api: listening on http://localhost:8080"
+  mConn <- liftEffect (lookupEnv "DATABASE_URL")
+  case mConn of
+    Nothing -> liftEffect
+      ( log
+          "todo-api: set DATABASE_URL (e.g. postgres://rio:rio@localhost:55432/rio_test) before starting"
+      )
+    Just connectionString -> runWithPool connectionString
+
+runWithPool :: String -> Aff Unit
+runWithPool connectionString = do
+  result <- runRIO
+    (provideLayer (appLayer connectionString) (boot connectionString))
+  case result of
+    Left v -> liftEffect (log ("todo-api: startup failed: " <> renderStartupError v))
+    Right _ -> pure unit
+
+-- | Errors that can escape the layer-scoped program: a `db` failure
+-- | from `migrate`, plus the `()` carried by `appLayer` (which is
+-- | uninhabited but unions in via `provideLayer`).
+type StartupError = (db :: PgError)
+
+renderStartupError :: Variant StartupError -> String
+renderStartupError = Variant.case_
+  # Variant.on (Proxy :: Proxy "db") pgErrorMessage
+
+-- | The program that runs under `provideLayer (appLayer ...)`:
+-- | migrate, hand the layer's logger + pool to the HTTP server,
+-- | and park forever so the pool's finalizer doesn't fire until
+-- | the process is killed.
+boot
+  :: String
+  -> RIO (logger :: Logger, postgres :: Postgres) StartupError Unit
+boot _connectionString = do
+  migrate
+  logger <- ask (Proxy :: Proxy "logger")
+  postgres <- ask (Proxy :: Proxy "postgres")
+  liftAff (startServer { logger, postgres })
+  parkForever
+
+-- | An `Aff` that never resolves. Holding the calling fiber inside
+-- | `provideLayer`'s bracket keeps the pool's scope open for the
+-- | lifetime of the Node process; on SIGINT/SIGTERM the process is
+-- | killed by the OS and the OS reclaims the sockets.
+parkForever :: forall r e. RIO r e Unit
+parkForever = liftAff
+  (makeAff \_ -> pure nonCanceler)
+
+startServer
+  :: { logger :: Logger, postgres :: Postgres }
+  -> Aff Unit
+startServer base = liftEffect do
+  requestId <- newLocalEffect "<unset>"
+  counter <- Ref.new 0
+  let
+    env =
+      { logger: base.logger
+      , postgres: base.postgres
+      , clock: liveClock
+      , requestId
+      , counter
+      }
+  _ <- serve { port: 8080 } { route, router: mkRouter env }
+  log "todo-api: listening on http://localhost:8080"
 
 mkRouter :: AppEnv -> Request Route -> ResponseM
 mkRouter env req = do
@@ -180,7 +239,7 @@ runWithMiddleware env ctx action onOk = do
 envOf :: AppEnv -> { | Env }
 envOf env =
   { logger: env.logger
-  , todoStore: env.todoStore
+  , postgres: env.postgres
   , clock: env.clock
   , requestId: env.requestId
   }
@@ -196,4 +255,11 @@ renderApiError reqId = Variant.match
   , unauthorized: \_ ->
       response Status.unauthorized
         ("missing or invalid Authorization header (request " <> reqId <> ")")
+  , db: \pgErr ->
+      response Status.internalServerError
+        ( "database error (request "
+            <> reqId
+            <> "): "
+            <> pgErrorMessage pgErr
+        )
   }

@@ -1,50 +1,58 @@
 # todo-api
 
 A small HTTP service built with [HTTPurple](https://pursuit.purescript.org/packages/purescript-httpurple/4.0.0)
-and `rio`. Listens on `localhost:8080`, persists todos in memory.
+and `rio`, backed by a real Postgres instance via `rio-postgres`.
+Listens on `localhost:8080`.
 
 The example covers the production-relevant slice of the library
 in a single shape you can run:
 
-- **Services** (`src/Example/TodoApi/Services.purs`): a domain
-  `TodoStore` plus the library services `Logger` (`RIO.Logger`),
-  `Clock` (`RIO.Clock`), and a `Local String` request id
-  (`RIO.Local`), all re-exported under one namespace.
+- **Services** (`src/Example/TodoApi/Services.purs`): re-exports
+  the library services the example reads against: `Logger`
+  (`RIO.Logger`), `Clock` (`RIO.Clock`), the `Local String`
+  request id (`RIO.Local`), and the `Postgres` token + `PgError`
+  type (`RIO.Postgres`).
 - **Layers** (`src/Example/TodoApi/Layers.purs`): `appLayer`
   horizontally combines `RIO.Logger.consoleLogger` with a
-  resourceful `inMemoryStore` built from `Ref`s.
+  `postgresLayer` that owns the `node-postgres` pool's lifetime
+  via a scope finalizer. `migrate` runs an idempotent
+  `create table if not exists rio_todos (...)` on startup.
 - **Middleware** (`src/Example/TodoApi/Middleware.purs`):
   `withRequestContext` wraps every handler with a per-request
   log-annotation block and times the body. `requireAuth` is a
   bearer-token check that raises an `unauthorized` typed
   failure.
 - **Handlers** (`src/Example/TodoApi/Handlers.purs`): each
-  endpoint is an `RIO` action over the shared service row, with
-  two typed failures (`notFound`, `unauthorized`) in the error
-  row. Handlers stay domain-focused; logging, auth, and request
-  IDs are layered on by the middleware.
+  endpoint is an `RIO` action that calls `query` / `queryParams`
+  / `execParams` from `RIO.Postgres` directly. Three typed
+  failures (`notFound`, `unauthorized`, `db`) flow up through
+  the error row; the `db` tag carries any driver error.
 - **JSON codecs** (`src/Example/TodoApi/Codecs.purs`): argonaut
   encoders/decoders wrapped in HTTPurple's `JsonEncoder` /
   `JsonDecoder` newtypes.
 - **Routes** (`src/Example/TodoApi/Routes.purs`): a
   `Routing.Duplex` route definition for `/todos` and
   `/todos/:id`.
-- **Wiring** (`src/Example/TodoApi/Main.purs`): builds the
-  layer once at startup, allocates the per-process request-id
-  `Local`, installs an HTTPurple router, captures HTTP-shaped
-  values into a `RequestContext`, runs each request through the
-  middleware wrapper.
+- **Wiring** (`src/Example/TodoApi/Main.purs`): reads
+  `DATABASE_URL`, runs the whole program under
+  `provideLayer (appLayer connStr)` so the pool's scope spans
+  the server's lifetime, runs `migrate`, installs the HTTPurple
+  router, then parks forever.
 
 ## Running
 
-From the workspace root:
+The example needs a Postgres reachable at the URL in
+`DATABASE_URL`. The repo's `docker-compose.yml` exposes a
+`postgres:16-alpine` container on host port `55432`:
 
 ```
+docker compose up -d postgres
+export DATABASE_URL="postgres://rio:rio@localhost:55432/rio_test"
 npx spago run -p rio-example-todo-api
 ```
 
 The server prints `todo-api: listening on http://localhost:8080`
-once ready. Smoke test:
+once ready (and HTTPurple prints its own banner). Smoke test:
 
 ```
 # reads are public
@@ -96,27 +104,31 @@ assigns a monotonic `req-N`.
 
 ## What the example shows
 
-### Handlers as `RIO` programs
+### Handlers as `RIO` programs talking to Postgres
 
-Each handler reads services it needs via `ask` and returns an
-`RIO Env ApiError a`. Cross-cutting concerns like logging
-correlation are scoped by `RIO.Logger.withFields`, not
-threaded through every call:
+Each handler returns an `RIO Env ApiError a` and calls
+`rio-postgres` smart constructors directly. Cross-cutting
+concerns like logging correlation are scoped by
+`RIO.Logger.withFields`, not threaded through every call:
 
 ```purescript
 getHandler :: Int -> RIO Env ApiError Todo
 getHandler tid = withFields [ Tuple "todo.id" (show tid) ] do
-  store <- ask (Proxy :: Proxy "todoStore")
   logInfo "fetch todo"
-  row <- liftAff (store.get tid)
-  case row of
+  row <- queryParams dbTag
+    "select id, title, done, created_at_ms from rio_todos where id = $1"
+    tid
+  case (row :: Maybe TodoRow) of
     Nothing -> fail (Proxy :: Proxy "notFound") { id: tid }
-    Just todo -> pure todo
+    Just r -> pure (rowToTodo r)
 ```
 
-A handler never opens a database connection, never reads from
-`Effect.Now` directly, and never produces a `[INFO]` prefix by
-hand. All of that lives in the layer or the middleware.
+A handler never opens a connection by hand, never reads from
+`Effect.Now` directly, and never produces a `[INFO]` prefix.
+All of that lives in the layer or the middleware.
+`queryParams` binds `$1` safely via the driver, so user-
+controlled values (path segments, JSON fields) flow into SQL
+without string concatenation.
 
 ### Middleware as `RIO` combinators
 
@@ -143,17 +155,26 @@ withRequestContext ctx action = withFields
 captured headers and either falls through or raises the
 `unauthorized` typed failure on the error row.
 
-### One layer build, many requests
+### One layer for the process, one pool for every request
 
-`main` calls `buildLayer appLayer` once and captures the result
-in a closure for every request. The `inMemoryStore` allocated
-inside the layer survives for the process's lifetime; the same
-`Ref` backs every request; the same `Local String` carries the
-per-request id (overridden via `locally` per request).
+`main` runs the entire program under
+`provideLayer (appLayer connStr)`. The Postgres pool allocated
+by `postgresLayer` lives for the lifetime of the surrounding
+scope; the request loop runs inside that scope, so every
+request borrows a connection from the same pool and returns it
+when the handler finishes. The pool's `end()` is registered as
+the layer's finalizer.
+
+The HTTP listener is registered on Node's event loop, then
+`boot` calls `parkForever` to hold the layer's scope open for
+as long as the process lives. On `SIGINT`/`SIGTERM` the OS
+reaps the process; for an interactive long-running server that
+is the natural shutdown shape.
 
 ### Typed failures hit one place
 
-`ApiError` is `(notFound :: { id :: Int }, unauthorized :: Unit)`.
+`ApiError` is
+`(notFound :: { id :: Int }, unauthorized :: Unit, db :: PgError)`.
 `runRIO` returns an `Either (Variant ApiError) a`, and
 `renderApiError` matches the variant exactly once to choose an
 HTTP status:
@@ -166,6 +187,9 @@ renderApiError reqId = Variant.match
   , unauthorized: \_ ->
       response Status.unauthorized
         ("missing or invalid Authorization header (request " <> reqId <> ")")
+  , db: \pgErr ->
+      response Status.internalServerError
+        ("database error (request " <> reqId <> "): " <> pgErrorMessage pgErr)
   }
 ```
 
@@ -176,9 +200,7 @@ is handled.
 
 ## Where to go from here
 
-The example deliberately keeps persistence in-memory so it has
-zero external dependencies. To swap to a real database without
-touching the handlers, replace `inMemoryStore` with a layer
-that returns the same `TodoStore` interface backed by your
-driver of choice. The handlers, the JSON codecs, the routes,
-the middleware, and `renderApiError` all stay the same.
+Swap the in-memory `requestId` counter for a uuid generator,
+add structured-log forwarding via `RIO.Tracer`, or drop in a
+prepared-statement variant of the handlers, all without
+touching the routes, the codecs, or `renderApiError`.
