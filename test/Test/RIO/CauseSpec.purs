@@ -422,6 +422,38 @@ spec = do
           Right (Left (Parallel (Fail _) (Fail _))) -> pure unit
           _ -> shouldEqual "" "expected Parallel of two Fails"
 
+      it "a fast failure does not beat a slow success" do
+        -- Docstring promise: "`raceCause` waits for at least one
+        -- success before giving up on the other side, so a fast
+        -- failure does not beat a slow success." The existing
+        -- "both succeed" and "both fail" pins do not exercise
+        -- the asymmetric case where one side fails fast and the
+        -- other succeeds slowly. A regression that surfaced the
+        -- first completion (success or failure), like
+        -- `RIO.Concurrency.race` does, would still pass the
+        -- "both succeed" pin (left finishes first) and the
+        -- "both fail" pin (both are failures), but it would
+        -- return the fast failure here instead of waiting for
+        -- the slow success. Pin the slow-success-wins promise
+        -- by giving the left side an immediate typed failure
+        -- and the right side a delayed `pure 7`.
+        let
+          left :: RIO () Errs Int
+          left = fail (Proxy :: Proxy "boom") "fast-fail"
+
+          right :: RIO () Errs Int
+          right = do
+            liftAff (delay (Milliseconds 30.0))
+            pure 7
+
+          program :: RIO () Errs (Either (Cause Errs) Int)
+          program = raceCause left right
+        r <- runRIO program
+        case r of
+          Right (Right 7) -> pure unit
+          _ -> shouldEqual ""
+            "expected Right (Right 7) (slow success beats fast failure)"
+
       it "renders both failures via prettyCause" do
         let
           program :: RIO () Errs String
