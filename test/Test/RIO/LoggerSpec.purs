@@ -262,6 +262,40 @@ spec = describe "RIO.Logger" do
             ]
         _ -> 1 `shouldEqual` Array.length records
 
+    it "nested withFields: survivors of middle-key shadowing keep their original relative order" do
+      -- `mergeAnnotations` docstring promises: "remaining
+      -- `existing` entries keep their original order; new
+      -- entries from `incoming` are appended in their input
+      -- order." The existing "inner shadows outer" test
+      -- above has only one survivor entry, so a regression
+      -- that reversed the survivor list (e.g. swapping
+      -- `Array.filter` for a fold-then-reverse, or sorting
+      -- survivors by key) would still produce
+      -- `[ tenant, request.id ]` and pass. Pin the survivor
+      -- ordering by shadowing the *middle* key of a
+      -- three-key outer block: survivors `a` and `c` must
+      -- keep their original `[a, c]` order before the
+      -- replacement `b` is appended.
+      rec <- liftAff newRecordingLogger
+      let
+        program :: RIO (logger :: Logger) () Unit
+        program = withFields
+          [ Tuple "a" "1"
+          , Tuple "b" "2"
+          , Tuple "c" "3"
+          ]
+          (withField "b" "inner" (logInfo "mid"))
+      _ <- runRIO (provideAll { logger: rec.logger } program)
+      records <- liftEffect rec.snapshot
+      case records of
+        [ r ] ->
+          r.fields `shouldEqual`
+            [ Tuple "a" "1"
+            , Tuple "c" "3"
+            , Tuple "b" "inner"
+            ]
+        _ -> 1 `shouldEqual` Array.length records
+
     it "fields outside any withFields block are empty" do
       rec <- liftAff newRecordingLogger
       let
