@@ -23,6 +23,7 @@ import RIO.Stream
   , runCollect
   , runFold
   , runFoldM
+  , single
   , take
   )
 
@@ -112,3 +113,31 @@ spec = describe "RIO.Stream (property tests)" do
         (runFoldM 0 (\acc n -> pure (acc + n)) (fromArray xs))
       r2 <- runRIO' (runFold 0 (+) (fromArray xs))
       r1 `shouldEqual` r2
+
+  -- Monad laws for the Stream functor. `flatMap` is bind and
+  -- `single` is return. The properties hold under `runCollect`'s
+  -- pure Array projection.
+
+  it "flatMap left identity: flatMap (single x) f ≡ f x" do
+    forAll (arbitrary :: Gen Int) \x -> do
+      let f n = fromArray [ n, n * 2, n + 1 ]
+      left <- runRIO' (runCollect (flatMap (single x) f))
+      right <- runRIO' (runCollect (f x))
+      left `shouldEqual` right
+
+  it "flatMap right identity: flatMap s single ≡ s" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let s = fromArray xs
+      left <- runRIO' (runCollect (flatMap s single))
+      right <- runRIO' (runCollect s)
+      left `shouldEqual` right
+
+  it "flatMap associativity: flatMap (flatMap s f) g ≡ flatMap s (\\x -> flatMap (f x) g)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let
+        f n = fromArray [ n, n + 1 ]
+        g n = fromArray [ n * 10, n * 10 + 1 ]
+        s = fromArray xs
+      left <- runRIO' (runCollect (flatMap (flatMap s f) g))
+      right <- runRIO' (runCollect (flatMap s (\x -> flatMap (f x) g)))
+      left `shouldEqual` right
