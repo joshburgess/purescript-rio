@@ -21,6 +21,7 @@ package:
     - rio
     - rio-http
     - rio-postgres
+    - rio-postgres-migrate
     - strings
     - tuples
     - variant

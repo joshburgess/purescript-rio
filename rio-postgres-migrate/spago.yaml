@@ -1,0 +1,31 @@
+package:
+  name: rio-postgres-migrate
+  publish:
+    version: 0.1.0
+    license: MIT
+  dependencies:
+    - aff
+    - effect
+    - either
+    - foldable-traversable
+    - maybe
+    - ordered-collections
+    - prelude
+    - rio
+    - rio-postgres
+    - tuples
+    - variant
+  test:
+    main: Test.Main
+    dependencies:
+      - aff
+      - effect
+      - maybe
+      - node-process
+      - prelude
+      - rio
+      - rio-postgres
+      - spec
+      - spec-node
+      - tuples
+      - variant
