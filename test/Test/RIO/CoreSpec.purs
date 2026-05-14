@@ -4,11 +4,14 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Foldable (traverse_)
+import Data.Variant as Variant
 import Effect.Aff (Aff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
+import Test.Spec.Assertions (fail) as TS
+import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, runRIO, runRIO', unsafeRunRIO)
+import RIO.Core (RIO, fail, runRIO, runRIO', unsafeRunRIO)
 
 -- | Sample inputs used for the law checks. Three values is enough to catch
 -- | a flat-out broken instance; richer property-based coverage is queued
@@ -49,6 +52,26 @@ spec = do
         let env = { x: 7 }
         result <- unsafeRunRIO (pureIntEnv env.x) env
         result `shouldEqual` Right 7
+
+      it "unsafeRunRIO surfaces typed failures as Left (Variant e)" do
+        -- The docstring promises that unsafeRunRIO is the raw inverse
+        -- of the newtype, handing back the underlying
+        -- `Aff (Either (Variant e) a)`. The existing test only pins
+        -- the Right branch; pin the Left branch so the typed-error
+        -- surface of the third runner is documented alongside
+        -- `runRIO`'s.
+        let
+          program :: RIO (x :: Int) (boom :: String) Int
+          program = fail (Proxy :: Proxy "boom") "kaboom"
+          env = { x: 0 }
+        result <- unsafeRunRIO program env
+        case result of
+          Left v ->
+            let
+              msg = Variant.case_ # Variant.on (Proxy :: Proxy "boom") identity
+            in
+              msg v `shouldEqual` "kaboom"
+          Right _ -> TS.fail "expected the typed failure to surface as Left"
 
     describe "Functor laws (Phase 1.2)" do
       it "identity: map id = id" $ forSamples \n ->

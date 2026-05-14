@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Core`: one additional unit test pinning that `unsafeRunRIO`
+  surfaces a typed failure on the `Left` branch of its
+  `Aff (Either (Variant e) a)` result. The existing test only
+  pinned the `Right` (success) branch with a populated
+  environment, so the third runner's typed-error surface was
+  undocumented next to `runRIO`'s. The new test runs a `fail`
+  through `unsafeRunRIO` and inspects the resulting `Variant`
+  by tag, pinning that the typed channel is preserved through
+  this lower-level runner. Whole-package run goes `412 -> 413`
+  tests passing.
 - `RIO.Concurrency`: one additional unit test pinning that a
   typed failure raised inside `uninterruptible` surfaces on the
   parent's row. The existing test pins that the block completes
