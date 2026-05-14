@@ -241,3 +241,27 @@ spec = do
         _ <- runRIO program
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "use", "fin" ]
+
+      it "runs the finalizer when the surrounding Aff fiber is killed" do
+        -- Docstring promise: `ensuring`'s finalizer runs "on every
+        -- termination path (success, typed failure, defect, or
+        -- external fiber kill)". The fork/kill path is the fourth
+        -- of those and the only one not already pinned.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () Unit
+          program = ensuring
+            ( liftAff do
+                push "use-start"
+                delay (Milliseconds 1000.0)
+                push "use-end"
+            )
+            (liftAff (push "fin"))
+        fib <- Aff.forkAff (runRIO program)
+        delay (Milliseconds 50.0)
+        killFiber (error "test-kill") fib
+        _ <- attempt (joinFiber fib)
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "use-start", "fin" ]
