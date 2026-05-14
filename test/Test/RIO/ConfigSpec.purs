@@ -22,6 +22,7 @@ import RIO.Config
   , int
   , load
   , mapSource
+  , mkSource
   , nested
   , optional
   , prettyConfigError
@@ -140,6 +141,31 @@ spec = do
               other -> fail
                 ("expected Multi error, got: " <> show other)
           Right _ -> fail "expected a failure"
+
+    describe "mkSource" do
+      -- The whole suite uses `mapSource` to build sources for
+      -- tests. `mkSource` is the more general escape hatch: it
+      -- takes an arbitrary `String -> Maybe String` lookup. Pin
+      -- that a Config descriptor reads through a custom function
+      -- in the same way it would read through a Map.
+      it "reads values through a custom lookup function" do
+        let
+          lookup k = case k of
+            "PORT" -> Just "9090"
+            _ -> Nothing
+          src = mkSource lookup
+        r <- runWith src (int "PORT")
+        r `shouldEqual` Right 9090
+
+      it "produces a MissingKey error when the lookup returns Nothing" do
+        let src = mkSource (\_ -> Nothing)
+        r <- runWith src (string "ABSENT")
+        case r of
+          Left v ->
+            case Variant.case_ # Variant.on cfgTag identity $ v of
+              MissingKey _ "ABSENT" -> pure unit
+              other -> fail ("expected MissingKey, got: " <> show other)
+          Right _ -> fail "expected MissingKey failure"
 
     describe "secret" do
       it "redacts the value in its Show instance" do

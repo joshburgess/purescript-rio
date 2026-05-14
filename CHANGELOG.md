@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Config`: two additional unit tests pinning `mkSource`, the
+  general escape-hatch source constructor. The whole config suite
+  was using `mapSource` to build sources for tests, leaving the
+  `String -> Maybe String` constructor with no direct coverage.
+  The new tests pin that (a) a `Config` descriptor reads
+  successfully through a custom lookup function (parsing
+  `int "PORT"` from a closure returning `Just "9090"`), and (b)
+  the descriptor returns a `MissingKey` error when the lookup
+  returns `Nothing`. Whole-package run goes `404 -> 406` tests
+  passing.
 - `RIO.Hub`: one additional unit test pinning the `unsubscribe`
   smart constructor's docstring promise that it is "Equivalent
   to running that action directly; provided for readability."
