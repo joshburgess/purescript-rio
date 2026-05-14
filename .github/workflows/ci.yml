@@ -40,7 +40,7 @@ jobs:
           npx purs-tidy --version
 
       - name: Format check
-        run: npx purs-tidy check src test spikes examples benchmarks rio-otel rio-http rio-postgres
+        run: npx purs-tidy check src test spikes examples benchmarks rio-config-file rio-http rio-otel rio-postgres rio-postgres-json rio-postgres-migrate
 
       - name: Build (main package)
         run: npx spago build -p rio
@@ -102,8 +102,23 @@ jobs:
       - name: Build rio-http adapter
         run: npx spago build -p rio-http
 
+      - name: Test rio-http adapter
+        run: npx spago test -p rio-http
+
+      - name: Build rio-config-file adapter
+        run: npx spago build -p rio-config-file
+
+      - name: Test rio-config-file adapter
+        run: npx spago test -p rio-config-file
+
       - name: Build rio-postgres adapter
         run: npx spago build -p rio-postgres
+
+      - name: Build rio-postgres-json adapter
+        run: npx spago build -p rio-postgres-json
+
+      - name: Build rio-postgres-migrate adapter
+        run: npx spago build -p rio-postgres-migrate
 
       - name: Build todo-api example
         run: npx spago build -p rio-example-todo-api
@@ -111,8 +126,23 @@ jobs:
       - name: Build rio-otel adapter
         run: npx spago build -p rio-otel
 
+      - name: Test rio-otel adapter
+        run: npx spago test -p rio-otel
+
       - name: Build and run otel-demo example
         run: npx spago run -p rio-example-otel-demo
+
+      - name: Build and run worker-pool example
+        run: npx spago run -p rio-example-worker-pool
+
+      - name: Build and run stream-pipeline example
+        run: npx spago run -p rio-example-stream-pipeline
+
+      - name: Build and run sink-analytics example
+        run: npx spago run -p rio-example-sink-analytics
+
+      - name: Build and run config-loader example
+        run: npx spago run -p rio-example-config-loader
 
       - name: Build benchmark suite (including regression gate)
         run: npx spago build -p rio-benchmarks
@@ -163,3 +193,13 @@ jobs:
         env:
           PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
         run: npx spago test -p rio-postgres
+
+      - name: Run rio-postgres-json integration tests
+        env:
+          PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
+        run: npx spago test -p rio-postgres-json
+
+      - name: Run rio-postgres-migrate integration tests
+        env:
+          PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
+        run: npx spago test -p rio-postgres-migrate

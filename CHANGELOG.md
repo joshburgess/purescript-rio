@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- CI now exercises every adapter test suite and every example
+  runtime. The build matrix runs `npx spago test` for
+  `rio-config-file`, `rio-http`, and `rio-otel`; builds
+  `rio-postgres-json` and `rio-postgres-migrate`; and runs
+  `worker-pool`, `stream-pipeline`, `sink-analytics`, and
+  `config-loader` as smoke checks. The postgres integration job
+  also drives `rio-postgres-json` and `rio-postgres-migrate`
+  against the service container, not just `rio-postgres`. The
+  format-check step was updated to include `rio-config-file`,
+  `rio-postgres-json`, and `rio-postgres-migrate`, matching the
+  refreshed `npm run format:check` scripts.
 - `rio-otel`: test suite for `RIO.Tracer.OTel`. Pins the
   adapter's own bookkeeping (sequential `SpanId` allocation
   starting at 1, `currentSpan` reporting the latest open span
