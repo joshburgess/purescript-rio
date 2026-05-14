@@ -1,0 +1,19 @@
+package:
+  name: rio-example-stream-pipeline
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - datetime
+    - effect
+    - either
+    - foldable-traversable
+    - integers
+    - maybe
+    - ordered-collections
+    - prelude
+    - rio
+    - tuples
+    - variant
+  run:
+    main: Example.StreamPipeline.Main

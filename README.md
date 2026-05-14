@@ -230,6 +230,10 @@ Worked examples:
   producer + bounded queue + fan-out of N workers + per-job
   retry schedule + spans + metrics, with a `parTraverseCause`
   pre-flight that demonstrates `prettyCause`.
+- [`examples/stream-pipeline/`](./examples/stream-pipeline/):
+  three partition sources merged via `RIO.Stream.Par.mergeAll`
+  and fanned out to two consumers via `broadcast`, with the
+  metrics consumer aggregating per-source counts.
 
 ## Build
 
