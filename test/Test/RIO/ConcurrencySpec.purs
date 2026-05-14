@@ -527,6 +527,43 @@ spec = do
         peakSeen <- liftEffect (Ref.read peak)
         peakSeen `shouldEqual` 1
 
+      it "a typed failure in one chunk aborts the remaining chunks" do
+        -- Docstring promise: "the first typed failure inside a
+        -- chunk cancels its siblings and aborts the remaining
+        -- chunks." With `parTraverseN 2` over `[1..6]` the input
+        -- splits into chunks `[1,2]`, `[3,4]`, `[5,6]`. If item
+        -- `2` fails inside the first chunk, nothing in chunks
+        -- `[3,4]` or `[5,6]` should ever start.
+        started <- liftEffect (Ref.new [])
+        let
+          push :: Int -> RIO () (boom :: Unit) Unit
+          push n =
+            liftEffect (Ref.modify_ (\xs -> snoc xs n) started)
+
+          step :: Int -> RIO () (boom :: Unit) Int
+          step n
+            | n == 2 = do
+                push n
+                liftAff (delay (Milliseconds 10.0))
+                fail (Proxy :: Proxy "boom") unit
+            | otherwise = do
+                push n
+                liftAff (delay (Milliseconds 5.0))
+                pure n
+
+          prog :: RIO () (boom :: Unit) (Array Int)
+          prog = parTraverseN 2 step (range 1 6)
+        result <- runRIO prog
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+        liftAff (delay (Milliseconds 50.0))
+        seen <- liftEffect (Ref.read started)
+        (3 `Array.elem` seen) `shouldEqual` false
+        (4 `Array.elem` seen) `shouldEqual` false
+        (5 `Array.elem` seen) `shouldEqual` false
+        (6 `Array.elem` seen) `shouldEqual` false
+
     describe "timeout" do
       it "returns Just on success when the action beats the deadline" do
         let

@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Concurrency`: one additional unit test pinning that
+  `parTraverseN`'s cross-chunk short-circuit holds. The
+  `parTraverseN` docstring promises "the first typed failure
+  inside a chunk cancels its siblings and aborts the remaining
+  chunks". Existing tests pin order preservation, the concurrency
+  cap, and the `n <= 1` sequential degenerate; pin the
+  remaining-chunk abort by failing on item `2` under
+  `parTraverseN 2` over `[1..6]` and asserting that no item from
+  `[3,4]` or `[5,6]` ever started. Whole-package run goes
+  `434 -> 435` tests passing.
 - `RIO.Concurrency`: one additional unit test pinning that a
   queued interrupt fires once the `uninterruptible` region exits.
   The `uninterruptible` docstring promises "any `interrupt` sent
