@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Concurrency`: one additional unit test pinning that a
+  typed failure raised inside `uninterruptible` surfaces on the
+  parent's row. The existing test pins that the block completes
+  despite an interrupt; the failure path was not pinned. The
+  new test exercises a typed failure inside the protected
+  region and asserts it propagates as a `Left`, since
+  `uninterruptible` only blocks kills, not the typed-error
+  channel. Whole-package run goes `411 -> 412` tests passing.
 - `RIO.Local`: one additional unit test pinning `newLocalEffect`,
   the `Effect`-typed escape hatch for callers that build their
   environment record outside an `RIO` action. The previous

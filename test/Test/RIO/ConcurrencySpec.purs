@@ -578,6 +578,21 @@ spec = do
           Right _ -> 1 `shouldEqual` 0
 
     describe "uninterruptible" do
+      it "surfaces a typed failure raised inside the block on the parent's row" do
+        -- The existing test pins that uninterruptible completes
+        -- a critical section despite an interrupt. The failure
+        -- path was not pinned: a typed failure raised inside
+        -- the protected region should still surface to the
+        -- caller. (uninterruptible only blocks kills, not the
+        -- typed-error channel.)
+        let
+          program :: RIO () (boom :: Unit) Int
+          program = uninterruptible (fail (Proxy :: Proxy "boom") unit)
+        result <- runRIO program
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+
       it "completes a critical section even after an interrupt is sent" do
         events <- liftEffect (Ref.new [])
         let
