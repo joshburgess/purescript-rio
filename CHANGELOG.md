@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Local`: one additional unit test pinning `newLocalEffect`,
+  the `Effect`-typed escape hatch for callers that build their
+  environment record outside an `RIO` action. The previous
+  Local suite only used `newLocal` (RIO-typed). The new test
+  allocates a `Local` in `Effect`, then exercises `get` and
+  `update` from inside an `RIO` program, asserting the same
+  semantics as `newLocal`. Whole-package run goes `410 -> 411`
+  tests passing.
 - `rio-config-file`: two additional unit tests in `flattenJson`
   for top-level shape handling. The previous coverage rejected
   `42` and a string but never pinned the rest of the non-object

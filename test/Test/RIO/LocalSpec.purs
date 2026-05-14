@@ -17,7 +17,9 @@ import RIO.Core
   , join
   , runRIO
   )
-import RIO.Local (get, locally, newLocal, set, update)
+import Effect.Class (liftEffect)
+
+import RIO.Local (get, locally, newLocal, newLocalEffect, set, update)
 
 spec :: Spec Unit
 spec = do
@@ -51,6 +53,28 @@ spec = do
             get l
         result <- runRIO program
         result `shouldEqual` Right 42
+
+      it "newLocalEffect produces a Local usable from within RIO" do
+        -- Docstring promise: newLocalEffect is the Effect-typed
+        -- variant "for callers that build their environment
+        -- record outside an RIO action (e.g. at the top of main
+        -- before launchAff_)". Pin that a Local allocated in
+        -- Effect and then captured in a program is observable
+        -- through get/set/update with the same semantics as
+        -- newLocal.
+        l <- liftEffect (newLocalEffect 7)
+        let
+          program :: RIO () () { initial :: Int, afterUpdate :: Int }
+          program = do
+            initial <- get l
+            update l (_ + 100)
+            afterUpdate <- get l
+            pure { initial, afterUpdate }
+        result <- runRIO program
+        result `shouldEqual`
+          ( Right { initial: 7, afterUpdate: 107 }
+              :: Either _ { initial :: Int, afterUpdate :: Int }
+          )
 
     describe "locally" do
       it "scopes the value to a block and restores after success" do
