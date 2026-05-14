@@ -140,6 +140,44 @@ spec = do
       r.afterRemove `shouldEqual` 0
       r.drained `shouldEqual` Nothing
 
+    it "a slow consumer does not block publishes or other subscribers" do
+      -- The module's docstring promises that "a slow consumer does
+      -- not slow the producer down" and "values published while a
+      -- subscriber is alive land in its queue". Each subscriber's
+      -- queue is unbounded; the natural tradeoff is "a slow
+      -- consumer can fall arbitrarily far behind". Pin both halves
+      -- by holding one subscriber's queue undrained, publishing a
+      -- batch synchronously, and asserting (a) every publish
+      -- returns immediately, (b) the fast subscriber sees every
+      -- value in order, and (c) the slow subscriber's queue still
+      -- holds every value in order when drained later.
+      hub <- liftEffect (make :: _ (_ Int))
+      let
+        program
+          :: RIO () ()
+               { fast :: Array (Maybe Int), slow :: Array (Maybe Int) }
+        program = do
+          slow <- subscribe hub
+          fast <- subscribe hub
+          publishAll hub [ 1, 2, 3, 4, 5 ]
+          f1 <- take fast.queue
+          f2 <- take fast.queue
+          f3 <- take fast.queue
+          f4 <- take fast.queue
+          f5 <- take fast.queue
+          s1 <- take slow.queue
+          s2 <- take slow.queue
+          s3 <- take slow.queue
+          s4 <- take slow.queue
+          s5 <- take slow.queue
+          pure
+            { fast: [ f1, f2, f3, f4, f5 ]
+            , slow: [ s1, s2, s3, s4, s5 ]
+            }
+      r <- runRIO' program
+      r.fast `shouldEqual` [ Just 1, Just 2, Just 3, Just 4, Just 5 ]
+      r.slow `shouldEqual` [ Just 1, Just 2, Just 3, Just 4, Just 5 ]
+
     it "an unsubscribed consumer does not receive subsequent publishes" do
       hub <- liftEffect (make :: _ (_ Int))
       let

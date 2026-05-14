@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Hub`: one additional unit test pinning that a slow
+  consumer does not block publishes or other subscribers.
+  The module's docstring promises "a slow consumer does not
+  slow the producer down" with the natural tradeoff that "a
+  slow consumer can fall arbitrarily far behind" because each
+  subscriber holds its own unbounded queue. Pin both halves
+  by leaving one subscriber undrained while publishing a
+  batch synchronously, draining the fast subscriber first
+  (must see every value in order without blocking), then
+  draining the slow subscriber (must hold every value in
+  order). Whole-package run goes `422 -> 423` tests passing.
 - `RIO.Tracer.OTel`: one additional unit test pinning
   `addAttribute` safety on an already-closed `SpanId`. The
   spec module's docstring promises "addAttribute safety
