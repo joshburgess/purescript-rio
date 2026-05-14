@@ -106,6 +106,28 @@ spec = do
           (runCollect (take 3 (fromArray (Array.range 1 10))))
         r `shouldEqual` [ 1, 2, 3 ]
 
+      it "take 0 yields an empty stream without pulling from the source" do
+        -- `take`'s guard `n <= 0 = empty` short-circuits the
+        -- source before any pull occurs; every existing `take`
+        -- test passes a positive `n`, so a regression that
+        -- weakened the guard to `n < 0 = empty` (or removed it
+        -- entirely) would still pass every other test by
+        -- pulling exactly one step before returning `Done` for
+        -- `n = 0`. Pin the zero-pull invariant with a counting
+        -- source: if the guard regressed, the counter would
+        -- show one effect.
+        counter <- liftEffect (Ref.new 0)
+        let
+          tick :: RIO () () Int
+          tick = liftEffect (Ref.modify (_ + 1) counter)
+
+          program :: RIO () () (Array Int)
+          program = runCollect (take 0 (repeatM tick))
+        r <- runRIO' program
+        r `shouldEqual` ([] :: Array Int)
+        pulls <- liftEffect (Ref.read counter)
+        pulls `shouldEqual` 0
+
       it "drop discards the first n" do
         r <- runRIO'
           (runCollect (drop 3 (fromArray (Array.range 1 6))))
