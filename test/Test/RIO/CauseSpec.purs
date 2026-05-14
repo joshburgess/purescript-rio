@@ -4,12 +4,15 @@ import Prelude
 
 import Data.Array as Array
 import Data.Either (Either(..))
+import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), isJust)
 import Data.String (contains, split, stripPrefix)
 import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
+import Effect.Aff (Milliseconds(..), delay)
+import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Exception (error) as Exception
 import Effect.Ref as Ref
@@ -307,6 +310,30 @@ spec = do
         case r of
           Right (Right xs) -> xs `shouldEqual` [ 2, 4, 6 ]
           _ -> shouldEqual "" "expected Right (Right [2,4,6])"
+
+      it "preserves input order even when branches finish out of order" do
+        -- Docstring promise: "If every branch succeeds, returns
+        -- `Right` of the result array in the original input
+        -- order." The existing all-success test uses
+        -- `\n -> pure (n * 2)` so every branch completes in the
+        -- same tick, making the ordering contract trivially
+        -- satisfied by the input traversal. Pin the contract by
+        -- giving each branch a wall-clock delay inversely
+        -- proportional to its position: branch 4 finishes well
+        -- before branch 1, yet the output array must still be
+        -- in input order.
+        let
+          step n =
+            liftAff (delay (Milliseconds (toNumber (50 - 10 * n))))
+              *> pure (n * 10)
+
+          program :: RIO () Errs (Either (Cause Errs) (Array Int))
+          program = parTraverseCause step [ 1, 2, 3, 4 ]
+        r <- runRIO program
+        case r of
+          Right (Right xs) -> xs `shouldEqual` [ 10, 20, 30, 40 ]
+          _ -> shouldEqual ""
+            "expected Right (Right [10, 20, 30, 40]) in input order"
 
       it "captures every typed failure into a Parallel tree" do
         let
