@@ -123,6 +123,25 @@ jsonSpec = describe "flattenJson" do
             ]
         )
 
+  it "renders numbers via their decimal string form" do
+    -- The flattener stringifies numbers with `Number.toString`. The
+    -- "flattens nested objects" test already shows the integer case
+    -- (`8` -> "8") incidentally; this pins the contract directly
+    -- across an integer, a fractional, and a negative value so any
+    -- silent switch of stringifier (or accidental forced ".0"
+    -- suffix) is caught.
+    flattenJson
+      ( parseJsonOrCrash
+          """{ "PORT": 8080, "RATIO": 0.5, "OFFSET": -3 }"""
+      )
+      `shouldYield`
+        ( Map.fromFoldable
+            [ "PORT" /\ "8080"
+            , "RATIO" /\ "0.5"
+            , "OFFSET" /\ "-3"
+            ]
+        )
+
   it "drops null values" do
     flattenJson (parseJsonOrCrash """{ "PORT": null, "HOST": "x" }""")
       `shouldYield` Map.singleton "HOST" "x"

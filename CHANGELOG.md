@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `rio-config-file`: one additional unit test in `flattenJson`
+  pinning the number-rendering contract directly. The
+  "flattens nested objects" test already shows the integer
+  case incidentally (an `8` flattens to `"8"`), but the suite
+  had no dedicated test pinning what the flattener does to
+  numbers across an integer, a fractional, and a negative.
+  The new test pins all three so any silent switch of
+  stringifier (or accidental forced `.0` suffix) is caught.
+  Sub-package run goes `30 -> 31` tests passing.
 - `RIO.Sink`: one additional unit test pinning `Sink.foldM`'s
   typed-failure surface. The Sink suite had no failure-path
   coverage at all; every existing test exercised either pure
