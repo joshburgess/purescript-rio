@@ -68,6 +68,34 @@ spec = do
           Left _ -> pure unit
           Right _ -> 1 `shouldEqual` 0
 
+      it "an awaiter blocks on an empty cell then surfaces a late typed failure" do
+        -- Module docstring promises `awaitDeferred` "to read it
+        -- (blocking until filled)" and that `failDeferred`
+        -- "surfaces a typed failure on the awaiter's `e` row".
+        -- The pinned "surfaces a typed failure on the awaiter's
+        -- row" test fills the cell BEFORE calling
+        -- `awaitDeferred`, so it never actually blocks; a
+        -- regression that swapped `AVar.read` for `AVar.tryRead`
+        -- in the empty-cell case (i.e., didn't block) would
+        -- still pass that test because the cell is already
+        -- filled when await is called. Pin the blocking-then-
+        -- typed-failure path: fork the awaiter first on an empty
+        -- cell, delay, then fail the cell from the parent. The
+        -- joined fiber must surface the typed failure.
+        let
+          program :: RIO () (boom :: Unit) Int
+          program = do
+            d <- makeDeferred
+            f <- fork (awaitDeferred d)
+            liftAff (delay (Milliseconds 10.0))
+            _ <- failDeferred d
+              (Variant.inj (Proxy :: Proxy "boom") unit)
+            join f
+        result <- runRIO program
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+
     describe "pollDeferred" do
       it "is Nothing before fill, Just after fill" do
         let
