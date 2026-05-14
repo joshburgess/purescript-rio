@@ -339,6 +339,40 @@ spec = do
           Right xs -> Array.length xs `shouldEqual` 0
           Left _ -> Spec.fail "expected zero-bucket partition to succeed"
 
+      it "n = 0 does not touch the upstream (no upstream effects ever run)" do
+        -- Docstring promise: "`n <= 0` returns an empty array
+        -- immediately and does not touch the upstream." The
+        -- pinned `n = 0 returns no buckets` test uses a pure
+        -- `fromArray` upstream and only checks the bucket-array
+        -- length, so it can't observe whether upstream effects
+        -- were run. A regression that always forked the producer
+        -- (even for n = 0) would still pass that test: the
+        -- bucket array would still be empty because there are
+        -- no buckets to route to. Pin the "does not touch
+        -- upstream" half with an effectful counting upstream:
+        -- any pull from inside a producer fiber would increment
+        -- the counter. After running partition and giving any
+        -- rogue producer fiber time to start, the counter must
+        -- still be zero. Symmetric to the broadcast n = 0 test.
+        pulls <- liftEffect (Ref.new 0)
+        let
+          counted :: Stream () () Int
+          counted = mapM
+            ( \n -> do
+                _ <- liftEffect (Ref.modify (_ + 1) pulls)
+                pure n
+            )
+            (fromArray [ 1, 2, 3 ])
+
+          program :: RIO () () (Array (Stream () () Int))
+          program = partition 0 4 identity counted
+        _ <- runRIO program
+        -- Give any incorrectly-forked producer fiber a chance to
+        -- start pulling before we check.
+        liftAff (delay (Milliseconds 20.0))
+        n <- liftEffect (Ref.read pulls)
+        n `shouldEqual` 0
+
       it "propagates a typed failure to every bucket" do
         let
           source :: Stream () (boom :: String) Int
