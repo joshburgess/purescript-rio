@@ -58,6 +58,31 @@ spec = describe "RIO.Tracer" do
           Nothing -> 1 `shouldEqual` 0
       _ -> 1 `shouldEqual` 0
 
+  it "snapshot taken mid-flight surfaces an open span with endMs = Nothing" do
+    -- Docstring promise on the `Span` type: "`endMs` is `Nothing`
+    -- while the span is still open; a recording backend may surface
+    -- mid-flight spans this way for inspection." Every other
+    -- TracerSpec test snapshots after the `withSpan` block has
+    -- closed, so the `endMs` field is observed only on closed spans
+    -- (always `Just _`). A regression that flipped the recorder to
+    -- write `Just 0.0` at `startSpan` time (or eagerly close a span
+    -- when its parent finishes) would still pass every other test
+    -- because they never look at the recording while a span is open.
+    -- Pin the open-span surface directly by snapshotting from inside
+    -- the body of a `withSpan` and asserting the in-flight span has
+    -- `endMs = Nothing` while a not-yet-opened sibling is absent.
+    rec <- liftAff newRecordingTracer
+    let
+      program :: RIO (tracer :: Tracer) () (Array { name :: String, endMs :: Maybe Number })
+      program = withSpan "outer" do
+        midFlight <- liftEffect rec.snapshot
+        pure (map (\s -> { name: s.name, endMs: s.endMs }) midFlight)
+    result <- runRIO (provideAll { tracer: rec.tracer } program)
+    case result of
+      Right rows ->
+        rows `shouldEqual` [ { name: "outer", endMs: Nothing } ]
+      Left _ -> 1 `shouldEqual` 0
+
   it "nested withSpan records parent/child correctly" do
     rec <- liftAff newRecordingTracer
     let
