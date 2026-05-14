@@ -2,14 +2,23 @@ module Test.RIO.SemaphoreSpec (spec) where
 
 import Prelude
 
-import Effect.Aff (Milliseconds(..), delay, forkAff, joinFiber)
+import Effect.Aff
+  ( Milliseconds(..)
+  , attempt
+  , delay
+  , error
+  , forkAff
+  , joinFiber
+  , killFiber
+  )
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
+import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, runRIO')
+import RIO.Core (RIO, die, fail, runRIO, runRIO')
 import RIO.Semaphore (available, make, withPermit, withPermits)
 
 spec :: Spec Unit
@@ -88,3 +97,54 @@ spec = do
         s2 <- liftEffect (make (-5))
         a2 <- liftEffect (available s2)
         a2 `shouldEqual` 0
+
+    describe "release on every termination path" do
+      it "withPermit returns the permit after a typed failure" do
+        sem <- liftEffect (make 1)
+        let
+          program :: RIO () (boom :: Unit) Unit
+          program = withPermit sem (fail (Proxy :: Proxy "boom") unit)
+        _ <- runRIO program
+        a <- liftEffect (available sem)
+        a `shouldEqual` 1
+
+      it "withPermit returns the permit after a defect" do
+        sem <- liftEffect (make 1)
+        let
+          program :: RIO () () Unit
+          program = withPermit sem (die (error "boom"))
+        _ <- attempt (runRIO' program)
+        a <- liftEffect (available sem)
+        a `shouldEqual` 1
+
+      it "withPermits returns all permits after a typed failure mid-body" do
+        sem <- liftEffect (make 3)
+        let
+          program :: RIO () (boom :: Unit) Unit
+          program = withPermits 3 sem (fail (Proxy :: Proxy "boom") unit)
+        _ <- runRIO program
+        a <- liftEffect (available sem)
+        a `shouldEqual` 3
+
+    describe "withPermits boundary cases" do
+      it "withPermits 0 runs without waiting and without changing the count" do
+        sem <- liftEffect (make 2)
+        let
+          program :: RIO () () Int
+          program = withPermits 0 sem (pure 7)
+        r <- runRIO' program
+        r `shouldEqual` 7
+        a <- liftEffect (available sem)
+        a `shouldEqual` 2
+
+      it "withPermit on a semaphore made with 0 permits blocks the waiter" do
+        sem <- liftEffect (make 0)
+        flag <- liftEffect (Ref.new false)
+        let
+          waiter :: RIO () () Unit
+          waiter = withPermit sem (liftEffect (Ref.write true flag))
+        f <- forkAff (runRIO' waiter)
+        delay (Milliseconds 10.0)
+        ran <- liftEffect (Ref.read flag)
+        ran `shouldEqual` false
+        killFiber (error "test-cleanup") f

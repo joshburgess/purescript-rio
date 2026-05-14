@@ -11,6 +11,21 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Metrics` and `RIO.Semaphore`: thirteen additional unit tests
+  covering previously uncovered behaviour. `MetricsSpec` picks up
+  `recordGauge` / `recordHistogram` called directly (not just via
+  their `setGauge` / `observeHistogram` aliases), distinct
+  counter-name independence, same-name-across-kinds non-collision,
+  negative gauge values, the snapshot-after-typed-failure
+  ordering guarantee, the `noopMetrics` no-emission contract, and
+  the empty-program no-emission contract; `npx spago test -p rio`
+  on the metrics describe now reports `10/10` (up from `2/2`).
+  `SemaphoreSpec` picks up the release-on-typed-failure,
+  release-on-defect, and release-on-typed-failure-while-holding-N
+  paths that the module's docstring promises but no test pinned;
+  plus `withPermits 0` non-blocking semantics and 0-permit
+  blocking, bringing semaphore coverage from `4` tests to `9`.
+  Whole-package run goes `331 -> 344` tests passing.
 - `PROJECT_BUILD_PLAN.md`: refreshed two stale entries. The
   rio-postgres bullet under "Items from the previous plan that
   have landed" no longer claims Postgres integration tests are
