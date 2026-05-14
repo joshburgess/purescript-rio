@@ -14,7 +14,7 @@ import Test.Spec.Assertions (shouldEqual)
 
 import RIO.Clock (Clock)
 import RIO.Core (RIO, provideAll, runRIO')
-import RIO.Schedule (andThen, intersect, recurs, repeat)
+import RIO.Schedule (andThen, intersect, mapSchedule, recurs, repeat)
 import RIO.Test.Clock (newTestClock)
 
 forAll :: forall a. Gen a -> (a -> Aff Unit) -> Aff Unit
@@ -73,6 +73,29 @@ spec = describe "RIO.Schedule (property tests)" do
         let expected = min n m + 1
         result `shouldEqual` expected
         count `shouldEqual` expected
+
+  it "mapSchedule preserves invocation count under repeat" do
+    -- Docstring promise: "The cadence (number of steps and per-step
+    -- delay) is preserved; only the output side changes." Under
+    -- `repeat`, the schedule's output value is ignored (repeat
+    -- returns the action's last value), so wrapping a schedule in
+    -- `mapSchedule f` must not change how many times the action
+    -- runs.
+    forAll smallNat \n -> do
+      counter <- liftEffect (Ref.new 0)
+      tc <- newTestClock
+      let
+        action :: RIO () () Int
+        action = liftEffect (Ref.modify (_ + 1) counter)
+
+        program :: RIO (clock :: Clock) () Int
+        program =
+          repeat (mapSchedule (\k -> k * 100 + 1) (recurs n)) action
+
+      result <- runRIO' (provideAll { clock: tc.clock } program)
+      count <- liftEffect (Ref.read counter)
+      result `shouldEqual` (n + 1)
+      count `shouldEqual` (n + 1)
 
   it "andThen (recurs n) (recurs m) under repeat runs n + m + 1 times" do
     -- Docstring promise: `andThen sa sb` runs `sa` to completion
