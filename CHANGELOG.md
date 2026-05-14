@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Concurrency`: one additional unit test pinning that a
+  queued interrupt fires once the `uninterruptible` region exits.
+  The `uninterruptible` docstring promises "any `interrupt` sent
+  to the enclosing fiber is queued; it fires only after the
+  region completes". Existing tests pin that the protected
+  section runs to completion despite an interrupt, but not the
+  second half: that the queued interrupt lands at the region
+  boundary. Add a post-region statement to the child and assert
+  it never runs. Whole-package run goes `433 -> 434` tests
+  passing.
 - `RIO.Schedule`: one additional unit test pinning that `retry`
   does not retry on a defect. The `retry` docstring promises
   "Defects (from `die` or any uncaught `Aff` exception) skip

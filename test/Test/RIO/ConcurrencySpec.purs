@@ -617,6 +617,38 @@ spec = do
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "start", "end" ]
 
+      it "a queued interrupt fires once the uninterruptible region exits" do
+        -- Docstring promise: "any `interrupt` sent to the
+        -- enclosing fiber is queued; it fires only after the
+        -- region completes." The pinned tests above check that
+        -- the region itself completes despite the interrupt;
+        -- pin the second half by adding a post-region statement
+        -- and asserting it never runs because the queued
+        -- interrupt landed at the region boundary.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          child :: RIO () () Unit
+          child = do
+            uninterruptible do
+              liftAff (push "before-protected")
+              liftAff (delay (Milliseconds 50.0))
+              liftAff (push "after-protected")
+            liftAff (push "after-uninterruptible")
+
+          parent :: RIO () () Unit
+          parent = do
+            fib <- fork child
+            liftAff (delay (Milliseconds 10.0))
+            interrupt fib
+            _ <- sandbox (join fib)
+            pure unit
+        _ <- runRIO parent
+        liftAff (delay (Milliseconds 100.0))
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "before-protected", "after-protected" ]
+
     describe "forkScoped" do
       it "interrupts the fiber when the scope exits" do
         events <- liftEffect (Ref.new [])
