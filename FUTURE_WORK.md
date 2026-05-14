@@ -119,10 +119,13 @@ The `rio-config-file` adapter ships:
   `RIO.Config.nested` qualifies keys; nulls drop, arrays are
   rejected with a path-aware shape error
 
-Still open:
+`RIO.Config.Rotating` ships the refreshable-cell story:
+`newRotating`, `readRotating`, `writeRotating`, and a
+`withRotation` helper that bundles a loader's first run with
+an on-demand `refresh` action. Polling / signal-triggered
+rotation is left to the caller.
 
-- Secrets-rotation hook for `Secret` values (refresh on a
-  schedule or signal)
+This section has no open items now.
 
 ## Out of scope for the core demonstration
 

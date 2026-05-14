@@ -10,6 +10,7 @@ import Test.RIO.ClockSpec as ClockSpec
 import Test.RIO.ConcurrencySpec as ConcurrencySpec
 import Test.RIO.Concurrency.ParSpec as ParSpec
 import Test.RIO.ConfigSpec as ConfigSpec
+import Test.RIO.Config.RotatingSpec as RotatingSpec
 import Test.RIO.CauseSpec as CauseSpec
 import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.DeferredSpec as DeferredSpec
@@ -56,6 +57,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ClockSpec.spec
   RandomSpec.spec
   ConfigSpec.spec
+  RotatingSpec.spec
   ScheduleSpec.spec
   SemaphoreSpec.spec
   QueueSpec.spec

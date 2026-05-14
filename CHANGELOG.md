@@ -22,6 +22,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   sinks in lockstep against the same stream on one fiber;
   early-halt of one side is remembered while the other
   continues. See `docs/13-streams.md` and `docs/sink-design.md`.
+- `RIO.Config.Rotating`: a refreshable cell for values that
+  can change at runtime (typically a rotating `Secret`).
+  `newRotating` allocates a cell with an initial value;
+  `readRotating` / `writeRotating` are atomic read / write
+  primitives. `withRotation` bundles a loader: it runs the
+  loader once to populate the cell and returns a `refresh`
+  action that re-runs the loader and overwrites the cell. The
+  module imposes no rotation policy; polling, signal handling,
+  or other triggers are left to the caller.
 - `rio-config-file`: new adapter package providing
   `dotenvFileSource` and `jsonFileSource`. Both read a file
   from disk and return a `RIO.Config.Source` ready to feed

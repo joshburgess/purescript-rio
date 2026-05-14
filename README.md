@@ -121,6 +121,9 @@ or point your `spago.yaml` at the git remote directly.
   tests). Errors accumulate so one bad key doesn't hide the
   rest. `Secret` redacts under `Show`. The `rio-config-file`
   companion adds `dotenvFileSource` and `jsonFileSource`.
+  `RIO.Config.Rotating` provides a refreshable cell with a
+  `withRotation` helper that wires a `Config` loader to an
+  on-demand `refresh` action.
 - `RIO.Schedule`: pure scheduling policies (`recurs`, `spaced`,
   `exponential`, `jittered`, `intersect`, `andThen`, `whileInput`)
   with runners `repeat`, `retry`, `retryOrElse` that sleep through
