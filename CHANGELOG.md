@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Local`: two additional unit tests pinning the
+  remaining termination paths of `locally`'s restore-on-exit
+  bracket. The docstring promises the previous value is
+  restored "regardless of how it terminates (success, typed
+  failure, defect, or interrupt)". Success and typed-failure
+  were pinned; pin the defect and fiber-kill paths so the full
+  bracket contract is documented across all four termination
+  paths. Whole-package run goes `424 -> 426` tests passing.
 - `RIO.Config`: one additional unit test pinning that
   `combine` flattens `Multi` so accumulated errors stay at one
   level. The `combine` docstring promises "Flattens `Multi`

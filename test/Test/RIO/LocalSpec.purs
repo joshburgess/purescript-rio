@@ -3,7 +3,7 @@ module Test.RIO.LocalSpec (spec) where
 import Prelude
 
 import Data.Either (Either(..))
-import Effect.Aff (Milliseconds(..), delay)
+import Effect.Aff (Milliseconds(..), attempt, delay, error, forkAff, killFiber)
 import Effect.Aff.Class (liftAff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -12,10 +12,12 @@ import Type.Proxy (Proxy(..))
 import RIO.Core
   ( RIO
   , catchTag
+  , die
   , fail
   , fork
   , join
   , runRIO
+  , runRIO'
   )
 import Effect.Class (liftEffect)
 
@@ -100,6 +102,38 @@ spec = do
             get l
         result <- runRIO program
         result `shouldEqual` Right "outer"
+
+      it "restores the previous value when the body raises a defect" do
+        -- Docstring promise: `locally` restores the previous
+        -- value "regardless of how it terminates (success, typed
+        -- failure, defect, or interrupt)". The success and typed-
+        -- failure paths are pinned above; pin the defect path so
+        -- the full bracket contract is documented.
+        l <- liftEffect (newLocalEffect "outer")
+        let
+          program :: RIO () () Unit
+          program = locally l "inner" (die (error "boom"))
+        _ <- attempt (runRIO' program)
+        after <- runRIO' (get l :: RIO () () String)
+        after `shouldEqual` "outer"
+
+      it "restores the previous value when the fiber is killed mid-body" do
+        -- Pin the last termination path the `locally` docstring
+        -- promises: a fiber kill mid-action must still trigger
+        -- the `finally`-wired restore. Allocate the Local via
+        -- newLocalEffect so the parent thread retains a handle
+        -- it can read after the fiber is killed.
+        l <- liftEffect (newLocalEffect "outer")
+        let
+          program :: RIO () () Unit
+          program = locally l "inner"
+            (liftAff (delay (Milliseconds 50.0)))
+        f <- forkAff (runRIO' program)
+        delay (Milliseconds 5.0)
+        killFiber (error "test-cancel") f
+        delay (Milliseconds 10.0)
+        after <- runRIO' (get l :: RIO () () String)
+        after `shouldEqual` "outer"
 
       it "nests: inner restores to outer's value, not the initial" do
         let
