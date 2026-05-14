@@ -141,3 +141,58 @@ spec = describe "RIO.Stream (property tests)" do
       left <- runRIO' (runCollect (flatMap (flatMap s f) g))
       right <- runRIO' (runCollect (flatMap s (\x -> flatMap (f x) g)))
       left `shouldEqual` right
+
+  -- Fusion laws. The pull-based encoding does not have automatic
+  -- fusion machinery (it composes by direct recursion), but the
+  -- observable result of composed transforms must still match
+  -- their fused equivalent. These pin the algebraic equivalences
+  -- so a future fusion rewrite can be checked against the
+  -- non-fused baseline.
+
+  it "map identity ≡ id" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      r <- runRIO' (runCollect (map identity (fromArray xs)))
+      r `shouldEqual` xs
+
+  it "map composition: map f ∘ map g ≡ map (f ∘ g)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let
+        f n = n * 2
+        g n = n + 1
+      left <- runRIO' (runCollect (map f (map g (fromArray xs))))
+      right <- runRIO' (runCollect (map (f <<< g) (fromArray xs)))
+      left `shouldEqual` right
+
+  it "filter composition: filter p ∘ filter q ≡ filter (p && q)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let
+        p n = n > 0
+        q n = n `mod` 2 == 0
+      left <- runRIO' (runCollect (filter p (filter q (fromArray xs))))
+      right <- runRIO'
+        (runCollect (filter (\n -> p n && q n) (fromArray xs)))
+      left `shouldEqual` right
+
+  it "take composition: take n ∘ take m ≡ take (min n m)" do
+    let
+      gen :: Gen (Int /\ Int /\ Array Int)
+      gen = (\a b c -> a /\ b /\ c) <$> arbitrary <*> arbitrary <*> arbitrary
+    forAll gen \(n /\ m /\ xs) -> do
+      left <- runRIO' (runCollect (take n (take m (fromArray xs))))
+      right <- runRIO' (runCollect (take (min n m) (fromArray xs)))
+      left `shouldEqual` right
+
+  it "drop composition: drop n ∘ drop m ≡ drop (n + m)" do
+    -- Generate non-negative drops to dodge integer overflow on
+    -- `n + m`. The unit pins separately cover `drop 0` returning
+    -- the identity stream.
+    let
+      smallNat :: Gen Int
+      smallNat = (\k -> if k < 0 then -k else k) <$> arbitrary
+
+      gen :: Gen (Int /\ Int /\ Array Int)
+      gen = (\a b c -> a /\ b /\ c) <$> smallNat <*> smallNat <*> arbitrary
+    forAll gen \(n /\ m /\ xs) -> do
+      left <- runRIO' (runCollect (drop n (drop m (fromArray xs))))
+      right <- runRIO' (runCollect (drop (n + m) (fromArray xs)))
+      left `shouldEqual` right
