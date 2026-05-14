@@ -214,6 +214,40 @@ spec = do
         callsMade <- liftEffect (Ref.read attempts)
         callsMade `shouldEqual` 1
 
+      it "fallback receives the final failure's variant payload" do
+        -- Docstring promise: "the fallback runs with the final
+        -- failure." Both pinned `retryOrElse` tests use
+        -- `fallback _ = pure X` and discard the variant, so the
+        -- "with the final failure" half is unpinned: a
+        -- regression that fed a stale, default, or
+        -- first-attempt variant to the fallback would still pass
+        -- them. Have the action carry an attempt counter inside
+        -- the variant payload (attempt n → payload n * 100) and
+        -- have the fallback return that payload via
+        -- `Variant.on`. With `recurs 1` (one retry allowed, so
+        -- the action runs twice before exhaustion), the
+        -- fallback must observe `200`, not `100`, proving it
+        -- received the actual final-failure variant.
+        attempts <- liftEffect (Ref.new 0)
+        let
+          action :: RIO () (code :: Int) Int
+          action = do
+            n <- liftEffect (Ref.modify (_ + 1) attempts)
+            fail (Proxy :: Proxy "code") (n * 100)
+
+          fallback :: Variant.Variant (code :: Int) -> RIO () () Int
+          fallback v =
+            pure (Variant.case_ # Variant.on (Proxy :: Proxy "code") identity $ v)
+
+          program :: RIO (clock :: Clock) () Int
+          program = retryOrElse (recurs 1) action fallback
+
+        tc <- newTestClock
+        result <- runRIO' (provideAll { clock: tc.clock } program)
+        callsMade <- liftEffect (Ref.read attempts)
+        callsMade `shouldEqual` 2
+        result `shouldEqual` 200
+
     describe "intersect" do
       it "stops as soon as either schedule stops" do
         counter <- liftEffect (Ref.new 0)
