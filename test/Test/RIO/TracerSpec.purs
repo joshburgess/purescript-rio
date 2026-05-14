@@ -129,6 +129,26 @@ spec = describe "RIO.Tracer" do
         outer.endMs `shouldEqual` Just 4.0
       _ -> 1 `shouldEqual` Array.length spans
 
+  it "currentSpan returns Nothing at the top-level before any withSpan opens" do
+    -- `RIO.Test.Tracer` initializes the recorder's `currentRef`
+    -- to `Nothing`, so a top-level `currentSpan` (called before
+    -- any `withSpan` opens) sees no active span. The pinned
+    -- `currentSpan restores to the parent after the inner span
+    -- ends` test inspects `currentSpan` only from inside an open
+    -- `withSpan`, so a regression that initialized `currentRef`
+    -- to e.g. `Just (SpanId 0)` as a stale sentinel would still
+    -- pass it (the open `withSpan` overwrites the sentinel before
+    -- the inner `currentSpan` reads it). Pin the empty initial
+    -- state directly so the sentinel regression surfaces.
+    rec <- liftAff newRecordingTracer
+    let
+      program :: RIO (tracer :: Tracer) () (Maybe SpanId)
+      program = currentSpan
+    result <- runRIO (provideAll { tracer: rec.tracer } program)
+    case result of
+      Right top -> top `shouldEqual` Nothing
+      Left _ -> 1 `shouldEqual` 0
+
   it "currentSpan restores to the parent after the inner span ends" do
     rec <- liftAff newRecordingTracer
     let
