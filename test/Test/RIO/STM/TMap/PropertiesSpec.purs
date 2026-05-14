@@ -16,7 +16,8 @@ import Test.Spec.Assertions (shouldEqual)
 import RIO.Core (RIO, runRIO')
 import RIO.STM (atomically)
 import RIO.STM.TMap
-  ( insertTMap
+  ( deleteTMap
+  , insertTMap
   , lookupTMap
   , memberTMap
   , newTMap
@@ -57,6 +58,22 @@ spec = describe "RIO.STM.TMap (property tests)" do
           pure { before, after }
       r <- runRIO' program
       r `shouldEqual` { before: false, after: true }
+
+  it "after insertTMap k v then deleteTMap k, lookupTMap k returns Nothing" do
+    -- Pin the insert-delete-lookup round trip across arbitrary
+    -- key/value pairs. The unit pins for `deleteTMap` cover a
+    -- single fixed pair; this property catches a regression that
+    -- only manifests at zero, negative, or out-of-range keys.
+    forAll (arbitrary :: Gen { k :: Int, v :: Int }) \{ k, v } -> do
+      let
+        program :: RIO () () (Maybe Int)
+        program = do
+          m <- atomically (newTMap :: _ (_ Int Int))
+          atomically (insertTMap k v m)
+          atomically (deleteTMap k m)
+          atomically (lookupTMap k m)
+      r <- runRIO' program
+      r `shouldEqual` Nothing
 
   it "sizeTMap equals the number of distinct keys inserted" do
     -- Inserting the same key twice replaces the value, so the
