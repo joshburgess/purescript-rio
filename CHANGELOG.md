@@ -12,6 +12,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 ### Added
 
 - `RIO.Queue`: one additional unit test pinning that a killed
+  offerer removes itself from the bounded queue's offerers list.
+  Symmetric to the taker-cleanup contract just pinned: a bounded
+  queue parks producers when at capacity, and the Canceler
+  registered by `offer` must remove the producer on kill;
+  otherwise a later `take` would resume a dead offerer (no-op)
+  and the parked value would silently land in `items`. Pin the
+  cleanup by killing a parked offerer and observing the queue
+  only carries the one live item. Whole-package run goes
+  `436 -> 437` tests passing.
+- `RIO.Queue`: one additional unit test pinning that a killed
   taker removes itself from the queue's takers list. The module
   docstring promises "the list of blocked takers (so an
   interrupted taker can remove itself cleanly)". If the

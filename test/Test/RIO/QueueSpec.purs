@@ -141,3 +141,25 @@ spec = do
         runRIO' (shutdown q :: RIO () () Unit)
         result <- joinFiber f
         result `shouldEqual` false
+
+      it "a killed offerer removes itself from the offerers list" do
+        -- Symmetric to the taker-cleanup contract: a bounded queue
+        -- parks producers when at capacity. The Canceler that
+        -- `offer` registers must remove the producer entry on
+        -- kill; otherwise a later `take` would wake the dead
+        -- offerer (no-op resume) and the parked value would
+        -- silently land in `items` without a live signal that the
+        -- offer succeeded. Pin the cleanup by killing a parked
+        -- offerer and observing that the queue only carries the
+        -- one live item (the second offer's value never makes it
+        -- in).
+        q <- liftEffect (bounded 1)
+        _ <- runRIO' (offer q 1 :: RIO () () Boolean)
+        f <- forkAff (runRIO' (offer q 99 :: RIO () () Boolean))
+        delay (Milliseconds 5.0)
+        killFiber (error "test-cancel") f
+        delay (Milliseconds 5.0)
+        a <- runRIO' (take q :: RIO () () (Maybe Int))
+        b <- runRIO' (poll q :: RIO () () (Maybe Int))
+        a `shouldEqual` Just 1
+        b `shouldEqual` Nothing
