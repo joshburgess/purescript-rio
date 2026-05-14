@@ -31,7 +31,9 @@ review:
   prepared statements, pool stats, migrate, json)
 - Examples: `logger`, `notify`, `otel-demo`, `todo-api`,
   `worker-pool` (fan-out + Semaphore + Schedule retry + Metrics +
-  Tracer)
+  Tracer), `stream-pipeline` (mergeAll + broadcast), and
+  `sink-analytics` (single-pass zipPar aggregation over an HTTP
+  request log)
 
 That covers most of what an "effect system" needs to be more than a
 toy. The gaps below are about what's still visibly missing to

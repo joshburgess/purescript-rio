@@ -1,0 +1,19 @@
+package:
+  name: rio-example-sink-analytics
+  dependencies:
+    - aff
+    - arrays
+    - console
+    - effect
+    - either
+    - foldable-traversable
+    - integers
+    - maybe
+    - ordered-collections
+    - prelude
+    - rio
+    - strings
+    - tuples
+    - variant
+  run:
+    main: Example.SinkAnalytics.Main

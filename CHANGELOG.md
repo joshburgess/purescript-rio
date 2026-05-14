@@ -11,6 +11,12 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `examples/sink-analytics/`: a single-pass analytics demo over
+  a synthetic HTTP request log. Composes five small sinks
+  (`count`, `filterIn isError count`, `mapInput _.latencyMs`
+  over a max-fold, a path-set fold, and `find` for the first
+  slow request) with `zipPar` and runs the result against
+  `fromArray`. One stream pass produces the full summary.
 - `RIO.Sink`: first-class composable terminating consumers for
   `RIO.Stream`. `Sink r e i a` consumes some prefix of `i`s and
   produces an `a`. The shape is `Need k finish | Halt a` so

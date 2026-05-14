@@ -244,6 +244,11 @@ Worked examples:
   three partition sources merged via `RIO.Stream.Par.mergeAll`
   and fanned out to two consumers via `broadcast`, with the
   metrics consumer aggregating per-source counts.
+- [`examples/sink-analytics/`](./examples/sink-analytics/):
+  one stream pass over an HTTP request log computes total,
+  error, max-latency, distinct-path, and first-slow summaries
+  via `RIO.Sink.zipPar`, showing how five small sinks compose
+  into one lockstep consumer.
 
 ## Build
 
