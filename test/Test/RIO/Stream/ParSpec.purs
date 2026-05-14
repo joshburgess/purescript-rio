@@ -2,8 +2,9 @@ module Test.RIO.Stream.ParSpec (spec) where
 
 import Prelude hiding (join)
 
-import Data.Array (filter, length, range, sort) as Array
+import Data.Array (filter, index, length, range, sort) as Array
 import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (traverse)
 import Effect.Aff (attempt, delay, error)
@@ -285,6 +286,45 @@ spec = do
           Right outs ->
             outs `shouldEqual` [ [ 1, 2, 3 ], [ 1, 2, 3 ] ]
           Left _ -> Spec.fail "expected clamped-bufferSize broadcast to succeed"
+
+      it "propagates a defect through a consumer's pull" do
+        -- Docstring promise: "the first observed typed failure
+        -- or defect on the producer side shuts every subscriber
+        -- queue down". The typed-failure half is pinned above;
+        -- pin the defect half so both branches of
+        -- `propagateCause` (`Fail` and `Die`) are documented
+        -- through the `broadcast` surface. `broadcast` has its
+        -- own producer (`broadcastProducer`) distinct from
+        -- `mergeAll`'s `produce`, so a regression that swapped
+        -- `attemptCause` for `attempt` in `broadcastProducer`
+        -- (or otherwise mis-handled the `Die` case) would still
+        -- pass `mergeAll`'s defect test and the
+        -- `broadcast`/typed-failure test but break here. A
+        -- `die` inside the producer must surface as an `Aff`
+        -- exception on the consumer's pull, observable through
+        -- `attempt`. Only one consumer is run here: a second
+        -- consumer that also propagates the defect on its pull
+        -- would leave an orphan fiber whose error escapes to
+        -- the runtime top level. The one-consumer form is
+        -- sufficient to exercise `broadcastProducer`'s defect
+        -- path.
+        let
+          source :: Stream () () Int
+          source = mapM
+            (\_ -> die (error "kaboom"))
+            (fromArray [ 1 ])
+
+          program :: RIO () () (Array Int)
+          program = do
+            consumers <- broadcast 2 4 source
+            case Array.index consumers 0 of
+              Nothing -> pure []
+              Just s -> runCollect s
+        r <- attempt (runRIO' program)
+        case r of
+          Left _ -> pure unit
+          Right _ -> Spec.fail
+            "expected broadcast to surface the defect on the consumer pull"
 
     describe "partition" do
       it "routes each element to exactly one bucket (even/odd)" do
