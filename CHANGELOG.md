@@ -11,6 +11,32 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Stream.Par`: parallel stream combinators. `mergeAll`
+  fans in N producer streams onto a shared bounded queue (one
+  fiber per producer; first observed failure shuts the queue
+  down and is propagated on the consumer's next pull). `merge`
+  is the two-stream convenience. `mergeMap` materialises the
+  outer stream then merges every inner stream concurrently.
+  `broadcast` fans one upstream out to N consumer streams over
+  per-consumer bounded queues with end-to-end backpressure.
+  `partition` routes each upstream element to one of N buckets
+  via a key function (mod N, normalised for negative keys).
+  All four share the same failure model: first failure wins;
+  sibling producers exit naturally when they find the queue
+  closed.
+- `RIO.Stream.Resource`: `bracketStream` is a single-element
+  resource-acquiring stream whose release is registered with
+  the enclosing `scoped` block. Compose with `flatMap` to
+  thread the acquired resource through a multi-element
+  downstream. Release runs on every termination path; if
+  acquire fails, no finalizer is registered.
+- `RIO.Stream` now exports `Stream(..)` and `unStream` so
+  companion modules (e.g. `RIO.Stream.Par`,
+  `RIO.Stream.Resource`) can step the underlying `RIO` when
+  building new combinators. End-user code should still reach
+  for the combinator surface; the constructor is exposed for
+  library extension only.
+
 - `RIO.Resource.Do`: qualified-do sugar over
   `RIO.Resource.acquireRelease`. Each `<-` inside a
   `Resource.do` block desugars to an `acquireRelease`, with the

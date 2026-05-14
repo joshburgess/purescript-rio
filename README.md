@@ -85,6 +85,14 @@ or point your `spago.yaml` at the git remote directly.
   `provideAll` to inject them.
 - `RIO.Error`: `fail`, `catchTag`, `catchAll`, `mapError`,
   plus `die` / `sandbox` / `unsandbox` for the defect channel.
+- `RIO.Cause`: parallel + sequential failure trees.
+  `attemptCause` reifies any outcome; `parTraverseCause` /
+  `parSequenceCause` collect every failure from N parallel
+  branches into a left-leaning `Parallel` tree; `raceCause` and
+  `acquireReleaseCause` are the cause-tracking variants of
+  `race` and `acquireRelease`. `prettyCause` /
+  `prettyCauseWithStack` render the tree with JS stacks under
+  each `Die` leaf when one is available.
 - `RIO.Resource`: `acquireRelease`, `ensuring`, and `Scope` with
   LIFO finalizers; release runs on success, typed failure,
   defect, and interruption.
@@ -103,6 +111,15 @@ or point your `spago.yaml` at the git remote directly.
   `succeedDeferred`, `failDeferred`, `awaitDeferred`,
   `pollDeferred`).
 - `RIO.Clock`: the `Clock` service plus `liveClock`.
+- `RIO.Random`: a small randomness service (`int`, `number`,
+  `boolean`, `oneOf`) with `liveRandom`. `RIO.Test.Random`
+  ships a seeded recording backend for deterministic tests.
+- `RIO.Config`: a small Config DSL. Applicative descriptors
+  (`string`, `int`, `boolean`, `secret`, `optional`,
+  `withDefault`, `nested`) that pull from a `Source`; ships
+  `envSource` (live process env) and `mapSource` (pure, for
+  tests). Errors accumulate so one bad key doesn't hide the
+  rest. `Secret` redacts under `Show`.
 - `RIO.Schedule`: pure scheduling policies (`recurs`, `spaced`,
   `exponential`, `jittered`, `intersect`, `andThen`, `whileInput`)
   with runners `repeat`, `retry`, `retryOrElse` that sleep through
@@ -117,6 +134,27 @@ or point your `spago.yaml` at the git remote directly.
   with `withTSemaphore` bracketing, and a pub/sub hub with
   per-subscriber buffers and four back-pressure strategies
   (`Bounded`, `Sliding`, `Dropping`, `Unbounded`).
+- `RIO.Queue`, `RIO.Hub`, `RIO.Semaphore`: non-STM async
+  primitives. `Queue.bounded` / `Queue.unbounded` with blocking
+  `offer` / `take` and `shutdown`-as-end-of-stream; `Hub` as a
+  pub/sub fan-out with per-subscriber queues; `Semaphore` with
+  `withPermit` bracketing.
+- `RIO.Stream`: a pull-based effectful stream. `fromArray`,
+  `single`, `unfoldM`, `repeatM`, `map`, `filter`, `take`,
+  `drop`, `concat`, `flatMap`, `mapM`, plus runners
+  (`runDrain`, `runCollect`, `runFold`, `runFoldM`). Each step
+  is a single `RIO` action that returns either `Yield a rest` or
+  `Done`.
+- `RIO.Stream.Par`: parallel stream combinators. `mergeAll`,
+  `merge`, `mergeMap` fan in N producers onto a shared bounded
+  queue; `broadcast` fans one upstream out to N consumer streams
+  with end-to-end backpressure; `partition` routes each element
+  to one of N buckets via a key function. First failure shuts
+  the queue down and is propagated by every consumer.
+- `RIO.Stream.Resource`: `bracketStream`, a single-element
+  resource-acquiring stream whose release is registered with the
+  enclosing `scoped` block. Compose with `flatMap` to thread the
+  acquired resource through a multi-element downstream.
 - `RIO.Tracer`: spans with `withSpan` and `addAttribute`. Implicit
   parent / child context via a tracer-held current-span pointer.
   `noopTracer` for production opt-out.
@@ -178,11 +216,15 @@ Migration guides for users coming from other ecosystems:
 - [`docs/migrating-from-zio.md`](./docs/migrating-from-zio.md)
 - [`docs/migrating-from-effect-ts.md`](./docs/migrating-from-effect-ts.md)
 
-Worked example:
+Worked examples:
 
 - [`examples/todo-api/`](./examples/todo-api/): a small
   HTTPurple service demonstrating layers, typed failures,
   in-memory persistence, and JSON codec bridging.
+- [`examples/worker-pool/`](./examples/worker-pool/): a
+  producer + bounded queue + fan-out of N workers + per-job
+  retry schedule + spans + metrics, with a `parTraverseCause`
+  pre-flight that demonstrates `prettyCause`.
 
 ## Build
 
@@ -213,22 +255,28 @@ placeholder.
 
 What's in `main` today: the production core (services, typed
 errors, resource safety, layers, concurrency, virtual-time
-testing), plus the larger surface listed above — `RIO.Schedule`,
-`RIO.STM` and its derived structures, `RIO.Tracer` and
-`RIO.Metrics` with an OpenTelemetry adapter (`rio-otel`),
-`RIO.Local`, `RIO.Logger`, the qualified-do sugar
-(`RIO.Resource.Do`, `RIO.Concurrency.Par`), the
-`rio-http` companion package (an HTTPurple adapter), and
-the `rio-postgres` adapter (wraps `purescript-postgresql` /
+testing), plus the larger surface listed above. The cause tree
+(`RIO.Cause`) ships `parTraverseCause`, `raceCause`,
+`acquireReleaseCause`, and `prettyCauseWithStack`. The stream
+modules ship `RIO.Stream` (pull-based, single-channel),
+`RIO.Stream.Par` (`mergeAll` / `broadcast` / `partition`), and
+`RIO.Stream.Resource` (`bracketStream`). `RIO.STM` and its
+derived structures, `RIO.Tracer` and `RIO.Metrics` with an
+OpenTelemetry adapter (`rio-otel`), `RIO.Random`, `RIO.Config`,
+`RIO.Schedule`, `RIO.Local`, `RIO.Logger`, the qualified-do
+sugar (`RIO.Resource.Do`, `RIO.Concurrency.Par`), the
+`rio-http` companion package (an HTTPurple adapter), and the
+`rio-postgres` adapter (wraps `purescript-postgresql` /
 `node-postgres`).
 
-What's open: streaming, `rio-node` / `rio-aws` integration
-packages, real-Postgres CI coverage for `rio-postgres`
-(currently builds against the driver but has no integration
-tests; Docker-backed locally is the intended setup), custom
-`Fail` instances for the worst row / variant error messages,
-and a property-testing harness tuned for RIO. See
-[`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
+What's open: a `Sink` / `Channel` style on top of `RIO.Stream`
+(see [`FUTURE_WORK.md`](./FUTURE_WORK.md)), `rio-node` /
+`rio-aws` integration packages, real-Postgres CI coverage for
+`rio-postgres` (currently builds against the driver but has no
+integration tests; Docker-backed locally is the intended
+setup), custom `Fail` instances for the worst row / variant
+error messages, and a property-testing harness tuned for RIO.
+See [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
 
 ## License
 
