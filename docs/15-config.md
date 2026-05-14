@@ -308,3 +308,8 @@ the "collect everything" default in 2.x.
   [`test/Test/RIO/Config/RotatingSpec.purs`](../test/Test/RIO/Config/RotatingSpec.purs),
   and the in-package tests under
   [`rio-config-file/test/`](../rio-config-file/test/).
+- Worked example:
+  [`examples/config-loader/`](../examples/config-loader/) loads
+  the full `AppConfig` (port, dbUrl, debug flag, redacted API
+  key) from a sample `.env` via `dotenvFileSource`, including
+  the `prettyConfigError` failure path.

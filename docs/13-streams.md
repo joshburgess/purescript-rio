@@ -323,3 +323,17 @@ consumer needs its own buffered backpressure boundary; use
 
 The full design discussion, including what is intentionally not
 shipped (a Channel algebra), lives in `docs/sink-design.md`.
+
+## Worked examples
+
+- `examples/stream-pipeline/` builds three partition sources,
+  merges them via `RIO.Stream.Par.mergeAll`, and fans the
+  merged stream out to two consumers via
+  `RIO.Stream.Par.broadcast` (one printer, one per-source
+  aggregator).
+- `examples/sink-analytics/` runs five small sinks (`count`,
+  `filterIn isError count`, `mapInput latencyMs` over a
+  max-fold, a path-set fold, and `find` for the first slow
+  request) over a synthetic HTTP request log, composed with
+  `Sink.zipPar` and run via `Sink.runSink`. One stream pass
+  produces the full summary.
