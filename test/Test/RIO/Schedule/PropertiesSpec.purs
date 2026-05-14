@@ -2,8 +2,10 @@ module Test.RIO.Schedule.PropertiesSpec (spec) where
 
 import Prelude
 
+import Data.Either (Either(..))
 import Data.Foldable (for_)
 import Data.Tuple.Nested (type (/\), (/\))
+import Data.Variant as Variant
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -11,10 +13,11 @@ import Test.QuickCheck.Arbitrary (arbitrary)
 import Test.QuickCheck.Gen (Gen, randomSample')
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
+import Type.Proxy (Proxy(..))
 
 import RIO.Clock (Clock)
-import RIO.Core (RIO, provideAll, runRIO')
-import RIO.Schedule (andThen, intersect, mapSchedule, recurs, repeat)
+import RIO.Core (RIO, fail, provideAll, runRIO, runRIO')
+import RIO.Schedule (andThen, intersect, mapSchedule, recurs, repeat, retry)
 import RIO.Test.Clock (newTestClock)
 
 forAll :: forall a. Gen a -> (a -> Aff Unit) -> Aff Unit
@@ -95,6 +98,36 @@ spec = describe "RIO.Schedule (property tests)" do
       result <- runRIO' (provideAll { clock: tc.clock } program)
       count <- liftEffect (Ref.read counter)
       result `shouldEqual` (n + 1)
+      count `shouldEqual` (n + 1)
+
+  it "retry (recurs n) on an always-failing action runs it n + 1 times" do
+    -- Dual of `repeat (recurs n)`: `retry` re-runs the action on
+    -- typed failures and the schedule sees each failure as input.
+    -- For an action that always fails, the runner exhausts the
+    -- schedule and surfaces the most recent failure. Total
+    -- invocations match `repeat (recurs n)` on a successful
+    -- action: `n + 1` (one initial + `n` retries).
+    forAll smallNat \n -> do
+      counter <- liftEffect (Ref.new 0)
+      tc <- newTestClock
+      let
+        bumpThenFail :: RIO () (boom :: Unit) Int
+        bumpThenFail = do
+          _ <- liftEffect (Ref.modify (_ + 1) counter)
+          fail (Proxy :: Proxy "boom") unit
+
+        program :: RIO (clock :: Clock) (boom :: Unit) Int
+        program = retry (recurs n) bumpThenFail
+
+      result <- runRIO (provideAll { clock: tc.clock } program)
+      count <- liftEffect (Ref.read counter)
+      case result of
+        Left v ->
+          ( Variant.case_ # Variant.on (Proxy :: Proxy "boom") identity $
+              v
+          ) `shouldEqual` unit
+        Right _ ->
+          count `shouldEqual` (-1)
       count `shouldEqual` (n + 1)
 
   it "andThen (recurs n) (recurs m) under repeat runs n + m + 1 times" do
