@@ -230,3 +230,17 @@ second. Mixing them on purpose (typed failures that the surrounding
 code expects to handle) is fine. Mixing them by accident (a defect
 where you meant `fail`) becomes a runtime surprise that the type
 system won't catch.
+
+## Pointers
+
+- Source: [`src/RIO/Error.purs`](../src/RIO/Error.purs).
+- Spec coverage:
+  [`test/Test/RIO/ErrorSpec.purs`](../test/Test/RIO/ErrorSpec.purs).
+- Defect channel and the `Cause` tree it lands in:
+  [`docs/14-causes.md`](./14-causes.md).
+- Worked example:
+  [`examples/worker-pool/`](../examples/worker-pool/) raises a
+  `jobFailed :: String` typed failure from each worker, retries
+  on it via `RIO.Schedule.retry`, and runs a `parTraverseCause`
+  pre-flight pass so multiple validation errors render as a
+  `Parallel` cause tree.

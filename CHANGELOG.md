@@ -24,6 +24,13 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   a top-level empty object yielding an empty map. `npx
   spago test -p rio-config-file` now reports `30/30 tests
   passed` (up from 18).
+- `docs/03-errors.md`: added the missing `## Pointers` section
+  (every other 03-15 reference doc has one). The new section
+  links to `src/RIO/Error.purs`,
+  `test/Test/RIO/ErrorSpec.purs`, `docs/14-causes.md` (for the
+  defect channel), and `examples/worker-pool/` (which raises a
+  `jobFailed :: String` typed failure, retries on it, and
+  drives a `parTraverseCause` pre-flight pass).
 - Worked-example cross-links added to three more numbered
   reference docs: `docs/05-resources.md` now points at
   `examples/notify/` and `examples/todo-api/` for resource-safe
