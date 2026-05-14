@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Layer`: one additional unit test pinning that finalizers
+  registered by two sequentially-composed layers fire LIFO when
+  the surrounding scope exits. The `andThen` docstring promises
+  "Both layers run in the same surrounding scope, so finalizers
+  from either fire (in LIFO order) when that scope exits". The
+  existing spec covered sequential composition's data flow and
+  short-circuit-on-failure but did not pin the LIFO ordering of
+  the shared finalizer stack. Pin it by registering one finalizer
+  per layer in a two-layer `andThen` driven through `buildLayer`
+  and asserting the second layer's finalizer fires first.
+  Whole-package run goes `428 -> 429` tests passing.
 - `RIO.Concurrency.Par`: one additional unit test pinning the
   module's defect-propagation contract. The module docstring
   promises "A defect (`Aff` exception) in any branch

@@ -130,6 +130,43 @@ spec = do
         order <- liftEffect (Ref.read events)
         order `shouldEqual` []
 
+      it "finalizers from both layers fire LIFO when the scope exits" do
+        -- Docstring promise: "Both layers run in the same
+        -- surrounding scope, so finalizers from either fire (in
+        -- LIFO order) when that scope exits." Pin the LIFO
+        -- ordering directly: register one finalizer per layer in
+        -- a two-layer `andThen`, then drive the chain through
+        -- `buildLayer` (which opens and closes a scope around the
+        -- whole composition). The second layer registers last, so
+        -- its finalizer must fire first.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          layerA :: forall e. Layer () e (database :: Database)
+          layerA = fromRIO do
+            scope <- ask (Proxy :: Proxy "scope")
+            liftAff (push "open-A")
+            _ <- addFinalizer scope (push "close-A")
+            pure { database: { find: \i -> pure (i + 1) } }
+
+          layerB
+            :: forall e
+             . Layer (database :: Database) e (userService :: UserService)
+          layerB = fromRIO do
+            scope <- ask (Proxy :: Proxy "scope")
+            liftAff (push "open-B")
+            _ <- addFinalizer scope (push "close-B")
+            db <- ask (Proxy :: Proxy "database")
+            pure { userService: { greet: \i -> map show (db.find i) } }
+        result <- buildLayer (layerA >>> layerB)
+        case result of
+          Left _ -> 1 `shouldEqual` 0
+          Right _ -> pure unit
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual`
+          [ "open-A", "open-B", "close-B", "close-A" ]
+
     describe "combine / (<+>)" do
       it "merges output rows of two layers sharing input requirements" do
         events <- liftEffect (Ref.new [])
