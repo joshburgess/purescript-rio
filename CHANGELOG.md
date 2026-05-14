@@ -11,6 +11,13 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Stream`: one additional unit test for `repeatM`
+  (an exported function with no test). The new case pairs
+  `repeatM` with `take 4`, asserting that the inner action
+  is invoked exactly 4 times and the produced array has the
+  expected elements. Every exported Stream symbol now has
+  at least one direct test. Whole-package run goes
+  `377 -> 378` tests passing.
 - `RIO.Schedule`: six additional unit tests covering five
   previously-untested exported combinators: `once`,
   `forever`, `mapSchedule`, `andThen`, and `whileInput`

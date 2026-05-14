@@ -21,6 +21,7 @@ import RIO.Stream
   , fromArray
   , map
   , mapM
+  , repeatM
   , runCollect
   , runDrain
   , runFold
@@ -54,6 +55,16 @@ spec = do
             else pure (Just (Tuple n (n + 1)))
         r <- runRIO' (runCollect s)
         r `shouldEqual` [ 0, 1, 2 ]
+
+      it "repeatM produces an unbounded source bounded by take" do
+        counter <- liftEffect (Ref.new 0)
+        let
+          tick :: RIO () () Int
+          tick = liftEffect (Ref.modify (_ + 1) counter)
+        r <- runRIO' (runCollect (take 4 (repeatM tick)))
+        r `shouldEqual` [ 1, 2, 3, 4 ]
+        n <- liftEffect (Ref.read counter)
+        n `shouldEqual` 4
 
     describe "transforms" do
       it "map applies a pure function" do
