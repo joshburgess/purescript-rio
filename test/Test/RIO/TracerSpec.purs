@@ -6,6 +6,7 @@ import Data.Array (length) as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
+import Effect.Aff (Milliseconds(..), delay, error, forkAff, killFiber)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Test.Spec (Spec, describe, it)
@@ -114,6 +115,30 @@ spec = describe "RIO.Tracer" do
     _ <- runRIO (provideAll { tracer: rec.tracer } program)
     spans <- liftEffect rec.snapshot
     Array.length spans `shouldEqual` 0
+
+  it "marks a span SpanInterrupted when the fiber is killed mid-action" do
+    -- Docstring promise: "SpanInterrupted means the fiber was
+    -- killed before the action completed". Pin this by forking
+    -- a withSpan that delays, killing the fiber before the delay
+    -- elapses, and asserting the recorded span closes with
+    -- SpanInterrupted.
+    rec <- liftAff newRecordingTracer
+    let
+      program :: RIO (tracer :: Tracer) () Unit
+      program = withSpan "outer" do
+        liftAff (delay (Milliseconds 50.0))
+    f <- forkAff (runRIO' (provideAll { tracer: rec.tracer } program))
+    liftAff (delay (Milliseconds 5.0))
+    killFiber (error "test-cancel") f
+    liftAff (delay (Milliseconds 5.0))
+    spans <- liftEffect rec.snapshot
+    case spans of
+      [ s ] -> do
+        s.status `shouldEqual` SpanInterrupted
+        case s.endMs of
+          Just _ -> pure unit
+          Nothing -> 1 `shouldEqual` 0
+      _ -> 1 `shouldEqual` Array.length spans
 
   it "sibling spans share the same parent" do
     rec <- liftAff newRecordingTracer

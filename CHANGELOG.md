@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Tracer`: one additional unit test pinning the `SpanInterrupted`
+  status, the only `SpanStatus` constructor with no direct test
+  coverage. The docstring promises that "SpanInterrupted means the
+  fiber was killed before the action completed". The new test
+  forks a `withSpan` containing an `Aff.delay`, kills the fiber
+  before the delay elapses, and asserts the recorded span closes
+  with `SpanInterrupted` and a populated `endMs`, confirming the
+  `Aff.finally` cleanup path inside `withSpan` actually runs and
+  records the interruption. Whole-package run goes `402 -> 403`
+  tests passing.
 - `RIO.Schedule`: one additional unit test pinning `exponential`'s
   emitted delay values directly. The existing "exponential under
   the test clock" test asserts step-firing cadence indirectly via
