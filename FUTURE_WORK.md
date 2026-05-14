@@ -145,13 +145,13 @@ non-goals for the "is this real" milestone.
 
 ## Recommended priority order
 
-With the parallel + resource-safe stream extensions landed
-(`mergeAll`, `merge`, `mergeMap`, `broadcast`, `partition`,
-`bracketStream`) and the file-backed config sources shipped in
-`rio-config-file` (`dotenvFileSource`, `jsonFileSource`), the
-remaining single biggest demo gap against ZStream is a `Sink` /
-`Channel` design. That work is large enough to warrant a focused
-design pass: the wire-level shape, fusion story, and
-parallel-sink combinators are all intertwined, and getting them
-wrong is more costly than getting them late. Secrets rotation
-for `Secret` values is the smaller remaining config gap.
+With `RIO.Sink` shipped (primitives, short-circuiting sinks,
+combinators, `zipPar`, `runSink`) and `RIO.Config.Rotating`
+covering the refreshable-cell story, every named gap in this
+document is now closed. The only remaining design call is the
+full `Channel` algebra, and that one is intentionally deferred:
+`Stream.mapM` / `Stream.flatMap` / `Sink.andThen` already cover
+the common transducer cases, and a Channel layer should be
+driven by a real use case the current API cannot express rather
+than by surface-area parity. Until that use case shows up, there
+is no priority-ordered work item in this file.
