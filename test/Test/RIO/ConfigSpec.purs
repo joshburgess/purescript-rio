@@ -144,6 +144,21 @@ spec = do
           Left _ -> pure unit
           Right _ -> fail "expected ParseError to propagate"
 
+      it "optional does not mask a ParseError" do
+        -- The docstring promises only `MissingKey` is softened to
+        -- `Nothing`; "ParseError and other failures still propagate".
+        -- Pin this so a future refactor that widens `optional` to
+        -- swallow parse failures is caught.
+        let src = mapSource (Map.singleton "PORT" "abc")
+        r <- runWith src (optional (int "PORT"))
+        case r of
+          Left v ->
+            case Variant.case_ # Variant.on cfgTag identity $ v of
+              ParseError [] "PORT" _ -> pure unit
+              other -> fail
+                ("expected ParseError, got: " <> show other)
+          Right _ -> fail "expected ParseError to propagate through optional"
+
     describe "nested" do
       it "prefixes the key with the namespace" do
         let
