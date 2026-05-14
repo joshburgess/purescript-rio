@@ -118,6 +118,28 @@ spec = do
         r <- runRIO program
         r `shouldEqual` Right []
 
+      it "propagates a typed failure raised inside an inner stream" do
+        -- The module-level docstring promises all combinators share
+        -- one failure model: the first typed failure or defect in any
+        -- producer shuts the shared queue down. `mergeAll` has a
+        -- dedicated test; this pins the same contract for `mergeMap`,
+        -- whose producers are the per-element inner streams.
+        let
+          inner :: Int -> Stream () (boom :: String) Int
+          inner n
+            | n == 2 =
+                mapM (\_ -> fail (Proxy :: Proxy "boom") "kaboom")
+                  (fromArray [ n ])
+            | otherwise = fromArray [ n ]
+
+          outer :: Stream () (boom :: String) Int
+          outer = fromArray [ 1, 2, 3 ]
+        r <- runRIO (runCollect (mergeMap inner outer))
+        case r of
+          Left _ -> pure unit
+          Right _ ->
+            Spec.fail "expected mergeMap to surface the inner typed failure"
+
     describe "broadcast" do
       it "every consumer sees every element in input order" do
         let

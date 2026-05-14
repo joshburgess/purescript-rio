@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Stream.Par`: one additional unit test pinning `mergeMap`'s
+  typed-failure propagation. The module-level docstring states
+  that every combinator in `RIO.Stream.Par` shares the same
+  failure model (the first typed failure or defect in any
+  producer shuts the shared queue down), and the suite already
+  pins this for `mergeAll`, `broadcast`, and `partition`. The
+  new test pins the same contract for `mergeMap` by raising a
+  typed failure inside one of the inner streams produced by the
+  fan-out function and asserting it surfaces on the parent's
+  row. Whole-package run goes `391 -> 392` tests passing.
 - `RIO.STM.THub`: three additional unit tests filling concrete gaps
   in the THub suite. `isEmptySubscription` was exported but was not
   imported by, or used in, any existing test; two new tests pin its
