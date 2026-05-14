@@ -74,21 +74,19 @@ plus the combinator set:
   failures into a `Parallel` cause when both sides fail
 - `acquireReleaseCause` records `Sequential (body, release)` when
   the body and the finalizer both fail
-- `prettyCause` renders the tree
+- `prettyCause` renders the tree; `prettyCauseWithStack` adds the
+  JS stack underneath each `Die` leaf when one is available
 
 `worker-pool` demonstrates `parTraverseCause` + `prettyCause` end
 to end.
 
-What it doesn't yet do:
-
-- Have `RIO.Resource.acquireRelease` itself produce a `Cause` when
-  its release path fails on top of a primary failure - today only
-  the explicit `acquireReleaseCause` opts into that
-- Render Aff stacktraces inside `Die` (today we only show
-  `message`)
-- Surface suppressed failures from `RIO.Concurrency.race`
-  (`raceCause` waits for first-success-or-both-fail, but the
-  short-circuit `race` still drops the loser)
+What's left here is mostly a design call rather than missing
+plumbing: the existing `acquireRelease` / `race` keep their
+non-Cause shapes on purpose so users only pay for cause-tree
+construction when they explicitly ask for it. If that ever feels
+wrong, the migration is mechanical: switch the implementations
+over to the `*Cause` variants and surface the cause through a new
+service row, the way ZIO and Effect-TS do.
 
 ### Config sources
 
@@ -114,8 +112,9 @@ non-goals for the "is this real" milestone.
 
 ## Recommended priority order
 
-With the original Tier 1 + Tier 2 list shipped, the highest-leverage
-next step is probably Cause integration: making `race`, `bracket`,
-and `parTraverse` produce `Cause`-shaped failures automatically so
-the renderer earns its keep without users assembling causes by hand.
-Stream extensions and richer config sources come after.
+With the cause-integration work landed (`parTraverseCause`,
+`raceCause`, `acquireReleaseCause`, `prettyCauseWithStack`), the
+next highest-leverage step is Stream extensions. The parallel
+combinators (`mergeAll`, `flatMapPar`) earn their keep against
+ZStream comparisons most directly. Richer config sources are
+useful for real deployments but lower conceptual leverage.
