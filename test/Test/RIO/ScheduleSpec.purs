@@ -391,6 +391,43 @@ spec = do
           Continue o _ _ -> o `shouldEqual` 1
           Done -> 1 `shouldEqual` 0
 
+      it "re-checks the predicate on every step (not just at construction)" do
+        -- The `whileInput` docstring promises that the
+        -- "underlying schedule's decision is consulted only
+        -- when the predicate holds; if it doesn't, the result
+        -- is `Done` immediately." The existing single-step
+        -- tests pin the two endpoint cases (predicate-true on
+        -- step 0, predicate-false on step 0) but not the
+        -- transition: a multi-step run where the predicate
+        -- holds for several inputs and then fails. A
+        -- regression that snapshotted the predicate result at
+        -- construction (or only consulted it on step 0) would
+        -- pass the existing tests but fail to stop a run that
+        -- becomes invalid mid-stream. Pin the per-step
+        -- re-check by stepping the schedule across three
+        -- inputs `[1, 2, 3]` against `(\n -> n < 3)`: the
+        -- first two must Continue (delegating to `recurs 10`
+        -- with outputs 1 and 2), and the third must Done
+        -- without consulting the inner schedule.
+        let
+          sched =
+            whileInput (\(n :: Int) -> n < 3) (recurs 10)
+              :: Schedule () Int Int
+        out1 <- runRIO' (step sched 1)
+        case out1 of
+          Continue o1 _ next1 -> do
+            o1 `shouldEqual` 1
+            out2 <- runRIO' (step next1 2)
+            case out2 of
+              Continue o2 _ next2 -> do
+                o2 `shouldEqual` 2
+                out3 <- runRIO' (step next2 3)
+                case out3 of
+                  Done -> pure unit
+                  Continue _ _ _ -> 1 `shouldEqual` 0
+              Done -> 1 `shouldEqual` 0
+          Done -> 1 `shouldEqual` 0
+
 collectOutputs
   :: forall o
    . Int
