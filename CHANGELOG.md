@@ -24,6 +24,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   a top-level empty object yielding an empty map. `npx
   spago test -p rio-config-file` now reports `30/30 tests
   passed` (up from 18).
+- `rio-postgres/README.md`: refreshed the Testing section. The
+  previous text claimed CI did not run the integration suite
+  yet, which is stale: the `postgres-integration` job exercises
+  the suite against a service container, plus the
+  `rio-postgres-json`, `rio-postgres-migrate`, and
+  `rio-example-notify` companion runs. The new section spells
+  out the local docker-compose path and the
+  `PG_CONNECTION_STRING` skip behaviour for contributors
+  without Postgres.
 - `compile-fail`: three additional negative-build cases bring the
   driver from 3 to 6 passing cases. Case 04 covers `catchTag` for
   a tag that isn't in the error row; case 05 covers `mapError`

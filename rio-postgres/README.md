@@ -56,10 +56,22 @@ the same way the
 
 ## Testing
 
-Integration tests against a real Postgres are not wired up in
-CI yet. The intended setup is `docker compose up postgres`
-locally (or via a CI service container) with a fixed
-`POSTGRES_*` env wiring; the smart constructors take a
-`PoolConfiguration` record so tests can point at the
-container's published port. See `PROJECT_BUILD_PLAN.md` for
-the open backlog.
+Integration tests live under `rio-postgres/test/` and run
+against a real Postgres reached via `PG_CONNECTION_STRING`.
+For local runs, bring up the workspace's `docker-compose.yml`
+service:
+
+```sh
+docker compose up -d postgres
+export PG_CONNECTION_STRING=postgres://rio:rio@localhost:5432/rio_test
+npx spago test -p rio-postgres
+```
+
+CI runs the same suite in the `postgres-integration` job
+against a service container, alongside the `rio-postgres-json`,
+`rio-postgres-migrate`, and `rio-example-notify` integration
+runs.
+
+If `PG_CONNECTION_STRING` is unset the suite is skipped (printed
+as a pending case) so contributors who don't have Postgres
+handy can still run the rest of the workspace.
