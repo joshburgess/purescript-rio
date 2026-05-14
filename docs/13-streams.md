@@ -337,3 +337,23 @@ shipped (a Channel algebra), lives in `docs/sink-design.md`.
   request) over a synthetic HTTP request log, composed with
   `Sink.zipPar` and run via `Sink.runSink`. One stream pass
   produces the full summary.
+
+## Pointers
+
+- Source:
+  [`src/RIO/Stream.purs`](../src/RIO/Stream.purs) (the pull-
+  based core),
+  [`src/RIO/Stream/Par.purs`](../src/RIO/Stream/Par.purs)
+  (`mergeAll`, `broadcast`), and
+  [`src/RIO/Sink.purs`](../src/RIO/Sink.purs) (one-pass
+  consumers and `zipPar`).
+- Spec coverage:
+  [`test/Test/RIO/StreamSpec.purs`](../test/Test/RIO/StreamSpec.purs)
+  (construction / transforms / runners) and
+  [`test/Test/RIO/SinkSpec.purs`](../test/Test/RIO/SinkSpec.purs)
+  (sink primitives and `zipPar` semantics).
+- Concurrency primitives the parallel combinators build on:
+  [`docs/06-concurrency.md`](./06-concurrency.md).
+- Sink design notes, including what is intentionally not
+  shipped (a Channel algebra):
+  [`docs/sink-design.md`](./sink-design.md).

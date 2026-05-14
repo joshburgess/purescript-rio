@@ -169,3 +169,21 @@ exercised by the spike.
     The `e` row narrows on catch the same way the `r` row narrows on
     `provide`.
   * Phase 4 adds resource safety (`acquireRelease`, `scoped`).
+
+## Pointers
+
+- Source: `ask` / `asks` / `provide` / `provideAll` live in
+  [`src/RIO/Env.purs`](../src/RIO/Env.purs) and are re-exported
+  through [`src/RIO/Core.purs`](../src/RIO/Core.purs).
+- Spec coverage:
+  [`test/Test/RIO/EnvSpec.purs`](../test/Test/RIO/EnvSpec.purs)
+  pins `ask` / `asks` / `provide` / `provideAll` against
+  several row shapes.
+- Layers (`Layer r r' e`, the unit of service wiring at the
+  top of `main`): [`docs/04-layers.md`](./04-layers.md).
+- Worked example:
+  [`examples/logger/`](../examples/logger/) is the minimum
+  service-shape walk-through;
+  [`examples/todo-api/`](../examples/todo-api/) composes
+  several services (`Logger`, `Clock`, `Postgres`, `Local`)
+  through `appLayer`.

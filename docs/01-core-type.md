@@ -166,3 +166,20 @@ type-narrowing way inside the monad).
     typed/defect split.
   * Phase 4 adds resource safety (`acquireRelease`, `scoped`).
   * Phase 6 adds concurrency primitives (`fork`, `join`, `race`).
+
+## Pointers
+
+- Source: [`src/RIO/Core.purs`](../src/RIO/Core.purs) (re-export
+  surface) and [`src/RIO/Internal.purs`](../src/RIO/Internal.purs)
+  (the `RIO r e a` newtype and its
+  `Functor` / `Apply` / `Bind` / `Monad` / `MonadEffect` /
+  `MonadAff` instances).
+- Spec coverage:
+  [`test/Test/RIO/CoreSpec.purs`](../test/Test/RIO/CoreSpec.purs)
+  for the monad laws, and
+  [`test/Test/RIO/EffectAndFailSpec.purs`](../test/Test/RIO/EffectAndFailSpec.purs)
+  for `liftEffect` / `liftAff` / `fail`.
+- Services and `ask` / `provide`:
+  [`docs/02-services.md`](./02-services.md).
+- Typed failures and `catchTag` / `catchAll`:
+  [`docs/03-errors.md`](./03-errors.md).

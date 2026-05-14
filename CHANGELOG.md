@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `docs/01-core-type.md`, `docs/02-services.md`, and
+  `docs/13-streams.md` now have the `## Pointers` section every
+  other 01-15 numbered reference doc carries. The three were the
+  only outliers (01 and 02 predate the pattern; 13 had a
+  `Worked examples` section but no source / spec links). Each
+  new block points at the relevant `.purs` source, the matching
+  spec file, and related docs (e.g. 01 -> 02 + 03; 02 -> 04;
+  13 -> 06 + `sink-design.md`).
 - `RIO.Queue`: five additional unit tests filling in gaps around
   `size`, `poll` on a non-empty queue, and the post-shutdown
   semantics that the module docstring promises. New tests pin
