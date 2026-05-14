@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Array (all, snoc) as Array
 import Data.Either (Either(..))
+import Data.Tuple (Tuple(..))
 import Data.Newtype (un)
 import Data.Time.Duration (Milliseconds(..))
 import Data.Variant as Variant
@@ -171,6 +172,34 @@ spec = do
         _ <- runRIO' (provideAll { clock: tc.clock } program)
         count <- liftEffect (Ref.read counter)
         count `shouldEqual` 3
+
+      it "emits the tuple of per-schedule outputs at each step" do
+        -- The docstring promises that the output is the tuple of
+        -- per-schedule outputs. The existing test only pins the
+        -- "stops as soon as either schedule stops" contract; pin
+        -- the output shape directly so any silent change to the
+        -- combining function is caught.
+        let
+          sched =
+            intersect (recurs 3) (recurs 3)
+              :: Schedule () Unit (Tuple Int Int)
+        outputs <- runRIO' (collectOutputs 5 sched)
+        outputs `shouldEqual`
+          [ Tuple 1 1, Tuple 2 2, Tuple 3 3 ]
+
+      it "uses the larger of the two delays at each step" do
+        -- The docstring promises that the delay is the larger
+        -- of the two so both schedules can keep up. Pair a fast
+        -- 50ms schedule against a slower 200ms one and assert
+        -- each emitted delay is 200ms, not 50ms or some other
+        -- combination.
+        let
+          sched =
+            intersect (spaced (Milliseconds 50.0)) (spaced (Milliseconds 200.0))
+              :: Schedule () Unit (Tuple Int Int)
+        delays <- runRIO' (collectDelays 3 sched)
+        delays `shouldEqual`
+          [ Milliseconds 200.0, Milliseconds 200.0, Milliseconds 200.0 ]
 
     describe "exponential under the test clock" do
       it "drives one step per matching advance" do

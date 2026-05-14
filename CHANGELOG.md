@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Schedule`: two additional unit tests pinning the
+  documented output and delay contracts of `intersect`. The
+  existing test only pinned the "stops as soon as either side
+  stops" promise. The docstring also promises that (a) the
+  output is the tuple of per-schedule outputs, and (b) the
+  delay is the larger of the two so both schedules can keep
+  up. Add (a) a tuple-output test running `intersect (recurs
+  3) (recurs 3)` and asserting `[Tuple 1 1, Tuple 2 2, Tuple 3
+  3]`; and (b) a max-delay test pairing a 50ms spaced schedule
+  with a 200ms one and asserting the emitted delays are all
+  200ms. Whole-package run goes `416 -> 418` tests passing.
 - `RIO.Logger`: two additional unit tests pinning the `Show`
   and derived `Ord` instances on `LogLevel`. The docstring
   promises a five-band order from `LogTrace` (noisiest) to
