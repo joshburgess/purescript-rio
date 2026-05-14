@@ -218,6 +218,61 @@ spec = describe "RIO.STM.THub" do
       order `shouldEqual`
         [ "buffer-full", "before-take", "publish-2-committed" ]
 
+    it "publishTHub blocks while ANY subscriber is full; slowest dictates throughput" do
+      -- Docstring promise (lines 139-140 of THub.purs): for
+      -- `Bounded n`, `publishTHub` "retries while any subscriber
+      -- buffer is full". The pinned single-subscriber test
+      -- covers only the `n=1` "buffer-full" case; the
+      -- multi-subscriber "slowest subscriber dictates throughput"
+      -- contract is unpinned. A regression that checked only the
+      -- first subscriber's buffer (a missing iteration, an early
+      -- exit, or an `Array.any` swapped with `Array.head`) would
+      -- still pass single-subscriber tests but would let the
+      -- producer commit while a slow peer is still full. Pin it:
+      -- with two subscribers at cap 1, drain only the fast one
+      -- after the first publish, fork a second publish, and
+      -- assert it has NOT committed after a settle delay. Then
+      -- drain the slow peer and assert the second publish
+      -- commits and both peers receive value 2 in order.
+      events <- liftEffect (Ref.new [])
+      let
+        push :: forall r e. String -> RIO r e Unit
+        push s = liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) events)
+
+        program :: RIO () () { fast :: Int, slow :: Int }
+        program = do
+          hub <- atomically (newBoundedTHub 1)
+          slow <- atomically (subscribeTHub hub)
+          fast <- atomically (subscribeTHub hub)
+          -- Both subscribers are now full at cap 1.
+          _ <- atomically (publishTHub hub 1)
+          -- Drain ONLY the fast subscriber; slow is still full.
+          _ <- atomically (takeSubscription fast)
+          push "fast-drained"
+          producer <- fork do
+            _ <- atomically (publishTHub hub 2)
+            push "publish-2-committed"
+            pure unit
+          -- Producer should still be retrying because `slow` is
+          -- full, even though `fast` has a slot.
+          liftAff (delay (Milliseconds 20.0))
+          push "before-slow-drain"
+          slowFirst <- atomically (takeSubscription slow)
+          _ <- join producer
+          push "after-join"
+          fast2 <- atomically (takeSubscription fast)
+          slow2 <- atomically (takeSubscription slow)
+          pure { fast: fast2, slow: slowFirst + slow2 }
+      result <- runRIO' program
+      result `shouldEqual` { fast: 2, slow: 1 + 2 }
+      order <- liftEffect (Ref.read events)
+      order `shouldEqual`
+        [ "fast-drained"
+        , "before-slow-drain"
+        , "publish-2-committed"
+        , "after-join"
+        ]
+
     it "with no subscribers, publish never blocks (no buffer to fill)" do
       let
         program :: RIO () () Boolean
