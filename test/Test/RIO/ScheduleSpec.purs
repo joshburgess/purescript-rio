@@ -8,6 +8,7 @@ import Data.Tuple (Tuple(..))
 import Data.Newtype (un)
 import Data.Time.Duration (Milliseconds(..))
 import Data.Variant as Variant
+import Effect.Aff (attempt, error)
 import Effect.Aff (delay, forkAff) as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -16,7 +17,7 @@ import Test.Spec.Assertions (shouldEqual, shouldSatisfy)
 import Type.Proxy (Proxy(..))
 
 import RIO.Clock (Clock)
-import RIO.Core (RIO, fail, provideAll, runRIO, runRIO')
+import RIO.Core (RIO, die, fail, provideAll, runRIO, runRIO')
 import RIO.Schedule
   ( Schedule
   , Step(..)
@@ -113,6 +114,33 @@ spec = do
           Left _ -> pure unit
           Right _ -> 1 `shouldEqual` 0
         count `shouldEqual` 3
+
+      it "a defect skips retry and propagates immediately" do
+        -- Docstring promise: "Defects (from `die` or any uncaught
+        -- `Aff` exception) skip retry and propagate immediately;
+        -- sandbox the action if you want a defect to feed back
+        -- into the schedule." Pin it: an action that dies on the
+        -- first call would, under a typed-failure-style retry,
+        -- run up to `recurs 5 + 1 = 6` times; assert it runs
+        -- exactly once and the defect surfaces through `attempt`.
+        attempts <- liftEffect (Ref.new 0)
+        let
+          action :: RIO () () Int
+          action = do
+            _ <- liftEffect (Ref.modify (_ + 1) attempts)
+            die (error "kaboom")
+
+          program :: RIO (clock :: Clock) () Int
+          program = retry (recurs 5) action
+
+        tc <- newTestClock
+        outcome <- attempt
+          (runRIO' (provideAll { clock: tc.clock } program))
+        callsMade <- liftEffect (Ref.read attempts)
+        callsMade `shouldEqual` 1
+        case outcome of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
 
     describe "retryOrElse" do
       it "runs the fallback when retries are exhausted" do

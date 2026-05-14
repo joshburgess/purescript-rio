@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Schedule`: one additional unit test pinning that `retry`
+  does not retry on a defect. The `retry` docstring promises
+  "Defects (from `die` or any uncaught `Aff` exception) skip
+  retry and propagate immediately; sandbox the action if you
+  want a defect to feed back into the schedule". Existing tests
+  pin transient typed-failure recovery and final-failure surface
+  but not the defect short-circuit. Pin it by retrying an action
+  that `die`s on every call under `recurs 5` and asserting it
+  ran exactly once and the defect surfaced through `attempt`.
+  Whole-package run goes `432 -> 433` tests passing.
 - `RIO.Logger`: two additional unit tests pinning the remaining
   termination paths of `withFields`'s restore-on-exit bracket.
   The docstring promises restoration "by `Aff.finally` on every
