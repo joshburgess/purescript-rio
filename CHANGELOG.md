@@ -11,6 +11,17 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Sink`: one additional unit test pinning `Sink.foldM`'s
+  typed-failure surface. The Sink suite had no failure-path
+  coverage at all; every existing test exercised either pure
+  combinators or effectful steps that never raised. The new
+  test raises a typed failure from inside a `foldM` step on
+  the third element of a five-element source and pins both
+  that the failure surfaces on the parent's row and that the
+  step was invoked exactly three times (so the surrounding
+  pipeline did stop pulling rather than continue past the
+  failing call). Whole-package run goes `396 -> 397` tests
+  passing.
 - `RIO.Stream`: two additional unit tests pinning typed-failure
   propagation through the pull-based pipeline. The existing
   suite covered happy-path accumulation through `mapM` and

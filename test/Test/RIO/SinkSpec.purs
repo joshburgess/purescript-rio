@@ -2,14 +2,17 @@ module Test.RIO.SinkSpec (spec) where
 
 import Prelude
 
+import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
+import Test.Spec.Assertions (fail) as Spec
+import Type.Proxy (Proxy(..))
 
-import RIO.Core (runRIO')
+import RIO.Core (RIO, fail, runRIO, runRIO')
 import RIO.Sink (Sink)
 import RIO.Sink as Sink
 import RIO.Stream (Stream)
@@ -72,6 +75,31 @@ spec = describe "RIO.Sink" do
       r `shouldEqual` 15
       calls <- liftEffect (Ref.read ref)
       calls `shouldEqual` 5
+
+    it "foldM typed failure surfaces and halts consumption" do
+      -- The whole Sink suite had no failure-path coverage. Pin the
+      -- contract that a typed failure raised inside a foldM step
+      -- propagates on the parent's row and stops further input from
+      -- being consumed (here observed via a Ref-based call counter:
+      -- the step ran on elements 1, 2, 3 and then failed on 3 before
+      -- the rest of the stream was reached).
+      ref <- liftEffect (Ref.new 0)
+      let
+        step :: Int -> Int -> RIO () (boom :: Int) Int
+        step acc i = do
+          liftEffect (Ref.modify_ (_ + 1) ref)
+          if i == 3 then fail (Proxy :: Proxy "boom") i
+          else pure (acc + i)
+
+        program :: RIO () (boom :: Int) Int
+        program = Sink.runSink (Sink.foldM 0 step)
+          (Stream.fromArray [ 1, 2, 3, 4, 5 ])
+      result <- runRIO program
+      calls <- liftEffect (Ref.read ref)
+      case result of
+        Left _ -> pure unit
+        Right _ -> Spec.fail "expected foldM step failure to surface"
+      calls `shouldEqual` 3
 
   describe "short-circuiting" do
     it "take n returns the first n elements" do
