@@ -80,6 +80,24 @@ spec = do
         result <- liftEffect (Ref.read events)
         result `shouldEqual` [ "second", "first" ]
 
+      it "a zero-duration sleep returns immediately without an advance" do
+        -- The test clock's sleep takes a short-circuit branch
+        -- when `deadlineMs <= current`, resuming the sleeper
+        -- without parking it on the pending list. Pin that branch
+        -- so a future refactor that uniformly parks every sleeper
+        -- (and silently hangs zero-duration sleepers until the
+        -- next advance) is caught.
+        tc <- newTestClock
+        flag <- liftEffect (Ref.new false)
+        let
+          program :: RIO (clock :: Clock) () Unit
+          program = do
+            sleep (Milliseconds 0.0)
+            liftEffect (Ref.write true flag)
+        runRIO' (provideAll { clock: tc.clock } program)
+        ran <- liftEffect (Ref.read flag)
+        ran `shouldEqual` true
+
       it "an interrupted fiber's sleeper is canceled cleanly" do
         tc <- newTestClock
         flag <- liftEffect (Ref.new false)

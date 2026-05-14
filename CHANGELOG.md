@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Test.Clock`: one additional unit test pinning that
+  `sleep (Milliseconds 0.0)` returns immediately, without
+  waiting on an `advance`. The test clock's `sleep` takes a
+  short-circuit branch when `deadlineMs <= current`, resuming
+  the sleeper without parking it on the pending list. Pin
+  that branch so a future refactor that uniformly parks every
+  sleeper (and silently hangs zero-duration sleepers until
+  the next `advance`) is caught. Whole-package run goes
+  `426 -> 427` tests passing.
 - `RIO.Local`: two additional unit tests pinning the
   remaining termination paths of `locally`'s restore-on-exit
   bracket. The docstring promises the previous value is
