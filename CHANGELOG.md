@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Tracer`: three additional unit tests covering `noopTracer`,
+  the discarding tracer constructor that had no direct coverage.
+  The first runs `withSpan` (nested), `addAttribute`, and the
+  current-span read through `noopTracer` and asserts nothing
+  crashes. The second pins that `currentSpan` reports `Nothing`
+  even inside a `withSpan` block, since `noopTracer` does no
+  bookkeeping. The third pins that a typed failure raised
+  inside a `withSpan` body still propagates on the parent's row
+  even under `noopTracer`'s no-op span lifecycle. Whole-package
+  run goes `397 -> 400` tests passing.
 - `rio-config-file`: one additional unit test in `flattenJson`
   pinning the number-rendering contract directly. The
   "flattens nested objects" test already shows the integer

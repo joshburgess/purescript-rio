@@ -20,6 +20,7 @@ import RIO.Tracer
   , Tracer
   , addAttribute
   , currentSpan
+  , noopTracer
   , withSpan
   )
 
@@ -130,3 +131,41 @@ spec = describe "RIO.Tracer" do
         first.name `shouldEqual` "first"
         second.name `shouldEqual` "second"
       _ -> 1 `shouldEqual` Array.length spans
+
+  describe "noopTracer" do
+    it "runs every span operation without crashing and records nothing" do
+      let
+        program :: RIO (tracer :: Tracer) () Unit
+        program = withSpan "outer" do
+          addAttribute "k" "v"
+          withSpan "inner" (addAttribute "k2" "v2")
+      result <- runRIO (provideAll { tracer: noopTracer } program)
+      case result of
+        Right _ -> pure unit
+        Left _ -> 1 `shouldEqual` 0
+
+    it "reports currentSpan as Nothing even inside a withSpan block" do
+      -- noopTracer's startSpan returns SpanId 0 and currentSpan
+      -- always returns Nothing, so a program reading currentSpan
+      -- inside a span sees no active span. Pin this so any future
+      -- change to noopTracer's bookkeeping is caught.
+      let
+        program :: RIO (tracer :: Tracer) () (Maybe SpanId)
+        program = withSpan "outer" currentSpan
+      result <- runRIO (provideAll { tracer: noopTracer } program)
+      case result of
+        Right inner -> inner `shouldEqual` Nothing
+        Left _ -> 1 `shouldEqual` 0
+
+    it "lets a typed failure inside withSpan surface unchanged" do
+      -- noopTracer does no bookkeeping, but withSpan still wires
+      -- startSpan/endSpan around the action through Aff.finally.
+      -- Pin that a typed failure raised inside the body propagates
+      -- on the parent's row.
+      let
+        program :: RIO (tracer :: Tracer) (boom :: Unit) Unit
+        program = withSpan "outer" (fail (Proxy :: Proxy "boom") unit)
+      result <- runRIO (provideAll { tracer: noopTracer } program)
+      case result of
+        Left _ -> pure unit
+        Right _ -> 1 `shouldEqual` 0
