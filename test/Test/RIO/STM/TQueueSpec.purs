@@ -13,8 +13,10 @@ import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 
-import RIO.Core (RIO, fork, join, runRIO')
-import RIO.STM (atomically)
+import Type.Proxy (Proxy(..))
+
+import RIO.Core (RIO, fork, join, runRIO, runRIO')
+import RIO.STM (atomically, failSTM)
 import RIO.STM.TQueue
   ( isEmptyTQueue
   , lengthTQueue
@@ -127,6 +129,41 @@ spec = describe "RIO.STM.TQueue" do
     result `shouldEqual` 11
     order <- liftEffect (Ref.read events)
     order `shouldEqual` [ "before-fork", "before-write", "after-peek" ]
+
+  it "orthogonal writes compose into a single transaction (failSTM rolls back all)" do
+    -- Module docstring promises "orthogonal `TQueue`
+    -- operations compose into a single transaction without
+    -- interleaving". Every existing test wraps each TQueue
+    -- operation in its own `atomically` call, so the
+    -- composability claim is never exercised. A regression
+    -- that broke intra-transaction composition (e.g., if
+    -- `writeTQueue` applied its write immediately to the
+    -- underlying `TRef` rather than staging it via
+    -- `modifyTRef`, which delegates to the STM log) would
+    -- pass every existing test. Pin two consequences in one
+    -- shot: (a) two writes in a single `atomically` both
+    -- commit, raising length to 2; (b) two writes followed
+    -- by `failSTM` in a single `atomically` BOTH roll back,
+    -- leaving length unchanged. The rollback case requires
+    -- the writes to be staged in the STM log (not applied
+    -- directly to the TRef); otherwise the failing tx would
+    -- still leak the writes.
+    q <- runRIO' (atomically newTQueue)
+    runRIO'
+      (atomically (writeTQueue q 1 *> writeTQueue q 2) :: RIO () () Unit)
+    afterCompose <- runRIO'
+      (atomically (lengthTQueue q) :: RIO () () Int)
+    _ <- runRIO
+      ( atomically do
+          writeTQueue q 99
+          writeTQueue q 100
+          _ <- failSTM (Proxy :: Proxy "boom") unit
+          pure (0 :: Int)
+      )
+    afterFail <- runRIO'
+      (atomically (lengthTQueue q) :: RIO () () Int)
+    afterCompose `shouldEqual` 2
+    afterFail `shouldEqual` 2
 
   it "many parallel producers and consumers preserve total" do
     let
