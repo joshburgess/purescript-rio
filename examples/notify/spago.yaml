@@ -1,0 +1,15 @@
+package:
+  name: rio-example-notify
+  dependencies:
+    - aff
+    - console
+    - effect
+    - either
+    - maybe
+    - node-process
+    - prelude
+    - rio
+    - rio-postgres
+    - variant
+  run:
+    main: Example.Notify.Main
