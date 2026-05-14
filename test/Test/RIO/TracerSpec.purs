@@ -13,7 +13,7 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fail, provideAll, runRIO, runRIO')
+import RIO.Core (RIO, fail, fork, join, provideAll, runRIO, runRIO')
 import RIO.Test.Tracer (newRecordingTracer)
 import RIO.Tracer
   ( SpanId
@@ -169,6 +169,46 @@ spec = describe "RIO.Tracer" do
         first.name `shouldEqual` "first"
         second.name `shouldEqual` "second"
       _ -> 1 `shouldEqual` Array.length spans
+
+  describe "fork inheritance (implicit-context semantics)" do
+    -- The module docstring promises: "A `fork`ed fiber inherits
+    -- whichever span was current at the point of fork (because
+    -- the same Tracer is shared by the underlying `Effect.Ref`s);
+    -- after the fork, the parent fiber's subsequent spans land
+    -- under the same parent until the parent's `endSpan` runs."
+    -- Pin both halves of that contract.
+    it "a forked fiber inherits the parent's current span at fork time" do
+      rec <- liftAff newRecordingTracer
+      let
+        program :: RIO (tracer :: Tracer) () Unit
+        program = withSpan "outer" do
+          child <- fork (withSpan "from-child" (pure unit))
+          join child
+      _ <- runRIO (provideAll { tracer: rec.tracer } program)
+      spans <- liftEffect rec.snapshot
+      case spans of
+        [ outer, child ] -> do
+          outer.name `shouldEqual` "outer"
+          child.name `shouldEqual` "from-child"
+          child.parent `shouldEqual` Just outer.id
+        _ -> 1 `shouldEqual` Array.length spans
+
+    it "after fork, the parent's subsequent spans still land under the outer span" do
+      rec <- liftAff newRecordingTracer
+      let
+        program :: RIO (tracer :: Tracer) () Unit
+        program = withSpan "outer" do
+          child <- fork (withSpan "from-child" (pure unit))
+          join child
+          withSpan "after-fork" (pure unit)
+      _ <- runRIO (provideAll { tracer: rec.tracer } program)
+      spans <- liftEffect rec.snapshot
+      case spans of
+        [ outer, child, afterFork ] -> do
+          outer.name `shouldEqual` "outer"
+          child.parent `shouldEqual` Just outer.id
+          afterFork.parent `shouldEqual` Just outer.id
+        _ -> 1 `shouldEqual` Array.length spans
 
   describe "noopTracer" do
     it "runs every span operation without crashing and records nothing" do
