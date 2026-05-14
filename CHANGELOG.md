@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Queue`: five additional unit tests filling in gaps around
+  `size`, `poll` on a non-empty queue, and the post-shutdown
+  semantics that the module docstring promises. New tests pin
+  the size-reflects-offer/take behaviour, poll-removes-the-item
+  contract, take-drains-buffered-then-Nothing behaviour after
+  shutdown, offer-returns-false-after-shutdown, and (bounded
+  case) shutdown-wakes-blocked-offerers-with-false. Whole-package
+  run goes `353 -> 358` tests passing.
 - `RIO.Hub`: four additional unit tests covering coverage gaps.
   `publishAll` (an exported function with no test) now has a
   batch-order assertion across two subscribers; the

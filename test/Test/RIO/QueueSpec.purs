@@ -48,6 +48,44 @@ spec = do
         r <- joinFiber f
         r `shouldEqual` Nothing
 
+      it "size reflects offer / take" do
+        q <- liftEffect (unbounded :: _ (_ Int))
+        s0 <- liftEffect (size q)
+        _ <- runRIO' (offer q 1 *> offer q 2 *> offer q 3 :: RIO () () Boolean)
+        s3 <- liftEffect (size q)
+        _ <- runRIO' (take q :: RIO () () (Maybe Int))
+        s2 <- liftEffect (size q)
+        s0 `shouldEqual` 0
+        s3 `shouldEqual` 3
+        s2 `shouldEqual` 2
+
+      it "poll returns Just and removes the item when non-empty" do
+        q <- liftEffect unbounded
+        _ <- runRIO' (offer q 1 *> offer q 2 :: RIO () () Boolean)
+        a <- runRIO' (poll q :: RIO () () (Maybe Int))
+        b <- runRIO' (poll q :: RIO () () (Maybe Int))
+        c <- runRIO' (poll q :: RIO () () (Maybe Int))
+        a `shouldEqual` Just 1
+        b `shouldEqual` Just 2
+        c `shouldEqual` Nothing
+
+      it "after shutdown, take drains buffered items then returns Nothing" do
+        q <- liftEffect unbounded
+        _ <- runRIO' (offer q 1 *> offer q 2 :: RIO () () Boolean)
+        runRIO' (shutdown q :: RIO () () Unit)
+        a <- runRIO' (take q :: RIO () () (Maybe Int))
+        b <- runRIO' (take q :: RIO () () (Maybe Int))
+        c <- runRIO' (take q :: RIO () () (Maybe Int))
+        a `shouldEqual` Just 1
+        b `shouldEqual` Just 2
+        c `shouldEqual` Nothing
+
+      it "after shutdown, offer returns false" do
+        q <- liftEffect (unbounded :: _ (_ Int))
+        runRIO' (shutdown q :: RIO () () Unit)
+        ok <- runRIO' (offer q 99 :: RIO () () Boolean)
+        ok `shouldEqual` false
+
     describe "bounded" do
       it "respects capacity by blocking the producer" do
         q <- liftEffect (bounded 1)
@@ -74,3 +112,13 @@ spec = do
         beforeTake `shouldEqual` [ "first-done" ]
         finalLog `shouldEqual` [ "first-done", "second-done" ]
         s `shouldEqual` 1
+
+      it "shutdown wakes blocked offerers with false" do
+        q <- liftEffect (bounded 1)
+        _ <- runRIO' (offer q 1 :: RIO () () Boolean)
+        -- this offer parks because the queue is at capacity
+        f <- forkAff (runRIO' (offer q 2 :: RIO () () Boolean))
+        delay (Milliseconds 5.0)
+        runRIO' (shutdown q :: RIO () () Unit)
+        result <- joinFiber f
+        result `shouldEqual` false
