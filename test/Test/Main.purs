@@ -14,13 +14,16 @@ import Test.RIO.DeferredSpec as DeferredSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
+import Test.RIO.HubSpec as HubSpec
 import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.LocalSpec as LocalSpec
 import Test.RIO.LoggerSpec as LoggerSpec
 import Test.RIO.MetricsSpec as MetricsSpec
+import Test.RIO.QueueSpec as QueueSpec
 import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.Resource.DoSpec as ResourceDoSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
+import Test.RIO.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.STMSpec as STMSpec
 import Test.RIO.STM.TMapSpec as TMapSpec
@@ -44,6 +47,9 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   DeferredSpec.spec
   ClockSpec.spec
   ScheduleSpec.spec
+  SemaphoreSpec.spec
+  QueueSpec.spec
+  HubSpec.spec
   STMSpec.spec
   TQueueSpec.spec
   TMapSpec.spec

@@ -14,8 +14,13 @@ package:
     - either
     - exceptions
     - foldable-traversable
+    - foreign-object
+    - integers
+    - lists
     - maybe
+    - node-process
     - now
+    - numbers
     - ordered-collections
     - parallel
     - prelude
@@ -24,6 +29,7 @@ package:
     - refs
     - spec
     - spec-node
+    - strings
     - transformers
     - tuples
     - variant
