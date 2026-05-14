@@ -140,6 +140,55 @@ spec = describe "RIO.STM.THub" do
       result `shouldEqual`
         { r1: true, r2: true, r3: false, buffered: [ 1, 2 ] }
 
+    it "returns false when ONE of several subscribers drops; others still receive" do
+      -- Docstring promise: `publishTHub` returns "`false` if at
+      -- least one dropped it", and for `Dropping n`:
+      -- "subscribers whose buffer was full drop the new value"
+      -- (i.e., non-full subscribers still accept). The existing
+      -- Dropping test uses a single subscriber, so the
+      -- "partial-drop" branch (one subscriber drops, another
+      -- accepts) is unpinned: a regression that broke the
+      -- per-subscriber independence (e.g., aborting the whole
+      -- fold on the first drop) would still pass the
+      -- single-subscriber test. Pin both halves with two
+      -- subscribers at cap 1: drain one so only its peer is
+      -- full at publish time, then assert the publish returns
+      -- `false` AND the drained subscriber still received the
+      -- new value.
+      let
+        program
+          :: RIO () ()
+               { r2 :: Boolean
+               , fastValue :: Maybe Int
+               , slowValue :: Maybe Int
+               , slowAfter :: Maybe Int
+               }
+        program = do
+          hub <- atomically (newDroppingTHub 1)
+          slow <- atomically (subscribeTHub hub)
+          fast <- atomically (subscribeTHub hub)
+          -- Both accept the first value; buffers are now full.
+          _ <- atomically (publishTHub hub 1)
+          -- Drain only `fast`; `slow` is still full at cap.
+          _ <- atomically (takeSubscription fast)
+          -- `slow` is full and must drop; `fast` has a slot and
+          -- must accept. The whole publish must report `false`.
+          r2 <- atomically (publishTHub hub 2)
+          -- `fast` should now hold the new value (2).
+          fastValue <- atomically (tryTakeSubscription fast)
+          -- `slow` should still hold only the original (1) — the
+          -- second publish was dropped, not overwritten.
+          slowValue <- atomically (tryTakeSubscription slow)
+          slowAfter <- atomically (tryTakeSubscription slow)
+          pure { r2, fastValue, slowValue, slowAfter }
+      result <- runRIO' program
+      result `shouldEqual`
+        { r2: false
+        , fastValue: Just 2
+        , slowValue: Just 1
+        , slowAfter: Nothing
+        }
+
   describe "Bounded strategy" do
     it "publishTHub blocks (retries) until a consumer takes a value" do
       events <- liftEffect (Ref.new [])
