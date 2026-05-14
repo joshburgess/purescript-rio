@@ -24,6 +24,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   a top-level empty object yielding an empty map. `npx
   spago test -p rio-config-file` now reports `30/30 tests
   passed` (up from 18).
+- `compile-fail`: three additional negative-build cases bring the
+  driver from 3 to 6 passing cases. Case 04 covers `catchTag` for
+  a tag that isn't in the error row; case 05 covers `mapError`
+  whose residual error row is then handed to `runRIO'`; case 06
+  covers `provideAll` with a record that's missing a required
+  field. `compile-fail/FINDINGS.md` records the compiler output
+  for each case and the readability verdict, and the "patterns
+  not yet captured" section now correctly notes that the
+  "provide twice" trap is not actually a compile-fail target
+  (row polymorphism happily extends with a fresh-row tail).
 - `docs/03-errors.md`: added the missing `## Pointers` section
   (every other 03-15 reference doc has one). The new section
   links to `src/RIO/Error.purs`,

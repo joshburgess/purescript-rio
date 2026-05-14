@@ -102,18 +102,92 @@ that takes `Int`."* That sentence already lives in the first three
 lines of the current error; the goal is to lead with it and suppress
 the row-machinery context.
 
+## Case 04: `catchTag` for a tag that isn't in the error row
+
+`inner :: RIO () (parse :: String) Int`, called with
+`catchTag (Proxy :: Proxy "notFound") handler inner`. The compiler
+reports:
+
+```
+Could not match type
+  ( notFound :: t1
+  ...
+  | e6
+  )
+with type
+  ( parse :: String
+  ...
+  )
+while solving type class constraint
+  Prim.Row.Cons "notFound"
+                t1
+                e6
+                ( parse :: String
+                )
+```
+
+**Quality: ACCEPTABLE (NOISY).** The compiler shows the two rows side
+by side and the user can read "I asked to peel `notFound` off a row
+that only contains `parse`." The trailing `Prim.Row.Cons` block is
+correct but more jargon than a new user needs. Same `Fail`-polish
+candidate as case 03: lead with the row mismatch, suppress the
+constraint context.
+
+## Case 05: `mapError` followed by `runRIO'` with a non-empty residual row
+
+`inner :: RIO () (parse :: String) Int`; `mapError` rewrites the
+`parse` failure into `notFound :: Unit`; the program is then passed
+to `runRIO'`, which wants `RIO () () a`. The compiler reports:
+
+```
+Could not match type
+  ( notFound :: Unit
+  )
+with type
+  ()
+while trying to match type RIO () (notFound :: Unit)
+  with type RIO () ()
+```
+
+**Quality: GOOD.** The mismatch is on the second and third lines
+verbatim: `(notFound :: Unit)` vs `()`. A user reads "my error row
+still has a `notFound` tag in it" and either keeps catching or
+swaps `runRIO'` for `runRIO`.
+
+## Case 06: `provideAll` for a record missing a required field
+
+`inner :: forall e. RIO ( logger :: { name :: String }, requestId :: String ) e String`,
+handed to `provideAll { logger: { name: "outer" } }` (no `requestId`).
+The compiler reports:
+
+```
+Could not match type
+  ( logger :: { name :: String }, requestId :: String )
+  ...
+with type
+  ( logger :: { name :: String } )
+  ...
+while trying to match type RIO
+                             ( logger :: { name :: String }
+                             , requestId :: String
+                             )
+  with type RIO ( logger :: { name :: String } )
+```
+
+**Quality: GOOD.** The full row appears on both sides of the
+mismatch; the missing label (`requestId`) is the obvious diff a
+visual scan picks out.
+
 ## Patterns we have NOT yet captured
 
-These are the next batch to add when the next phase's review revisits
-this file:
+These remain on the v0.2 `Fail`-polish backlog:
 
-- `catchTag` for a tag that isn't in the error row. (Same shape as
-  case 03; quality likely similar.)
-- `mapError` that translates to a row missing a label the original
-  could produce. (`Cons` lookup failure on the dual side.)
-- `provide` for a label that already exists in the row (the trap
-  documented in `docs/02-services.md`'s mention of `Cons` strictness).
+- `provide` called with a label that ALREADY exists in the inner
+  row. This case turns out to typecheck under row polymorphism (the
+  outer label is added to a fresh-row tail, not the same row), so
+  it isn't a compile-fail target at all; the "you provided twice"
+  trap is at most a warning candidate, not an error.
 
-None of these are critical right now: the existing error messages
-are intelligible after a short induction. They go on the v0.2 backlog
-as candidates for `Fail` polish.
+The remaining ones (03, 04) are intelligible after a short induction
+but still candidates for the `Fail` polish: a one-line message
+explaining the actual user mistake before the row-machinery context.
