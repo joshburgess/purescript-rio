@@ -18,10 +18,10 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
   cleanly against infinite streams. Ships `drain`, `head`,
   `last`, `count`, `collect`, `foldL`, `foldM`, `take`, `find`,
   `any`, `all`, `mapResult`, `mapInput`, `filterIn`, `andThen`,
-  and `runSink`. Parallel sink composition (`zipPar` /
-  `zipParWith`) is designed in `docs/sink-design.md` and left
-  for a follow-up. See `docs/13-streams.md` and
-  `docs/sink-design.md`.
+  `zipPar`, `zipParWith`, and `runSink`. `zipPar` runs two
+  sinks in lockstep against the same stream on one fiber;
+  early-halt of one side is remembered while the other
+  continues. See `docs/13-streams.md` and `docs/sink-design.md`.
 - `rio-config-file`: new adapter package providing
   `dotenvFileSource` and `jsonFileSource`. Both read a file
   from disk and return a `RIO.Config.Source` ready to feed

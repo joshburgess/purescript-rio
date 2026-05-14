@@ -3,6 +3,7 @@ module Test.RIO.SinkSpec (spec) where
 import Prelude
 
 import Data.Maybe (Maybe(..))
+import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
@@ -146,6 +147,52 @@ spec = describe "RIO.Sink" do
         sink = Sink.head `Sink.andThen` \_ -> Sink.count
       r <- runRIO' (Sink.runSink (sink :: Sink () () Int Int) Stream.empty)
       r `shouldEqual` 0
+
+  describe "zipPar" do
+    it "runs two sinks against the same stream and tuples the results" do
+      r <- runRIO' (Sink.runSink (Sink.zipPar Sink.count Sink.collect) source)
+      r `shouldEqual` Tuple 5 [ 1, 2, 3, 4, 5 ]
+
+    it "one side halts early; the other keeps consuming" do
+      -- take 2 halts after seeing 1 and 2; count keeps going through end
+      r <- runRIO'
+        (Sink.runSink (Sink.zipPar (Sink.take 2) Sink.count) source)
+      r `shouldEqual` Tuple [ 1, 2 ] 5
+
+    it "both sides halt early; the combined sink halts immediately after" do
+      -- take 2 and take 3 both halt; combined halts at max(2,3) = 3
+      r <- runRIO'
+        (Sink.runSink (Sink.zipPar (Sink.take 2) (Sink.take 3)) source)
+      r `shouldEqual` Tuple [ 1, 2 ] [ 1, 2, 3 ]
+
+    it "on an empty stream both sides return their finish values" do
+      r <- runRIO'
+        ( Sink.runSink
+            ( Sink.zipPar
+                (Sink.count :: Sink () () Int Int)
+                Sink.collect
+            )
+            Stream.empty
+        )
+      r `shouldEqual` Tuple 0 []
+
+    it "left-halted-early side reports its halt value, not its finish" do
+      -- head halts after first element; last keeps consuming to the end
+      r <- runRIO'
+        (Sink.runSink (Sink.zipPar Sink.head Sink.last) source)
+      r `shouldEqual` Tuple (Just 1) (Just 5)
+
+  describe "zipParWith" do
+    it "applies the combining function to the two results" do
+      r <- runRIO'
+        ( Sink.runSink
+            ( Sink.zipParWith (\count total -> { count, total })
+                Sink.count
+                (Sink.foldL 0 (+))
+            )
+            source
+        )
+      r `shouldEqual` { count: 5, total: 15 }
 
   describe "Stream interop" do
     it "Sink.collect matches runCollect" do

@@ -267,10 +267,12 @@ all     :: (i -> Boolean) -> Sink r e i Boolean
 Combinators:
 
 ```purescript
-mapResult :: (a -> b) -> Sink r e i a -> Sink r e i b
-mapInput  :: (j -> i) -> Sink r e i a -> Sink r e j a
-filterIn  :: (i -> Boolean) -> Sink r e i a -> Sink r e i a
-andThen   :: Sink r e i a -> (a -> Sink r e i b) -> Sink r e i b
+mapResult  :: (a -> b) -> Sink r e i a -> Sink r e i b
+mapInput   :: (j -> i) -> Sink r e i a -> Sink r e j a
+filterIn   :: (i -> Boolean) -> Sink r e i a -> Sink r e i a
+andThen    :: Sink r e i a -> (a -> Sink r e i b) -> Sink r e i b
+zipPar     :: Sink r e i a -> Sink r e i b -> Sink r e i (Tuple a b)
+zipParWith :: (a -> b -> c) -> Sink r e i a -> Sink r e i b -> Sink r e i c
 ```
 
 `take`, `find`, `any`, and `all` short-circuit through `Halt`, so
@@ -297,13 +299,27 @@ headAndRest = Sink.head `Sink.andThen` \mFirst ->
   Sink.mapResult (\rest -> { first: mFirst, rest }) Sink.collect
 ```
 
-What's still open: parallel sink composition. `Sink.zipPar` and
-`Sink.zipParWith` (one fiber, one pull per element, two sinks
-each fed the same inputs) are designed in `docs/sink-design.md`
-but not yet implemented. For now, use `RIO.Stream.Par.broadcast`
-to fan a stream to multiple sink-consumers on separate fibers,
-or chain folds through `Ref`s in a single `runFoldM` if the
-combine logic must stay sequential.
+`zipPar` runs two sinks in lockstep against the same stream.
+Each input is offered to both sinks; both step in one fiber,
+sequentially, before the next stream pull. The combined sink
+halts when *both* sides have halted; if one halts early its
+final value is remembered and only the other continues to see
+inputs. On end-of-stream, both finishers run.
+
+```purescript
+import RIO.Sink as Sink
+
+-- count and total in a single pass
+countAndTotal = Sink.zipParWith
+  (\count total -> { count, total })
+  Sink.count
+  (Sink.foldL 0 (+))
+```
+
+`zipPar` is *not* `broadcast`: there are no separate fibers and
+no per-consumer queue. Use `RIO.Stream.Par.broadcast` when each
+consumer needs its own buffered backpressure boundary; use
+`zipPar` when you want a single-pass combination on one fiber.
 
 The full design discussion, including what is intentionally not
 shipped (a Channel algebra), lives in `docs/sink-design.md`.

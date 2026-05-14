@@ -46,12 +46,15 @@ module RIO.Sink
   , mapInput
   , filterIn
   , andThen
+  , zipPar
+  , zipParWith
   ) where
 
 import Prelude
 
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
+import Data.Tuple (Tuple(..))
 
 import RIO.Core (RIO)
 import RIO.Stream (Stream)
@@ -234,3 +237,62 @@ andThen sink k = Sink do
             (\i -> andThen (k' i) k)
             (finish >>= \a -> runSink (k a) Stream.empty)
         )
+
+-- | Run two sinks in lockstep against the same stream. Each
+-- | input is offered to both sinks; both step in one fiber,
+-- | sequentially, before the next stream pull. The combined sink
+-- | halts when both sides have halted; if one halts early its
+-- | final value is remembered and only the other continues to
+-- | see inputs.
+-- |
+-- | This is *not* `broadcast`: there are no separate fibers and
+-- | no per-consumer queue. Use `broadcast` from `RIO.Stream.Par`
+-- | for the multi-fiber, per-consumer-buffer variant.
+zipPar
+  :: forall r e i a b
+   . Sink r e i a
+  -> Sink r e i b
+  -> Sink r e i (Tuple a b)
+zipPar sa sb = Sink do
+  stepA <- unSink sa
+  stepB <- unSink sb
+  pure (combineSteps stepA stepB)
+
+-- | `zipPar` with a combining function instead of `Tuple`.
+zipParWith
+  :: forall r e i a b c
+   . (a -> b -> c)
+  -> Sink r e i a
+  -> Sink r e i b
+  -> Sink r e i c
+zipParWith f sa sb =
+  mapResult (\(Tuple a b) -> f a b) (zipPar sa sb)
+
+combineSteps
+  :: forall r e i a b
+   . Step r e i a
+  -> Step r e i b
+  -> Step r e i (Tuple a b)
+combineSteps (Halt a) (Halt b) = Halt (Tuple a b)
+combineSteps (Halt a) (Need kb finB) =
+  Need
+    ( \i -> Sink do
+        stepB' <- unSink (kb i)
+        pure (combineSteps (Halt a) stepB')
+    )
+    (map (Tuple a) finB)
+combineSteps (Need ka finA) (Halt b) =
+  Need
+    ( \i -> Sink do
+        stepA' <- unSink (ka i)
+        pure (combineSteps stepA' (Halt b))
+    )
+    (map (\a -> Tuple a b) finA)
+combineSteps (Need ka finA) (Need kb finB) =
+  Need
+    ( \i -> Sink do
+        stepA' <- unSink (ka i)
+        stepB' <- unSink (kb i)
+        pure (combineSteps stepA' stepB')
+    )
+    (Tuple <$> finA <*> finB)

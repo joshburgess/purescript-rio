@@ -160,7 +160,8 @@ or point your `spago.yaml` at the git remote directly.
   Primitive sinks (`drain`, `head`, `last`, `count`, `collect`,
   `foldL`, `foldM`), short-circuiting sinks (`take`, `find`,
   `any`, `all`), and combinators (`mapResult`, `mapInput`,
-  `filterIn`, `andThen`) with a single `runSink` runner.
+  `filterIn`, `andThen`, `zipPar`, `zipParWith`) with a single
+  `runSink` runner.
 - `RIO.Tracer`: spans with `withSpan` and `addAttribute`. Implicit
   parent / child context via a tracer-held current-span pointer.
   `noopTracer` for production opt-out.
@@ -284,11 +285,12 @@ sugar (`RIO.Resource.Do`, `RIO.Concurrency.Par`), the
 `rio-postgres` adapter (wraps `purescript-postgresql` /
 `node-postgres`).
 
-What's open: parallel sink composition (`Sink.zipPar` /
-`zipParWith`) on top of the already-shipped `RIO.Sink` layer
-(designed in [`docs/sink-design.md`](./docs/sink-design.md)),
-`rio-node` / `rio-aws` integration packages, real-Postgres CI
-coverage for
+What's open: `rio-node` / `rio-aws` integration packages, a
+full `Channel` algebra for stream-to-stream transducers (only
+if a concrete use case shows up that `mapM` / `flatMap` /
+`Sink.andThen` cannot already express; see
+[`docs/sink-design.md`](./docs/sink-design.md)), real-Postgres
+CI coverage for
 `rio-postgres` (currently builds against the driver but has no
 integration tests; Docker-backed locally is the intended
 setup), custom `Fail` instances for the worst row / variant
