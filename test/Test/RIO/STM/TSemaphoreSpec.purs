@@ -107,6 +107,47 @@ spec = describe "RIO.STM.TSemaphore" do
     result <- runRIO' program
     result `shouldEqual` { afterAcquire: 2, afterRelease: 5 }
 
+  it "acquireN blocks until at least n permits are available" do
+    -- Docstring promise: `acquireN` "Retries until at least `n`
+    -- are available, then deducts them atomically." The pinned
+    -- "acquire blocks until a release happens" test only
+    -- exercises the n = 1 path (via `acquireTSemaphore = acquireN
+    -- 1`); the "acquireN / releaseN deduct" test only exercises
+    -- the non-blocking n > 1 path (acquireN 3 on a 5-permit
+    -- semaphore). A regression that loosened the `check
+    -- (available >= n)` guard to `available >= 1` would still
+    -- pass both: the single-permit retry would still work, and
+    -- the surplus-permit deduction would still work, but
+    -- `acquireN 2` on a 1-permit semaphore would no longer
+    -- block. Pin the n > 1 retry path: a waiter for 2 permits
+    -- on a 1-permit semaphore must remain blocked until a
+    -- single additional release brings the count to 2.
+    events <- liftEffect (Ref.new [])
+    let
+      push :: forall r e. String -> RIO r e Unit
+      push s = liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) events)
+
+      program :: RIO () () Int
+      program = do
+        sem <- atomically (newTSemaphore 1)
+        push "before-fork"
+        waiter <- fork do
+          atomically (acquireN 2 sem)
+          push "acquired"
+        liftAff (delay (Milliseconds 20.0))
+        push "before-release"
+        atomically (releaseTSemaphore sem)
+        join waiter
+        atomically (availableTSemaphore sem)
+    available <- runRIO' program
+    order <- liftEffect (Ref.read events)
+    order `shouldEqual`
+      [ "before-fork"
+      , "before-release"
+      , "acquired"
+      ]
+    available `shouldEqual` 0
+
   it "availableTSemaphore reflects the initial count and each step" do
     let
       program
