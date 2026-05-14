@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Queue`: one additional unit test pinning that a killed
+  taker removes itself from the queue's takers list. The module
+  docstring promises "the list of blocked takers (so an
+  interrupted taker can remove itself cleanly)". If the
+  registered canceler did not run on kill, a later `offer` would
+  try to deliver to the dead taker (whose `resume` is a no-op)
+  and the value would be lost; the subsequent `take` would block
+  forever. Pin the cleanup by killing a blocked taker, offering
+  a value, and observing that a fresh `take` retrieves it.
+  Whole-package run goes `435 -> 436` tests passing.
 - `RIO.Concurrency`: one additional unit test pinning that
   `parTraverseN`'s cross-chunk short-circuit holds. The
   `parTraverseN` docstring promises "the first typed failure

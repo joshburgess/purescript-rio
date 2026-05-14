@@ -3,7 +3,7 @@ module Test.RIO.QueueSpec (spec) where
 import Prelude
 
 import Data.Maybe (Maybe(..))
-import Effect.Aff (Milliseconds(..), delay, forkAff, joinFiber)
+import Effect.Aff (Milliseconds(..), delay, error, forkAff, joinFiber, killFiber)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
@@ -85,6 +85,25 @@ spec = do
         runRIO' (shutdown q :: RIO () () Unit)
         ok <- runRIO' (offer q 99 :: RIO () () Boolean)
         ok `shouldEqual` false
+
+      it "a killed taker removes itself from the takers list" do
+        -- Module docstring promises that the takers list lets "an
+        -- interrupted taker remove itself cleanly". If the kill
+        -- did not run the registered canceler, a later `offer`
+        -- would try to deliver to the dead taker (the resume is a
+        -- no-op) and the value would be lost; the subsequent
+        -- `take` would then block forever. Pin the cleanup by
+        -- offering after the kill and observing that the value
+        -- is buffered (a fresh take retrieves it).
+        q <- liftEffect (unbounded :: _ (_ Int))
+        f <- forkAff (runRIO' (take q :: RIO () () (Maybe Int)))
+        delay (Milliseconds 5.0)
+        killFiber (error "test-cancel") f
+        delay (Milliseconds 5.0)
+        ok <- runRIO' (offer q 7 :: RIO () () Boolean)
+        ok `shouldEqual` true
+        v <- runRIO' (take q :: RIO () () (Maybe Int))
+        v `shouldEqual` Just 7
 
     describe "bounded" do
       it "respects capacity by blocking the producer" do
