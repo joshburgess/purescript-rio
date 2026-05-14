@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.STM.TSemaphore`: one additional unit test pinning that
+  `withTSemaphore` releases the permit after a fiber kill. The
+  docstring promises release on every termination path
+  ("success, typed failure, defect, kill"). The first three
+  paths were already pinned; the kill case was not. The new
+  test forks an `Aff` running a `withTSemaphore` action that
+  sleeps, kills the fiber mid-action, and asserts the permit
+  count returns to its initial value, so the full bracket
+  contract is documented. Whole-package run goes `413 -> 414`
+  tests passing.
 - `RIO.Core`: one additional unit test pinning that `unsafeRunRIO`
   surfaces a typed failure on the `Left` branch of its
   `Aff (Either (Variant e) a)` result. The existing test only

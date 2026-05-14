@@ -4,7 +4,7 @@ import Prelude
 
 import Data.Array (range)
 import Data.Traversable (traverse)
-import Effect.Aff (Milliseconds(..), attempt, delay, error)
+import Effect.Aff (Milliseconds(..), attempt, delay, error, forkAff, killFiber)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -141,5 +141,22 @@ spec = describe "RIO.STM.TSemaphore" do
       program :: RIO () () Unit
       program = withTSemaphore sem (die (error "boom"))
     _ <- attempt (runRIO' program)
+    a <- runRIO' (atomically (availableTSemaphore sem) :: RIO () () Int)
+    a `shouldEqual` 1
+
+  it "withTSemaphore releases the permit after a fiber kill" do
+    -- The docstring promises the permit is released on every
+    -- termination path: "success, typed failure, defect, kill".
+    -- Success, typed failure, and defect are pinned above; this
+    -- test pins the kill case so the full bracket contract is
+    -- documented.
+    sem <- runRIO' (atomically (newTSemaphore 1) :: RIO () () TSemaphore)
+    let
+      program :: RIO () () Unit
+      program = withTSemaphore sem (liftAff (delay (Milliseconds 50.0)))
+    f <- forkAff (runRIO' program)
+    liftAff (delay (Milliseconds 5.0))
+    killFiber (error "test-cancel") f
+    liftAff (delay (Milliseconds 10.0))
     a <- runRIO' (atomically (availableTSemaphore sem) :: RIO () () Int)
     a `shouldEqual` 1
