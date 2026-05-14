@@ -43,7 +43,10 @@ package:
       - integers
       - newtype
       - now
+      - foldable-traversable
+      - maybe
       - prelude
+      - quickcheck
       - spec
       - spec-node
       - tuples

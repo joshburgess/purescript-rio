@@ -32,6 +32,7 @@ import Test.RIO.SinkSpec as SinkSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.StreamSpec as StreamSpec
 import Test.RIO.Stream.ParSpec as StreamParSpec
+import Test.RIO.Stream.PropertiesSpec as StreamPropertiesSpec
 import Test.RIO.Stream.ResourceSpec as StreamResourceSpec
 import Test.RIO.STMSpec as STMSpec
 import Test.RIO.STM.TMapSpec as TMapSpec
@@ -64,6 +65,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   HubSpec.spec
   StreamSpec.spec
   StreamParSpec.spec
+  StreamPropertiesSpec.spec
   StreamResourceSpec.spec
   SinkSpec.spec
   STMSpec.spec
