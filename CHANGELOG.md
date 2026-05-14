@@ -11,6 +11,16 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Hub`: one additional unit test pinning the `unsubscribe`
+  smart constructor's docstring promise that it is "Equivalent
+  to running that action directly; provided for readability."
+  The existing tests all call `sub.unsubscribe` (the action
+  inside the returned record) but never exercise the exported
+  `unsubscribe` wrapper. The new test runs `unsubscribe
+  sub.unsubscribe`, asserts the subscriber count returns to
+  zero, and asserts a subsequent `publish` is not delivered
+  to the removed subscriber's queue. Whole-package run goes
+  `403 -> 404` tests passing.
 - `RIO.Tracer`: one additional unit test pinning the `SpanInterrupted`
   status, the only `SpanStatus` constructor with no direct test
   coverage. The docstring promises that "SpanInterrupted means the

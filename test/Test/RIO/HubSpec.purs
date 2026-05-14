@@ -8,7 +8,7 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 
 import RIO.Core (RIO, runRIO')
-import RIO.Hub (make, publish, publishAll, subscribe, subscriberCount)
+import RIO.Hub (make, publish, publishAll, subscribe, subscriberCount, unsubscribe)
 import RIO.Queue (poll, take)
 
 spec :: Spec Unit
@@ -115,6 +115,30 @@ spec = do
       r <- runRIO' program
       r.a `shouldEqual` [ Just 1, Just 2, Just 3 ]
       r.b `shouldEqual` [ Just 1, Just 2, Just 3 ]
+
+    it "the `unsubscribe` smart constructor behaves identically to running the action directly" do
+      -- Docstring promise: `unsubscribe action = action` is
+      -- "Equivalent to running that action directly; provided
+      -- for readability." Pin that running the returned action
+      -- through `unsubscribe` removes the subscriber just like
+      -- calling `sub.unsubscribe` would.
+      hub <- liftEffect (make :: _ (_ Int))
+      let
+        program
+          :: RIO () ()
+               { afterAdd :: Int, afterRemove :: Int, drained :: Maybe Int }
+        program = do
+          sub <- subscribe hub
+          afterAdd <- liftEffect (subscriberCount hub)
+          unsubscribe sub.unsubscribe
+          publish hub 99
+          afterRemove <- liftEffect (subscriberCount hub)
+          drained <- poll sub.queue
+          pure { afterAdd, afterRemove, drained }
+      r <- runRIO' program
+      r.afterAdd `shouldEqual` 1
+      r.afterRemove `shouldEqual` 0
+      r.drained `shouldEqual` Nothing
 
     it "an unsubscribed consumer does not receive subsequent publishes" do
       hub <- liftEffect (make :: _ (_ Int))
