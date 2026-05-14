@@ -240,6 +240,42 @@ spec = do
           Left _, Left _ -> pure unit
           _, _ -> 1 `shouldEqual` 0
 
+      it "layer1's finalizer still fires when layer2 fails inside combine" do
+        -- Docstring promise on `combine`: "Both layers run in
+        -- the same surrounding scope; their finalizers join
+        -- the scope's stack and fire LIFO on exit." The pinned
+        -- LIFO test exercises only the success path. The
+        -- "propagates failure from either side" test asserts
+        -- only the `Left _` shape and never inspects whether
+        -- the FIRST layer's already-registered finalizer
+        -- fired after the SECOND layer failed. A refactor of
+        -- `combine` that allocated a separate scope per layer
+        -- (or otherwise bypassed the surrounding-scope
+        -- guarantee) would still return `Left _` and pass the
+        -- existing test, but `close-1` would silently never
+        -- fire. Pin the scope-shared half by registering a
+        -- finalizer in layer1, failing in layer2, and asserting
+        -- the finalizer ran.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          layer1 :: Layer () (boom :: Unit) (a :: Int)
+          layer1 = fromRIO do
+            scope <- ask (Proxy :: Proxy "scope")
+            liftAff (push "open-1")
+            _ <- addFinalizer scope (push "close-1")
+            pure { a: 1 }
+
+          layer2 :: Layer () (boom :: Unit) (b :: Int)
+          layer2 = fromRIO (fail (Proxy :: Proxy "boom") unit)
+        result <- buildLayer (layer1 <+> layer2)
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "open-1", "close-1" ]
+
   describe "RIO.Layer (Phase 5.3)" do
     describe "provideLayer" do
       it "feeds the layer's services into the program and runs it" do
