@@ -3,6 +3,7 @@ module Test.RIO.Schedule.PropertiesSpec (spec) where
 import Prelude
 
 import Data.Foldable (for_)
+import Data.Tuple.Nested (type (/\), (/\))
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -13,7 +14,7 @@ import Test.Spec.Assertions (shouldEqual)
 
 import RIO.Clock (Clock)
 import RIO.Core (RIO, provideAll, runRIO')
-import RIO.Schedule (recurs, repeat)
+import RIO.Schedule (andThen, intersect, recurs, repeat)
 import RIO.Test.Clock (newTestClock)
 
 forAll :: forall a. Gen a -> (a -> Aff Unit) -> Aff Unit
@@ -50,3 +51,49 @@ spec = describe "RIO.Schedule (property tests)" do
       count <- liftEffect (Ref.read counter)
       result `shouldEqual` (n + 1)
       count `shouldEqual` (n + 1)
+
+  it "intersect (recurs n) (recurs m) under repeat runs min n m + 1 times" do
+    -- Docstring promise: `intersect` says `Done` as soon as either
+    -- side does. Paired with `repeat`, that translates to running
+    -- the action `min n m + 1` times: one initial run, then the
+    -- smaller schedule exhausts first and stops the loop.
+    forAll ((/\) <$> smallNat <*> smallNat :: Gen (Int /\ Int))
+      \(n /\ m) -> do
+        counter <- liftEffect (Ref.new 0)
+        tc <- newTestClock
+        let
+          action :: RIO () () Int
+          action = liftEffect (Ref.modify (_ + 1) counter)
+
+          program :: RIO (clock :: Clock) () Int
+          program = repeat (intersect (recurs n) (recurs m)) action
+
+        result <- runRIO' (provideAll { clock: tc.clock } program)
+        count <- liftEffect (Ref.read counter)
+        let expected = min n m + 1
+        result `shouldEqual` expected
+        count `shouldEqual` expected
+
+  it "andThen (recurs n) (recurs m) under repeat runs n + m + 1 times" do
+    -- Docstring promise: `andThen sa sb` runs `sa` to completion
+    -- then `sb`. `recurs n` returns `Continue` exactly `n` times
+    -- and `andThen` consults `sb` in the same step where `sa`
+    -- returns `Done` (the transition does not waste a step), so
+    -- the combined schedule yields `n + m` total continuations
+    -- and `repeat` runs the action `n + m + 1` times.
+    forAll ((/\) <$> smallNat <*> smallNat :: Gen (Int /\ Int))
+      \(n /\ m) -> do
+        counter <- liftEffect (Ref.new 0)
+        tc <- newTestClock
+        let
+          action :: RIO () () Int
+          action = liftEffect (Ref.modify (_ + 1) counter)
+
+          program :: RIO (clock :: Clock) () Int
+          program = repeat (andThen (recurs n) (recurs m)) action
+
+        result <- runRIO' (provideAll { clock: tc.clock } program)
+        count <- liftEffect (Ref.read counter)
+        let expected = n + m + 1
+        result `shouldEqual` expected
+        count `shouldEqual` expected
