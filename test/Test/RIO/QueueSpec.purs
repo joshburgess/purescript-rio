@@ -185,3 +185,35 @@ spec = do
         a `shouldEqual` Just 10
         b `shouldEqual` Just 20
         c `shouldEqual` Nothing
+
+      it "bounded 0 blocks every offer immediately (no implicit buffer)" do
+        -- `offer`'s docstring promises "On unbounded queues this
+        -- is non-blocking and always returns `true`. On bounded
+        -- queues it blocks while the queue is at capacity". The
+        -- bounded-capacity check is `Array.length state.items
+        -- >= cap`. At `bounded 0` the very first offer (with
+        -- items = []) must park because `0 >= 0`. A regression
+        -- that changed the guard to a strict `> cap` would
+        -- buffer one item beyond capacity; the existing
+        -- "respects capacity by blocking the producer" test
+        -- uses `bounded 1` where `1 > 1` would still block on
+        -- the SECOND offer, so the regression slips through.
+        -- Pin the boundary by parking the first offer on a
+        -- zero-capacity queue and asserting (a) it stays
+        -- blocked, (b) shutdown wakes it with `false`.
+        q <- liftEffect (bounded 0)
+        log <- liftEffect (Ref.new ([] :: Array String))
+        result <- liftEffect (Ref.new (Nothing :: Maybe Boolean))
+        f <- forkAff do
+          ok <- runRIO' (offer q 42 :: RIO () () Boolean)
+          liftEffect (Ref.write (Just ok) result)
+          liftEffect (Ref.modify_ (_ <> [ "offered" ]) log)
+        delay (Milliseconds 10.0)
+        before <- liftEffect (Ref.read log)
+        before `shouldEqual` []
+        runRIO' (shutdown q :: RIO () () Unit)
+        _ <- joinFiber f
+        after <- liftEffect (Ref.read log)
+        outcome <- liftEffect (Ref.read result)
+        after `shouldEqual` [ "offered" ]
+        outcome `shouldEqual` Just false
