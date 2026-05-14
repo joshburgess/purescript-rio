@@ -155,6 +155,21 @@ jsonSpec = describe "flattenJson" do
     isLeft (flattenJson (parseJsonOrCrash "42")) `shouldEqual` true
     isLeft (flattenJson (parseJsonOrCrash "\"oops\"")) `shouldEqual` true
 
+  it "rejects top-level booleans and arrays" do
+    -- The previous test pinned that 42 and a string are rejected
+    -- as top-level values. Cover the remaining non-object cases
+    -- so the "must be an object" contract is enforced across the
+    -- whole non-object surface, not just numbers and strings.
+    isLeft (flattenJson (parseJsonOrCrash "true")) `shouldEqual` true
+    isLeft (flattenJson (parseJsonOrCrash "false")) `shouldEqual` true
+    isLeft (flattenJson (parseJsonOrCrash "[1, 2, 3]")) `shouldEqual` true
+
+  it "treats a top-level null as an empty map" do
+    -- Docstring promise: "top-level null → empty map". Pin this
+    -- so the "must be an object" rejection above is not silently
+    -- widened to include null.
+    flattenJson (parseJsonOrCrash "null") `shouldYield` Map.empty
+
   it "drops a nested null but keeps its siblings" do
     flattenJson
       ( parseJsonOrCrash

@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `rio-config-file`: two additional unit tests in `flattenJson`
+  for top-level shape handling. The previous coverage rejected
+  `42` and a string but never pinned the rest of the non-object
+  surface, nor the documented `null` exception. Add (a) a test
+  that rejects top-level `true`, `false`, and an array; and (b)
+  a test that pins the docstring promise that a top-level
+  `null` returns an empty map (so the "must be an object"
+  rejection is not silently widened to include `null`).
+  Sub-package run goes `31 -> 33` tests passing.
 - `RIO.Config`: two additional unit tests for the `boolean`
   primitive. The previous test only covered `"yes"` as a single
   truthy value, but the docstring promises a much wider
