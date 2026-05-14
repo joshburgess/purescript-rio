@@ -742,6 +742,45 @@ spec = do
         Array.elem "worker:start" order `shouldEqual` true
         Array.elem "scope:exit" order `shouldEqual` true
         Array.elem "worker:should-not-fire" order `shouldEqual` false
+
+      it "interrupts the fiber when the scope exits with a typed failure" do
+        -- `forkScoped`'s docstring promises that the child is
+        -- interrupted "when the scope exits (success, typed
+        -- failure, defect, or kill), an `interrupt` is sent to
+        -- the fiber as part of the scope's LIFO finalizer
+        -- pass." The existing test above only covers the
+        -- success path. If `forkScoped` were refactored to
+        -- wrap cleanup in `Aff.finally` around the inner
+        -- body rather than register it on the scope, the
+        -- finalizer would still fire on success but would be
+        -- bypassed when the scope body exits via a typed
+        -- failure (which surfaces as `Left v` from the
+        -- bracket release rather than as an Aff exception).
+        -- Pin the typed-failure exit path so all four
+        -- termination paths the docstring mentions are
+        -- documented in tests.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          worker :: forall r. RIO r () Unit
+          worker = do
+            liftAff (push "worker:start")
+            liftAff (delay (Milliseconds 500.0))
+            liftAff (push "worker:should-not-fire")
+
+          program :: RIO () (boom :: Unit) Unit
+          program = scoped do
+            scope <- ask (Proxy :: Proxy "scope")
+            _ <- forkScoped scope worker
+            liftAff (delay (Milliseconds 20.0))
+            fail (Proxy :: Proxy "boom") unit
+
+        _ <- runRIO program
+        liftAff (delay (Milliseconds 80.0))
+        order <- liftEffect (Ref.read events)
+        Array.elem "worker:start" order `shouldEqual` true
+        Array.elem "worker:should-not-fire" order `shouldEqual` false
   where
   nowMs = do
     instant <- Now.now
