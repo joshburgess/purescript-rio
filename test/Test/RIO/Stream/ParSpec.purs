@@ -431,6 +431,41 @@ spec = do
           Right _ ->
             Spec.fail "expected partition to surface the typed failure"
 
+      it "propagates a defect through a bucket's pull" do
+        -- Docstring promise (parallel to `broadcast`'s
+        -- defect pin): "the first observed producer-side
+        -- failure or defect shuts every bucket down, and
+        -- every consumer surfaces the same captured cause on
+        -- its next pull." The typed-failure half is pinned
+        -- above; `partition`'s producer
+        -- (`partitionProducer`) is a separate function from
+        -- `broadcastProducer` and `produce`, so a regression
+        -- that swapped `attemptCause` for `attempt` in
+        -- `partitionProducer` (or otherwise mis-handled the
+        -- `Die` case) would still pass the other defect tests
+        -- but break here. Only one bucket is run for the
+        -- same reason as `broadcast`'s defect pin: a second
+        -- consumer that also propagates the defect would
+        -- leave an orphan fiber whose error escapes to the
+        -- runtime top level.
+        let
+          source :: Stream () () Int
+          source = mapM
+            (\_ -> die (error "kaboom"))
+            (fromArray [ 1 ])
+
+          program :: RIO () () (Array Int)
+          program = do
+            buckets <- partition 2 4 identity source
+            case Array.index buckets 0 of
+              Nothing -> pure []
+              Just s -> runCollect s
+        r <- attempt (runRIO' program)
+        case r of
+          Left _ -> pure unit
+          Right _ -> Spec.fail
+            "expected partition to surface the defect on the bucket pull"
+
       it "bufferSize <= 0 is clamped to at least 1 (no crash, all elements routed)" do
         -- The docstring promises "Each bucket has its own
         -- bounded queue of size `bufferSize` (clamped to at
