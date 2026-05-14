@@ -343,6 +343,24 @@ spec = do
         outputs <- runRIO' (collectOutputs 5 sched)
         outputs `shouldEqual` [ 10, 20, 30 ]
 
+      it "preserves the per-step delay of the underlying schedule" do
+        -- Docstring promise: "The cadence (number of steps and
+        -- per-step delay) is preserved; only the output side
+        -- changes." The "transforms output" test above uses
+        -- `recurs 3` whose delay is `Milliseconds 0.0`, so a
+        -- regression that silently zeroed the delay inside
+        -- `mapSchedule` would still satisfy that test. Pin the
+        -- per-step-delay half of the promise by mapping over
+        -- `spaced (Milliseconds 100.0)` and asserting the
+        -- collected delays are unchanged.
+        let
+          sched =
+            mapSchedule (\n -> n * 10) (spaced (Milliseconds 100.0))
+              :: Schedule () Unit Int
+        delays <- runRIO' (collectDelays 3 sched)
+        delays `shouldEqual`
+          [ Milliseconds 100.0, Milliseconds 100.0, Milliseconds 100.0 ]
+
     describe "andThen" do
       it "emits Left outputs from the first schedule, then Right from the second" do
         let
