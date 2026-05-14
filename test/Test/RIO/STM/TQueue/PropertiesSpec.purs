@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Array (length) as Array
 import Data.Foldable (for_)
+import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
@@ -19,6 +20,7 @@ import RIO.STM.TQueue
   , lengthTQueue
   , newTQueue
   , readTQueue
+  , tryReadTQueue
   , writeTQueue
   )
 
@@ -64,3 +66,23 @@ spec = describe "RIO.STM.TQueue (property tests)" do
           atomically (isEmptyTQueue q)
       r <- runRIO' program
       r `shouldEqual` (Array.length xs == 0)
+
+  it "tryReadTQueue on a drained queue returns Nothing" do
+    -- After writing `xs` and then `tryReadTQueue`-ing exactly
+    -- `Array.length xs` times, the queue must be empty and the
+    -- next `tryReadTQueue` must report `Nothing`. The unit pin
+    -- for `tryReadTQueue` covers the non-empty case; pin the
+    -- drain-to-empty boundary across arbitrary input batches so
+    -- a regression that left a sentinel after the final read
+    -- (or one that mis-counted on `lengthTQueue`-based drains)
+    -- is caught.
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let
+        program :: RIO () () (Maybe Int)
+        program = do
+          q <- atomically newTQueue
+          for_ xs \x -> atomically (writeTQueue q x)
+          _ <- traverse (\_ -> atomically (tryReadTQueue q)) xs
+          atomically (tryReadTQueue q)
+      r <- runRIO' program
+      r `shouldEqual` Nothing
