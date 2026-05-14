@@ -326,6 +326,40 @@ spec = do
         let elapsed = elapsedMs startMs endMs
         (elapsed >= 90 && elapsed < 190) `shouldEqual` true
 
+      it "cancels the slow side when the fast side fails" do
+        -- Docstring promise: zipPar shares parTraverse's failure
+        -- semantics: "the first Left cancels the other action and
+        -- is surfaced on the parent's row." The pinned "surfaces
+        -- the left action's failure first" test only checks that
+        -- a failure surfaces; the cancellation half is unpinned.
+        -- A regression that dropped the `throwError` after the
+        -- failure-ref write (or used a non-short-circuiting
+        -- applicative) would still surface a Left v but would
+        -- let the sibling run to completion. Pin the
+        -- cancellation half: a fast-failing left vs a slow
+        -- counter bump on the right; after the call returns and
+        -- the right's would-be-deadline passes, the counter must
+        -- still be 0.
+        counter <- liftEffect (Ref.new (0 :: Int))
+        let
+          leftFast :: RIO () (boom :: Unit) Int
+          leftFast = do
+            liftAff (delay (Milliseconds 5.0))
+            fail (Proxy :: Proxy "boom") unit
+
+          rightSlow :: RIO () (boom :: Unit) Int
+          rightSlow = do
+            liftAff (delay (Milliseconds 100.0))
+            liftEffect (Ref.modify_ (_ + 1) counter)
+            pure 1
+
+          prog :: RIO () (boom :: Unit) (Tuple Int Int)
+          prog = zipPar leftFast rightSlow
+        _ <- runRIO prog
+        liftAff (delay (Milliseconds 150.0))
+        seen <- liftEffect (Ref.read counter)
+        seen `shouldEqual` 0
+
   describe "RIO.Concurrency (Phase 6.3)" do
     describe "race" do
       it "the faster branch wins" do
