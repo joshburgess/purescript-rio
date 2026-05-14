@@ -289,6 +289,20 @@ spec = describe "RIO.Stream (property tests)" do
       right <- runRIO' (runCollect (fromArray [ x ]))
       left `shouldEqual` right
 
+  it "take n s <> drop n s ≡ s under runCollect" do
+    -- Prefix/suffix law: splitting at index `n` and concatenating
+    -- the two halves recovers the original stream. The unit pins
+    -- cover `take 0`, `take` overshooting, and `drop` overshooting
+    -- in isolation; pin the recombination across arbitrary
+    -- `(n, xs)` pairs so a regression that off-by-one'd the
+    -- boundary (`take n` and `drop n` disagreeing on whether index
+    -- `n` is "in" the prefix) is caught.
+    forAll ((/\) <$> arbitrary <*> arbitrary :: Gen (Int /\ Array Int))
+      \(n /\ xs) -> do
+        prefix <- runRIO' (runCollect (take n (fromArray xs)))
+        suffix <- runRIO' (runCollect (drop n (fromArray xs)))
+        (prefix <> suffix) `shouldEqual` xs
+
   it "filter (p ∘ f) (map f s) ≡ map f (filter (p ∘ f) s)" do
     forAll (arbitrary :: Gen (Array Int)) \xs -> do
       let
