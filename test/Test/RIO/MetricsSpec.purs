@@ -2,13 +2,14 @@ module Test.RIO.MetricsSpec (spec) where
 
 import Prelude
 
+import Effect.Aff (attempt, error)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fail, provideAll, runRIO, runRIO')
+import RIO.Core (RIO, die, fail, provideAll, runRIO, runRIO')
 import RIO.Metrics
   ( Metrics
   , incrementCounter
@@ -135,6 +136,26 @@ spec = describe "RIO.Metrics" do
         incrementCounter "before"
         fail (Proxy :: Proxy "boom") unit
     _ <- runRIO (provideAll { metrics: rec.metrics } program)
+    records <- liftEffect rec.snapshot
+    records `shouldEqual`
+      [ { kind: Counter, name: "before", value: 1.0 } ]
+
+  it "emissions before a defect survive in the snapshot" do
+    -- Docstring promise: "newRecordingMetrics returns the service
+    -- plus a snapshot action that returns every recorded emission
+    -- in order." The "every emission" promise is pinned for the
+    -- typed-failure path above; the symmetric defect path (`die`)
+    -- has its own pin in LoggerSpec but no equivalent in
+    -- MetricsSpec. Pin it here so a future refactor that adds
+    -- buffering / batching / flush-on-exit to the recording
+    -- backend cannot regress one termination path silently.
+    rec <- liftAff newRecordingMetrics
+    let
+      program :: RIO (metrics :: Metrics) () Unit
+      program = do
+        incrementCounter "before"
+        die (error "kaboom")
+    _ <- attempt (runRIO' (provideAll { metrics: rec.metrics } program))
     records <- liftEffect rec.snapshot
     records `shouldEqual`
       [ { kind: Counter, name: "before", value: 1.0 } ]
