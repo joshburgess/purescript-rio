@@ -27,6 +27,7 @@ import Test.RIO.RandomSpec as RandomSpec
 import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.Resource.DoSpec as ResourceDoSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
+import Test.RIO.Schedule.PropertiesSpec as SchedulePropertiesSpec
 import Test.RIO.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.SinkSpec as SinkSpec
 import Test.RIO.Sink.PropertiesSpec as SinkPropertiesSpec
@@ -61,6 +62,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ConfigSpec.spec
   RotatingSpec.spec
   ScheduleSpec.spec
+  SchedulePropertiesSpec.spec
   SemaphoreSpec.spec
   QueueSpec.spec
   HubSpec.spec
