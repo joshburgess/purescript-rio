@@ -299,6 +299,23 @@ spec = do
           Right s -> show s `shouldEqual` "<redacted>"
           Left _ -> fail "expected the secret to load"
 
+      it "round-trips through unSecret to the original string" do
+        -- Docstring promise: `secret`'s "value is identical to
+        -- `string key` but wrapped so its `Show` instance
+        -- redacts it." The pinned "redacts the value in its
+        -- Show instance" test only checks `show s == "<redacted>"`,
+        -- which any wrapper around any string (scrambled,
+        -- truncated, hashed, empty) would satisfy because the
+        -- `Show` instance ignores the payload. Pin the
+        -- "identical to `string key`" half by extracting the
+        -- payload via `unSecret` and asserting it equals the
+        -- raw value the source supplied.
+        let src = mapSource (Map.singleton "API_KEY" "my-secret-token")
+        r <- runWith src (secret "API_KEY")
+        case r of
+          Right s -> unSecret s `shouldEqual` "my-secret-token"
+          Left _ -> fail "expected the secret to load"
+
     describe "prettyConfigError" do
       it "renders MissingKey on a single line with the bare key" do
         prettyConfigError (MissingKey [] "DATABASE_URL")
