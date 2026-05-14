@@ -175,6 +175,31 @@ spec = describe "RIO.Tracer" do
           ]
       _ -> 1 `shouldEqual` Array.length spans
 
+  it "addAttribute targets the innermost active span (not the outermost)" do
+    -- Docstring promise: "Attach a string attribute to the
+    -- currently-active span." The pinned `addAttribute attaches a
+    -- key/value to the currently-active span` test opens only a
+    -- single `withSpan` and calls `addAttribute` from its body, so
+    -- a regression that resolved the target by reading the
+    -- *outermost* open span instead of the currently-active span
+    -- would still pass it: with only one span open, "outermost"
+    -- and "currently-active" coincide. Pin the diverging case
+    -- under nesting: an `addAttribute` issued from inside `inner`
+    -- must land on `inner`, never on `outer`.
+    rec <- liftAff newRecordingTracer
+    let
+      program :: RIO (tracer :: Tracer) () Unit
+      program = withSpan "outer" do
+        withSpan "inner" do
+          addAttribute "k" "v"
+    _ <- runRIO (provideAll { tracer: rec.tracer } program)
+    spans <- liftEffect rec.snapshot
+    case spans of
+      [ outer, inner ] -> do
+        outer.attributes `shouldEqual` []
+        inner.attributes `shouldEqual` [ Tuple "k" "v" ]
+      _ -> 1 `shouldEqual` Array.length spans
+
   it "no active span: addAttribute is a no-op (does not crash)" do
     rec <- liftAff newRecordingTracer
     let
