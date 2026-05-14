@@ -418,6 +418,38 @@ spec = do
         outputs <- runRIO' (collectOutputs 10 sched)
         outputs `shouldEqual` [ Left 1, Left 2, Right 1, Right 2 ]
 
+      it "preserves each phase's per-step delay across the sa->sb transition" do
+        -- The docstring example shows "3 fast retries, then back
+        -- off forever" via `andThen (recurs 3) (exponential
+        -- ...)`. That phrasing implies each phase's cadence is
+        -- preserved across the transition, but the only existing
+        -- `andThen` test uses two `recurs N` schedules whose
+        -- delays are both `Milliseconds 0.0`, so a regression
+        -- that zeroed all delays (or stuck on `sa`'s delay even
+        -- after the transition) would still pass it. Pin the
+        -- per-phase delay-preservation half by stitching a
+        -- finite 50ms phase (`intersect (recurs 2) (spaced 50)`,
+        -- which bounds at 2 steps and uses 50ms delay) to an
+        -- infinite 200ms phase (`spaced 200`). The collected
+        -- delays must reflect each phase's cadence: 50, 50, 200,
+        -- 200.
+        let
+          sa :: Schedule () Unit (Tuple Int Int)
+          sa = intersect (recurs 2) (spaced (Milliseconds 50.0))
+
+          sb :: Schedule () Unit Int
+          sb = spaced (Milliseconds 200.0)
+
+          sched :: Schedule () Unit (Either (Tuple Int Int) Int)
+          sched = andThen sa sb
+        delays <- runRIO' (collectDelays 4 sched)
+        delays `shouldEqual`
+          [ Milliseconds 50.0
+          , Milliseconds 50.0
+          , Milliseconds 200.0
+          , Milliseconds 200.0
+          ]
+
     describe "whileInput" do
       it "stops immediately when the predicate is false" do
         let
