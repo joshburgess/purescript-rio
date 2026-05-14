@@ -163,6 +163,29 @@ spec = describe "RIO.Sink" do
         )
       r `shouldEqual` [ 2, 4 ]
 
+    it "filterIn: filtered-out elements do not count against an inner take's budget" do
+      -- The `filterIn` docstring promises that inputs failing
+      -- the predicate are dropped "before feeding them to the
+      -- underlying sink." The existing test pairs `filterIn`
+      -- with `collect`, which never halts early and has no
+      -- input-count budget, so it can't observe whether a
+      -- predicate-failing input is silently forwarded to the
+      -- inner sink's `k`. A regression that called `k i` for
+      -- both branches of the predicate (instead of recycling
+      -- the wrapped sink) would have failing inputs eating
+      -- the budget of a counting inner sink like `take 2`,
+      -- and `filterIn even (take 2)` would halt early on the
+      -- first odd input rather than wait for two evens. Pin
+      -- the recycle-not-forward behaviour with `take 2` over
+      -- `[1, 2, 3, 4, 5]`: only `[2, 4]` may be collected,
+      -- and `5` is never pulled.
+      r <- runRIO'
+        ( Sink.runSink
+            (Sink.filterIn (\n -> n `mod` 2 == 0) (Sink.take 2))
+            source
+        )
+      r `shouldEqual` [ 2, 4 ]
+
     it "andThen sequences two sinks at the same stream position" do
       let
         sink = Sink.head `Sink.andThen` \mFirst ->
