@@ -17,7 +17,16 @@ import Type.Proxy (Proxy(..))
 
 import RIO.Clock (Clock)
 import RIO.Core (RIO, fail, provideAll, runRIO, runRIO')
-import RIO.Schedule (andThen, intersect, mapSchedule, recurs, repeat, retry)
+import RIO.Schedule
+  ( andThen
+  , intersect
+  , mapSchedule
+  , recurs
+  , repeat
+  , retry
+  , retryOrElse
+  , whileInput
+  )
 import RIO.Test.Clock (newTestClock)
 
 forAll :: forall a. Gen a -> (a -> Aff Unit) -> Aff Unit
@@ -129,6 +138,77 @@ spec = describe "RIO.Schedule (property tests)" do
         Right _ ->
           count `shouldEqual` (-1)
       count `shouldEqual` (n + 1)
+
+  it "whileInput (const true) (recurs n) ≡ recurs n under repeat" do
+    -- Docstring promise: `whileInput pred s` delegates to `s`'s
+    -- decision whenever `pred` holds. A `const true` predicate is
+    -- the identity case: total invocations must match plain
+    -- `recurs n` (`n + 1` under repeat). A regression that, e.g.,
+    -- decremented one continuation per `whileInput` wrap would
+    -- surface as `n` invocations instead of `n + 1`.
+    forAll smallNat \n -> do
+      counter <- liftEffect (Ref.new 0)
+      tc <- newTestClock
+      let
+        action :: RIO () () Int
+        action = liftEffect (Ref.modify (_ + 1) counter)
+
+        program :: RIO (clock :: Clock) () Int
+        program =
+          repeat (whileInput (\_ -> true) (recurs n)) action
+
+      result <- runRIO' (provideAll { clock: tc.clock } program)
+      count <- liftEffect (Ref.read counter)
+      result `shouldEqual` (n + 1)
+      count `shouldEqual` (n + 1)
+
+  it "whileInput (const false) (recurs n) runs the action exactly once" do
+    -- Dual to the `const true` case. The predicate gates every
+    -- query, so the schedule says `Done` immediately on the
+    -- first consultation. `repeat` runs the action once initially
+    -- and then exits without recurring, regardless of `n`.
+    forAll smallNat \n -> do
+      counter <- liftEffect (Ref.new 0)
+      tc <- newTestClock
+      let
+        action :: RIO () () Int
+        action = liftEffect (Ref.modify (_ + 1) counter)
+
+        program :: RIO (clock :: Clock) () Int
+        program =
+          repeat (whileInput (\_ -> false) (recurs n)) action
+
+      result <- runRIO' (provideAll { clock: tc.clock } program)
+      count <- liftEffect (Ref.read counter)
+      result `shouldEqual` 1
+      count `shouldEqual` 1
+
+  it "retryOrElse on an always-succeeding action skips the fallback" do
+    -- Docstring promise: "On exhaustion the fallback runs with
+    -- the final failure." A successful action never reaches that
+    -- branch, so the fallback must not fire and the action's
+    -- value passes through unchanged. Pin across small schedule
+    -- budgets so the contract is exercised at `n = 0`
+    -- (no-retry-allowed) and small-`n` cases.
+    forAll smallNat \n -> do
+      counter <- liftEffect (Ref.new 0)
+      tc <- newTestClock
+      let
+        action :: RIO () (boom :: Unit) Int
+        action = liftEffect (Ref.modify (_ + 1) counter)
+
+        fallback :: _ -> RIO () () Int
+        fallback _ = liftEffect (Ref.modify (_ + 100) counter)
+
+        program :: RIO (clock :: Clock) () Int
+        program = retryOrElse (recurs n) action fallback
+
+      result <- runRIO' (provideAll { clock: tc.clock } program)
+      count <- liftEffect (Ref.read counter)
+      -- The action runs exactly once (success on the first try)
+      -- and the fallback (which would have added 100) never runs.
+      result `shouldEqual` 1
+      count `shouldEqual` 1
 
   it "andThen (recurs n) (recurs m) under repeat runs n + m + 1 times" do
     -- Docstring promise: `andThen sa sb` runs `sa` to completion
