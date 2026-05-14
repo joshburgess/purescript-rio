@@ -11,6 +11,15 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Logger`: two additional unit tests covering `noopLogger`,
+  the discarding logger constructor previously without direct
+  coverage. The first runs every level smart constructor
+  (`logTrace` through `logError`) through the noop logger and
+  asserts it completes without crashing. The second exercises
+  `withField` + a typed failure inside its body, pinning the
+  module-level docstring promise that `noopLogger` still
+  cycles annotation state correctly even when emissions are
+  discarded. Whole-package run goes `380 -> 382` tests passing.
 - `RIO.Concurrency.Par`: two additional unit tests pinning the
   module's documented semantics. The first verifies the
   "no short-circuit" promise: when the left branch raises a

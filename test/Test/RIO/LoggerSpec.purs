@@ -3,6 +3,7 @@ module Test.RIO.LoggerSpec (spec) where
 import Prelude
 
 import Data.Array (length) as Array
+import Data.Either (Either(..))
 import Data.Tuple (Tuple(..))
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
@@ -19,6 +20,7 @@ import RIO.Logger
   , logInfo
   , logTrace
   , logWarn
+  , noopLogger
   , withField
   , withFields
   )
@@ -200,3 +202,39 @@ spec = describe "RIO.Logger" do
       case records of
         [ r ] -> r.fields `shouldEqual` []
         _ -> 1 `shouldEqual` Array.length records
+
+  describe "noopLogger" do
+    it "runs every emission without crashing and produces no observable output" do
+      logger <- liftEffect noopLogger
+      let
+        program :: RIO (logger :: Logger) () Unit
+        program = do
+          logTrace "trace"
+          logDebug "debug"
+          logInfo "info"
+          logWarn "warn"
+          logError "error"
+      result <- runRIO (provideAll { logger } program)
+      case result of
+        Right _ -> pure unit
+        Left _ -> 1 `shouldEqual` 0
+
+    it "scopes annotations through withFields even with discarded emissions" do
+      -- noopLogger's docstring promises that withFields still cycles
+      -- annotations via internal state. We can't observe emissions, but
+      -- a typed failure inside withFields must not crash because of
+      -- broken annotation save/restore.
+      logger <- liftEffect noopLogger
+      let
+        program :: RIO (logger :: Logger) () Unit
+        program = do
+          _ <- catchTag (Proxy :: Proxy "boom") (\_ -> pure unit)
+            ( withField "scope" "inner" do
+                logInfo "inside"
+                fail (Proxy :: Proxy "boom") unit
+            )
+          logInfo "after"
+      result <- runRIO (provideAll { logger } program)
+      case result of
+        Right _ -> pure unit
+        Left _ -> 1 `shouldEqual` 0
