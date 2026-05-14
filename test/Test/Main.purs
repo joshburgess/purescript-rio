@@ -10,6 +10,7 @@ import Test.RIO.ClockSpec as ClockSpec
 import Test.RIO.ConcurrencySpec as ConcurrencySpec
 import Test.RIO.Concurrency.ParSpec as ParSpec
 import Test.RIO.ConfigSpec as ConfigSpec
+import Test.RIO.CauseSpec as CauseSpec
 import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.DeferredSpec as DeferredSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
@@ -27,6 +28,7 @@ import Test.RIO.Resource.DoSpec as ResourceDoSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
 import Test.RIO.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
+import Test.RIO.StreamSpec as StreamSpec
 import Test.RIO.STMSpec as STMSpec
 import Test.RIO.STM.TMapSpec as TMapSpec
 import Test.RIO.STM.THubSpec as THubSpec
@@ -46,6 +48,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   LayerSpec.spec
   ConcurrencySpec.spec
   ParSpec.spec
+  CauseSpec.spec
   DeferredSpec.spec
   ClockSpec.spec
   RandomSpec.spec
@@ -54,6 +57,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   SemaphoreSpec.spec
   QueueSpec.spec
   HubSpec.spec
+  StreamSpec.spec
   STMSpec.spec
   TQueueSpec.spec
   TMapSpec.spec
