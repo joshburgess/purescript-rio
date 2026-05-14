@@ -11,6 +11,14 @@ breaking changes (see `PROJECT_BUILD_PLAN.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Deferred`: five additional unit tests covering the
+  write-once boundary between succeed and fail, the polled-after-
+  fill content for both kinds, and the multi-awaiter wake on a
+  typed failure. Deferred describe count goes `5 -> 10` and the
+  whole-package run goes `344 -> 349` tests passing. Confirms the
+  module's docstring promise that "once filled it stays filled"
+  works in both orders (succeed then fail loses, fail then succeed
+  loses).
 - `RIO.Metrics` and `RIO.Semaphore`: thirteen additional unit tests
   covering previously uncovered behaviour. `MetricsSpec` picks up
   `recordGauge` / `recordHistogram` called directly (not just via

@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), isJust, isNothing)
+import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Aff (Milliseconds(..), delay)
 import Effect.Aff.Class (liftAff)
@@ -100,3 +101,84 @@ spec = do
             pure (if r1 == r2 then Just r1 else Nothing)
         result <- runRIO program
         result `shouldEqual` (Right (Just 99) :: Either _ (Maybe Int))
+
+    describe "write-once across success and failure" do
+      it "succeedDeferred after failDeferred returns False and the failure wins" do
+        let
+          program
+            :: RIO ()
+                 (boom :: Unit)
+                 { firstFill :: Boolean, secondFill :: Boolean }
+          program = do
+            d :: _ (boom :: Unit) Int <- makeDeferred
+            first <- failDeferred d (Variant.inj (Proxy :: Proxy "boom") unit)
+            second <- succeedDeferred d 99
+            pure { firstFill: first, secondFill: second }
+        result <- runRIO program
+        result `shouldEqual`
+          ( Right { firstFill: true, secondFill: false }
+              :: Either _ { firstFill :: Boolean, secondFill :: Boolean }
+          )
+
+      it "failDeferred after succeedDeferred returns False and the value wins" do
+        let
+          program :: RIO () (boom :: Unit) Int
+          program = do
+            d :: _ (boom :: Unit) Int <- makeDeferred
+            _ <- succeedDeferred d 42
+            _ <- failDeferred d (Variant.inj (Proxy :: Proxy "boom") unit)
+            awaitDeferred d
+        result <- runRIO program
+        result `shouldEqual` (Right 42 :: Either _ Int)
+
+    describe "pollDeferred after each fill kind" do
+      it "Just (Right _) after succeedDeferred" do
+        let
+          program :: RIO () () (Maybe (Either (Variant ()) Int))
+          program = do
+            d :: _ () Int <- makeDeferred
+            _ <- succeedDeferred d 5
+            pollDeferred d
+        result <- runRIO program
+        result `shouldEqual`
+          ( Right (Just (Right 5))
+              :: Either _ (Maybe (Either (Variant ()) Int))
+          )
+
+      it "Just (Left _) after failDeferred" do
+        let
+          program
+            :: RIO ()
+                 ()
+                 (Maybe (Either (Variant (boom :: Unit)) Int))
+          program = do
+            d :: _ (boom :: Unit) Int <- makeDeferred
+            _ <- failDeferred d (Variant.inj (Proxy :: Proxy "boom") unit)
+            pollDeferred d
+        result <- runRIO program
+        let
+          ok = case result of
+            Right (Just (Left _)) -> true
+            _ -> false
+        ok `shouldEqual` true
+
+    describe "multiple awaiters on failure" do
+      it "all see the same failure" do
+        let
+          program :: RIO () (boom :: Unit) Int
+          program = do
+            d <- makeDeferred
+            f1 <- fork (awaitDeferred d)
+            f2 <- fork (awaitDeferred d)
+            _ <- fork do
+              liftAff (delay (Milliseconds 5.0))
+              _ <- failDeferred d (Variant.inj (Proxy :: Proxy "boom") unit)
+              pure unit
+            _ <- join f1
+            join f2
+        result <- runRIO program
+        let
+          ok = case result of
+            Left _ -> true
+            Right _ -> false
+        ok `shouldEqual` true
