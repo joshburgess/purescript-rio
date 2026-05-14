@@ -84,6 +84,28 @@ spec = do
               ("expected ParseError, got: " <> show other)
           Right _ -> fail "expected a failure"
 
+      it "rejects a decimal value (int accepts decimal integers only)" do
+        -- The `int` docstring promises: "The parse uses
+        -- `Data.Int.fromString`, which accepts decimal integers
+        -- and rejects everything else." The existing
+        -- "rejects an unparseable int" test feeds the parser
+        -- "notanumber", which is purely alphabetic. A regression
+        -- that swapped `Int.fromString` for `Number.fromString
+        -- >>> map Int.round` (or any other lenient parser that
+        -- accepts floats) would still reject "notanumber" but
+        -- silently accept "3.14" by rounding it. Pin the
+        -- "everything else" half of the docstring by feeding a
+        -- well-formed decimal and asserting it surfaces as
+        -- ParseError, not as a rounded int.
+        let src = mapSource (Map.singleton "N" "3.14")
+        r <- runWith src (int "N")
+        case r of
+          Left v -> case Variant.case_ # Variant.on cfgTag identity $ v of
+            ParseError [] "N" _ -> pure unit
+            other -> fail
+              ("expected ParseError, got: " <> show other)
+          Right _ -> fail "expected a failure"
+
       it "loads a boolean (accepting truthy synonyms)" do
         let src = mapSource (Map.singleton "B" "yes")
         r <- runWith src (boolean "B")
