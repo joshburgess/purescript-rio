@@ -167,6 +167,44 @@ spec = do
         ran `shouldEqual` false
         killFiber (error "test-cleanup") f
 
+      it "release wakes multiple queued waiters in one drain pass (FIFO)" do
+        -- Source-level comment on `release` / `drain` promises:
+        -- "If a waiter at the head of the queue can be satisfied
+        -- with the now-available count, wake it. Repeat as long
+        -- as the head fits." The drain loop is recursive
+        -- (`drain ref` after `head.resume`), so returning enough
+        -- permits in a single release must unblock more than one
+        -- waiter in one pass. If the recursion were silently
+        -- replaced with a non-recursive branch, only the first
+        -- waiter would wake; the second would sit at the head of
+        -- the queue forever, silently swallowing a permit. Pin
+        -- the multi-waiter wake by parking two unit-permit waiters
+        -- behind a 2-permit holder and observing that both run
+        -- after the holder releases.
+        sem <- liftEffect (make 2)
+        log <- liftEffect (Ref.new ([] :: Array String))
+        let
+          record :: String -> RIO () () Unit
+          record s = liftEffect
+            (Ref.modify_ (\xs -> xs <> [ s ]) log)
+
+          holder :: RIO () () Unit
+          holder = withPermits 2 sem
+            (liftAff (delay (Milliseconds 30.0)))
+
+          waiter :: String -> RIO () () Unit
+          waiter name = withPermit sem (record (name <> "-in"))
+        hf <- forkAff (runRIO' holder)
+        delay (Milliseconds 5.0)
+        w1 <- forkAff (runRIO' (waiter "a"))
+        delay (Milliseconds 5.0)
+        w2 <- forkAff (runRIO' (waiter "b"))
+        joinFiber hf
+        joinFiber w1
+        joinFiber w2
+        result <- liftEffect (Ref.read log)
+        result `shouldEqual` [ "a-in", "b-in" ]
+
       it "a killed waiter removes itself from the waiters list" do
         -- Source-level comment on `acquire` promises that a fiber
         -- "interrupted while waiting is removed from the waiter
