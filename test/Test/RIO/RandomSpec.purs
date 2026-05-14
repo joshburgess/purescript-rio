@@ -38,6 +38,27 @@ spec = do
         b <- runRIO' (provideAll { random: tr.random } program)
         a `shouldEqual` b
 
+      it "negative seeds and seeds shifted by the modulus produce the same stream" do
+        -- Docstring promise: "Fold a seed into `[0, modulus)`.
+        -- Negative seeds wrap; positive seeds above the modulus
+        -- get reduced." Every other test uses small positive
+        -- seeds (1, 7, 42), so the `m < 0 → m + modulus` wrap
+        -- branch of `normalize` is never exercised. Pin it by
+        -- seeding two TestRandoms with values that differ by
+        -- exactly the modulus (2147483647): they must normalise
+        -- to the same internal state and so produce equal first
+        -- draws. A regression that broke the wrap branch would
+        -- silently desynchronise these two streams.
+        let modulus = 2147483647
+        tr1 <- newTestRandom (-42)
+        tr2 <- newTestRandom (modulus - 42)
+        let
+          program :: RIO (random :: Random) () Number
+          program = nextNumber
+        a <- runRIO' (provideAll { random: tr1.random } program)
+        b <- runRIO' (provideAll { random: tr2.random } program)
+        a `shouldEqual` b
+
     describe "nextNumber" do
       it "stays inside [0, 1) across a batch" do
         tr <- newTestRandom 1
