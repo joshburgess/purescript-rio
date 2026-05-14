@@ -112,3 +112,83 @@ spec = describe "RIO.Sink (property tests)" do
             (Stream.fromArray xs)
         )
       r `shouldEqual` Tuple (Array.length xs) xs
+
+  -- Algebraic laws for Sink combinators.
+
+  it "mapResult identity ≡ id" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      left <- runRIO'
+        ( Sink.runSink
+            (Sink.mapResult identity Sink.count)
+            (Stream.fromArray xs)
+        )
+      right <- runRIO'
+        (Sink.runSink Sink.count (Stream.fromArray xs))
+      left `shouldEqual` right
+
+  it "mapResult composition: mapResult f ∘ mapResult g ≡ mapResult (f ∘ g)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let
+        f n = n + 1
+        g n = n * 2
+      left <- runRIO'
+        ( Sink.runSink
+            (Sink.mapResult f (Sink.mapResult g Sink.count))
+            (Stream.fromArray xs)
+        )
+      right <- runRIO'
+        ( Sink.runSink
+            (Sink.mapResult (f <<< g) Sink.count)
+            (Stream.fromArray xs)
+        )
+      left `shouldEqual` right
+
+  it "mapInput identity ≡ id" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      left <- runRIO'
+        ( Sink.runSink
+            (Sink.mapInput identity Sink.collect)
+            (Stream.fromArray xs)
+        )
+      right <- runRIO'
+        (Sink.runSink Sink.collect (Stream.fromArray xs))
+      left `shouldEqual` right
+
+  it "mapInput is contravariant: mapInput f ∘ mapInput g ≡ mapInput (g ∘ f)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      -- All on `Int -> Int` so the type stays Sink () () Int (Array Int)
+      -- through every step.
+      let
+        f :: Int -> Int
+        f n = n + 1
+
+        g :: Int -> Int
+        g n = n * 2
+      left <- runRIO'
+        ( Sink.runSink
+            (Sink.mapInput f (Sink.mapInput g Sink.collect))
+            (Stream.fromArray xs)
+        )
+      right <- runRIO'
+        ( Sink.runSink
+            (Sink.mapInput (g <<< f) Sink.collect)
+            (Stream.fromArray xs)
+        )
+      left `shouldEqual` right
+
+  it "zipParWith f sa sb ≡ mapResult (\\(Tuple a b) -> f a b) (zipPar sa sb)" do
+    forAll (arbitrary :: Gen (Array Int)) \xs -> do
+      let f a b = a + b
+      left <- runRIO'
+        ( Sink.runSink
+            (Sink.zipParWith f Sink.count (Sink.foldL 0 (+)))
+            (Stream.fromArray xs)
+        )
+      right <- runRIO'
+        ( Sink.runSink
+            ( Sink.mapResult (\(Tuple a b) -> f a b)
+                (Sink.zipPar Sink.count (Sink.foldL 0 (+)))
+            )
+            (Stream.fromArray xs)
+        )
+      left `shouldEqual` right
