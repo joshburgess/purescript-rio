@@ -557,6 +557,39 @@ spec = do
         peakSeen <- liftEffect (Ref.read peak)
         peakSeen `shouldEqual` 1
 
+      it "n = 0 is treated as 1 (sequential), not as zero-size chunks" do
+        -- Docstring promise: "`n <= 0` is treated as `1`
+        -- (sequential)." The pinned `n <= 1` test only covers
+        -- the upper bound (`n = 1`) of that interval; the
+        -- zero/negative half is unpinned. The implementation
+        -- guards with `if n <= 1 then 1 else n`, which feeds
+        -- into `chunksOf size as`; `chunksOf 0 _` would
+        -- recursively call itself with the same array (after a
+        -- zero-width take/drop) and loop forever. A regression
+        -- that tightened the guard to `n < 1` would silently
+        -- hang on `parTraverseN 0`. Pin the guard with `n = 0`:
+        -- the call must complete, return correct values, and
+        -- observe peak concurrency of 1.
+        inflight <- liftEffect (Ref.new (0 :: Int))
+        peak <- liftEffect (Ref.new (0 :: Int))
+        let
+          step :: Int -> RIO () () Int
+          step n = do
+            cur <- liftEffect (Ref.modify (_ + 1) inflight)
+            liftEffect (Ref.modify_ (\p -> if cur > p then cur else p) peak)
+            liftAff (delay (Milliseconds 5.0))
+            _ <- liftEffect (Ref.modify (\x -> x - 1) inflight)
+            pure (n * 10)
+
+          prog :: RIO () () (Array Int)
+          prog = parTraverseN 0 step [ 1, 2, 3 ]
+        result <- runRIO prog
+        peakSeen <- liftEffect (Ref.read peak)
+        case result of
+          Right xs -> xs `shouldEqual` [ 10, 20, 30 ]
+          Left _ -> 1 `shouldEqual` 0
+        peakSeen `shouldEqual` 1
+
       it "a typed failure in one chunk aborts the remaining chunks" do
         -- Docstring promise: "the first typed failure inside a
         -- chunk cancels its siblings and aborts the remaining
