@@ -26,8 +26,12 @@ module RIO.Postgres
   , withClientUsing
   , query
   , queryUsing
+  , queryParams
+  , queryParamsUsing
   , exec
   , execUsing
+  , execParams
+  , execParamsUsing
   , withTransaction
   , module Reexports
   ) where
@@ -38,13 +42,14 @@ import Control.Monad.Except.Trans (runExceptT)
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Either (Either(..))
 import Data.Symbol (class IsSymbol)
+import Data.Tuple.Nested ((/\))
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Prim.Row (class Cons) as Row
 import Type.Proxy (Proxy(..))
 
-import Data.Postgres.Query (class AsQuery) as Reexports
-import Data.Postgres.Query (class AsQuery) as PG
+import Data.Postgres.Query (class AsQuery, class AsQueryParams) as Reexports
+import Data.Postgres.Query (class AsQuery, class AsQueryParams) as PG
 import Data.Postgres.Result (class FromRows) as Reexports
 import Data.Postgres.Result (class FromRows) as PG
 import Effect.Aff.Postgres.Client (Client) as Reexports
@@ -170,6 +175,46 @@ queryUsing
   -> RIO r e out
 queryUsing sym q client = fromExcept sym (PG.Client.query q client)
 
+-- | Parameterized `query`. The SQL text uses `$1`, `$2`, ... and
+-- | `ps` is the tuple of values bound to those placeholders. A
+-- | single scalar binds `$1`; nested tuples (e.g. `1 /\ "foo"`)
+-- | bind in left-to-right order. The driver does the escaping, so
+-- | this is the safe way to pass user-controlled input into a
+-- | query.
+-- |
+-- | ```purescript
+-- | rows <- queryParams dbTag
+-- |   "select id, label from items where owner = $1 and id > $2"
+-- |   ("alice" /\ (100 :: Int))
+-- | ```
+queryParams
+  :: forall sym ps out r e e'
+   . IsSymbol sym
+  => Row.Cons sym PgError e' e
+  => PG.AsQueryParams ps
+  => PG.FromRows out
+  => Proxy sym
+  -> String
+  -> ps
+  -> RIO (postgres :: Postgres | r) e out
+queryParams sym text ps = query sym (text /\ ps)
+
+-- | Variant of `queryParams` that runs on a supplied client. Use
+-- | inside `withClient` / `withTransaction` to thread the same
+-- | client through several parameterized operations.
+queryParamsUsing
+  :: forall sym ps out r e e'
+   . IsSymbol sym
+  => Row.Cons sym PgError e' e
+  => PG.AsQueryParams ps
+  => PG.FromRows out
+  => Proxy sym
+  -> String
+  -> ps
+  -> PG.Client
+  -> RIO r e out
+queryParamsUsing sym text ps client = queryUsing sym (text /\ ps) client
+
 -- | Acquire a client, execute a statement (`INSERT`, `UPDATE`, ...),
 -- | release the client. Returns the number of rows the statement
 -- | affected, as reported by the driver.
@@ -196,6 +241,40 @@ execUsing
   -> PG.Client
   -> RIO r e Int
 execUsing sym q client = fromExcept sym (PG.Client.exec q client)
+
+-- | Parameterized `exec`. The SQL text uses `$1`, `$2`, ... and
+-- | `ps` is the tuple of values bound to those placeholders.
+-- |
+-- | ```purescript
+-- | inserted <- execParams dbTag
+-- |   "insert into items (id, label) values ($1, $2)"
+-- |   (7 /\ "seven")
+-- | ```
+execParams
+  :: forall sym ps r e e'
+   . IsSymbol sym
+  => Row.Cons sym PgError e' e
+  => PG.AsQueryParams ps
+  => Proxy sym
+  -> String
+  -> ps
+  -> RIO (postgres :: Postgres | r) e Int
+execParams sym text ps = exec sym (text /\ ps)
+
+-- | Variant of `execParams` that runs on a supplied client. Use
+-- | inside `withClient` / `withTransaction` to chain parameterized
+-- | statements on the same connection.
+execParamsUsing
+  :: forall sym ps r e e'
+   . IsSymbol sym
+  => Row.Cons sym PgError e' e
+  => PG.AsQueryParams ps
+  => Proxy sym
+  -> String
+  -> ps
+  -> PG.Client
+  -> RIO r e Int
+execParamsUsing sym text ps client = execUsing sym (text /\ ps) client
 
 -- | Acquire a client, issue `BEGIN`, run `use`, then `COMMIT`. If
 -- | `use` raises a typed failure, the transaction is rolled back

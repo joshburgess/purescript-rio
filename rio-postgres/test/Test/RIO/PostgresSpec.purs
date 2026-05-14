@@ -25,9 +25,12 @@ import RIO.Postgres
   ( PgError
   , Postgres
   , exec
+  , execParams
+  , execParamsUsing
   , execUsing
   , pgErrorMessage
   , query
+  , queryParams
   , withClient
   , withTransaction
   )
@@ -115,6 +118,55 @@ spec conn = do
               ("select id from rio_test_items order by id" :: String)
         result <- runWithLayer conn program
         expectRight [ 10, 20, 30 ] result
+
+    describe "parameterized queries" do
+      it "execParams binds a single scalar and queryParams reads it back" do
+        let
+          program :: RIO (postgres :: Postgres) DbErr (Array (Int /\ String))
+          program = do
+            resetTable
+            _ <- execParams dbTag
+              "insert into rio_test_items (id, label) values ($1, $2)"
+              (1 /\ "one")
+            queryParams dbTag
+              "select id, label from rio_test_items where id = $1"
+              1
+        result <- runWithLayer conn program
+        expectRight [ 1 /\ "one" ] result
+
+      it "queryParams binds multiple parameters in left-to-right order" do
+        let
+          program :: RIO (postgres :: Postgres) DbErr (Array Int)
+          program = do
+            resetTable
+            _ <- exec dbTag
+              ( "insert into rio_test_items values (1, 'a'), (2, 'b'), (3, 'c')"
+                  :: String
+              )
+            queryParams dbTag
+              "select id from rio_test_items where id >= $1 and id <= $2 order by id"
+              (2 /\ 3)
+        result <- runWithLayer conn program
+        expectRight [ 2, 3 ] result
+
+      it "execParamsUsing runs on the transaction client" do
+        let
+          program :: RIO (postgres :: Postgres) DbErr (Array Int)
+          program = do
+            resetTable
+            _ <- withTransaction dbTag \client -> do
+              _ <- execParamsUsing dbTag
+                "insert into rio_test_items (id, label) values ($1, $2)"
+                (10 /\ "ten")
+                client
+              execParamsUsing dbTag
+                "insert into rio_test_items (id, label) values ($1, $2)"
+                (20 /\ "twenty")
+                client
+            query dbTag
+              ("select id from rio_test_items order by id" :: String)
+        result <- runWithLayer conn program
+        expectRight [ 10, 20 ] result
 
     describe "withClient" do
       it "returns the client to the pool so subsequent calls succeed on a max=1 pool" do
