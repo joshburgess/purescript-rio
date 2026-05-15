@@ -65,6 +65,7 @@ import Test.RIO.Schedule.ElapsedSpec as ScheduleElapsedSpec
 import Test.RIO.Schedule.EventuallySpec as ScheduleEventuallySpec
 import Test.RIO.Schedule.FixedSpec as ScheduleFixedSpec
 import Test.RIO.Schedule.ModifyDelayMSpec as ScheduleModifyDelayMSpec
+import Test.RIO.Schedule.OutputsSpec as ScheduleOutputsSpec
 import Test.RIO.Schedule.PropertiesSpec as SchedulePropertiesSpec
 import Test.RIO.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.SinkSpec as SinkSpec
@@ -145,6 +146,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ScheduleSpec.spec
   ScheduleFixedSpec.spec
   ScheduleModifyDelayMSpec.spec
+  ScheduleOutputsSpec.spec
   ScheduleElapsedSpec.spec
   ScheduleEventuallySpec.spec
   ScheduleCollectRepetitionsTapSpec.spec

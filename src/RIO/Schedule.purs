@@ -31,8 +31,10 @@ module RIO.Schedule
   ( Schedule
   , Step(..)
   , andThen
+  , asUnit
   , collectAll
   , addDelayM
+  , delayed
   , dimap
   , elapsed
   , eventually
@@ -61,6 +63,7 @@ module RIO.Schedule
   , untilOutput
   , whileInput
   , whileOutput
+  , windowed
   ) where
 
 import Prelude
@@ -643,6 +646,66 @@ tapOutput f (Schedule s) = Schedule \i -> RIO \env -> do
     Right (Continue o d next) -> do
       _ <- unRIO (f o) env
       pure (Right (Continue o d (tapOutput f next)))
+
+-- | Discard a schedule's output, collapsing it to `Unit`. Cadence
+-- | and termination are preserved; only the output type changes.
+-- |
+-- | Equivalent to `mapSchedule (\_ -> unit)`, exposed as a named
+-- | combinator so a "I don't care about the output" call site is
+-- | self-documenting. Mirrors ZIO `Schedule.unit` (renamed here to
+-- | avoid shadowing the prelude's `unit :: Unit`).
+asUnit :: forall r i o. Schedule r i o -> Schedule r i Unit
+asUnit = mapSchedule (\_ -> unit)
+
+-- | Cap every per-step delay at `maxDelay`. Delays already at or
+-- | below the cap pass through unchanged. The decision (number of
+-- | steps, output values, termination) is preserved; only the sleep
+-- | time is clamped.
+-- |
+-- | Useful for ensuring a runaway `exponential` or `fibonacci`
+-- | backoff never sleeps for an unreasonable amount of time. Pair
+-- | with `jittered` to keep the cap soft.
+-- |
+-- | ```purescript
+-- | -- exponential backoff, but never sleep more than 30 seconds
+-- | windowed (Milliseconds 30000.0)
+-- |   (exponential (Milliseconds 100.0) 2.0)
+-- | ```
+windowed
+  :: forall r i o
+   . Milliseconds
+  -> Schedule r i o
+  -> Schedule r i o
+windowed (Milliseconds cap) = mapDelay
+  (\(Milliseconds ms) -> Milliseconds (if ms > cap then cap else ms))
+
+-- | Add a one-time delay to the first emitted step. Subsequent
+-- | steps run on the underlying schedule's normal cadence with no
+-- | adjustment.
+-- |
+-- | Use this to phase-offset a periodic schedule (so two pollers
+-- | sharing a backend don't tick in lockstep), or to give a process
+-- | a warm-up window before its first action fires.
+-- |
+-- | A `Done` first step is passed through unchanged: there is no
+-- | delay to apply if the schedule never recurs.
+-- |
+-- | ```purescript
+-- | -- wait 1s after launch, then poll every 30s on the normal cadence
+-- | delayed (Milliseconds 1000.0) (spaced (Milliseconds 30000.0))
+-- | ```
+delayed
+  :: forall r i o
+   . Milliseconds
+  -> Schedule r i o
+  -> Schedule r i o
+delayed (Milliseconds offset) (Schedule s) = Schedule \i -> RIO \env -> do
+  res <- unRIO (s i) env
+  case res of
+    Left v -> Variant.case_ v
+    Right Done -> pure (Right Done)
+    Right (Continue o (Milliseconds d) next) ->
+      pure (Right (Continue o (Milliseconds (d + offset)) next))
 
 -- | Run `action`, then repeat under `schedule`. The schedule sees
 -- | each successful result as input; while it says `Continue`, the
