@@ -28,6 +28,7 @@ import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.DeferredSpec as DeferredSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
+import Test.RIO.ExitSpec as ExitSpec
 import Test.RIO.Error.CatchSomeSpec as ErrorCatchSomeSpec
 import Test.RIO.Error.CombinatorsSpec as ErrorCombinatorsSpec
 import Test.RIO.Error.OrElseSpec as ErrorOrElseSpec
@@ -107,6 +108,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   CoreSpec.spec
   EffectAndFailSpec.spec
   EnvSpec.spec
+  ExitSpec.spec
   ErrorHandlingSpec.spec
   ErrorCombinatorsSpec.spec
   ErrorOrElseSpec.spec
