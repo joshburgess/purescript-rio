@@ -11,7 +11,7 @@ import Data.String.Pattern (Pattern(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
-import Effect.Aff (Milliseconds(..), delay)
+import Effect.Aff (Milliseconds(..), delay, error, forkAff, killFiber)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Exception (error) as Exception
@@ -34,7 +34,7 @@ import RIO.Cause
   , prettyCauseWithStack
   , raceCause
   )
-import RIO.Core (RIO, die, fail, runRIO)
+import RIO.Core (RIO, die, fail, runRIO, runRIO')
 
 type Errs = (boom :: String, oops :: Int)
 
@@ -577,6 +577,39 @@ spec = do
           _ ->
             shouldEqual ""
               "expected Sequential (Fail _) (Die _)"
+
+      it "release runs even when the body is killed mid-flight" do
+        -- Docstring promise: "The release is run through
+        -- `Aff.bracket`'s uninterruptible release phase, so a
+        -- kill landing during the body is queued until the
+        -- release completes." None of the success / typed-fail /
+        -- defect / acquire-fail pins above exercise the
+        -- kill-mid-body path: every other test runs to a
+        -- well-defined termination of the body before the
+        -- release should fire. A regression that replaced
+        -- `bracket` with a plain `try` / `finally` (which is
+        -- interruptible under some Aff versions) would still
+        -- pass every test above while skipping the release on
+        -- kill. Pin the contract by forking the program, killing
+        -- the fiber while the body is sleeping, then observing
+        -- the release counter from outside the fiber.
+        countRef <- liftEffect (Ref.new 0)
+        let
+          program :: RIO () () (Either (Cause Errs) Int)
+          program = acquireReleaseCause
+            (pure 1 :: RIO () Errs Int)
+            (\_ -> liftEffect (Ref.modify_ (_ + 1) countRef))
+            ( \_ -> do
+                liftAff (delay (Milliseconds 200.0))
+                pure 0
+            )
+        f <- forkAff (runRIO' program)
+        delay (Milliseconds 10.0)
+        killFiber (error "test-cancel") f
+        -- Give the uninterruptible release phase room to land.
+        delay (Milliseconds 50.0)
+        releases <- liftEffect (Ref.read countRef)
+        releases `shouldEqual` 1
 
       it "renders the Sequential cause via prettyCause" do
         let
