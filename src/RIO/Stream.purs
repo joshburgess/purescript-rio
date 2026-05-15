@@ -38,9 +38,15 @@ module RIO.Stream
   , flatMap
   , flatten
   , fromArray
+  , fromHub
+  , fromQueue
   , intersperse
+  , iterate
+  , iterateM
   , map
   , mapM
+  , range
+  , repeat
   , repeatM
   , runCollect
   , runDrain
@@ -51,6 +57,7 @@ module RIO.Stream
   , single
   , take
   , takeWhile
+  , tick
   , unfoldM
   , zip
   , zipWith
@@ -62,8 +69,15 @@ import Prelude hiding (map)
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
+import Effect.Aff (Milliseconds)
 
+import RIO.Clock (Clock)
+import RIO.Clock as Clock
 import RIO.Core (RIO)
+import RIO.Hub (Hub)
+import RIO.Hub as Hub
+import RIO.Queue (Queue)
+import RIO.Queue as Queue
 
 -- | One step of a stream: either a value paired with the rest of
 -- | the stream, or end-of-stream.
@@ -117,6 +131,63 @@ repeatM :: forall r e a. RIO r e a -> Stream r e a
 repeatM ra = Stream do
   a <- ra
   pure (Yield a (repeatM ra))
+
+-- | An infinite stream of the same value, repeated forever.
+-- |
+-- | Defined via `unfoldM` so the recursive step only fires when a
+-- | consumer pulls; a plain `Stream (pure (Yield a (repeat a)))`
+-- | would loop forever during construction under strict argument
+-- | evaluation.
+repeat :: forall r e a. a -> Stream r e a
+repeat a = unfoldM unit \_ -> pure (Just (Tuple a unit))
+
+-- | Integers from `start` to `end` inclusive. If `end < start` the
+-- | stream is empty.
+range :: forall r e. Int -> Int -> Stream r e Int
+range start end = unfoldM start \n ->
+  if n > end then pure Nothing
+  else pure (Just (Tuple n (n + 1)))
+
+-- | Infinite stream `seed, f seed, f (f seed), ...`. Pure iteration.
+iterate :: forall r e a. a -> (a -> a) -> Stream r e a
+iterate seed f = unfoldM seed \n -> pure (Just (Tuple n (f n)))
+
+-- | Infinite stream `seed, f seed, f (f seed), ...` with an
+-- | effectful step. The step runs once per element pulled.
+iterateM :: forall r e a. a -> (a -> RIO r e a) -> Stream r e a
+iterateM seed f = unfoldM seed \n -> do
+  next <- f n
+  pure (Just (Tuple n next))
+
+-- | Stream of `take`s from a `RIO.Queue`. Yields each item the
+-- | queue delivers and terminates when the queue is shut down.
+fromQueue :: forall r e a. Queue a -> Stream r e a
+fromQueue q = Stream do
+  m <- Queue.take q
+  case m of
+    Nothing -> pure Done
+    Just a -> pure (Yield a (fromQueue q))
+
+-- | Stream of items from a fresh subscription to a `RIO.Hub`. A
+-- | private queue is allocated lazily on the first pull and held
+-- | for the lifetime of the stream. Terminates when the queue is
+-- | shut down (which `subscribe`'s `unsubscribe` does not do, so
+-- | the stream is infinite by default; pair with `take`,
+-- | `takeWhile`, or scope-managed teardown for a finite consumer).
+fromHub :: forall r e a. Hub a -> Stream r e a
+fromHub hub = Stream do
+  sub <- Hub.subscribe hub
+  unStream (fromQueue sub.queue)
+
+-- | Emit `unit` every `interval` milliseconds, sleeping on the
+-- | `Clock` service between yields. Infinite.
+tick
+  :: forall r e
+   . Milliseconds
+  -> Stream (clock :: Clock | r) e Unit
+tick interval = Stream do
+  Clock.sleep interval
+  pure (Yield unit (tick interval))
 
 -- | Map a pure function over every element.
 map :: forall r e a b. (a -> b) -> Stream r e a -> Stream r e b
