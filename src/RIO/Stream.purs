@@ -48,6 +48,8 @@ module RIO.Stream
   , fromHub
   , fromQueue
   , groupBy
+  , intoHub
+  , intoQueue
   , head
   , intersperse
   , iterate
@@ -214,6 +216,42 @@ fromHub :: forall r e a. Hub a -> Stream r e a
 fromHub hub = Stream do
   sub <- Hub.subscribe hub
   unStream (fromQueue sub.queue)
+
+-- | Drain the stream into a `RIO.Queue`, offering each yielded
+-- | element in order. Returns once the stream ends or the queue is
+-- | shut down (an `offer` returning `false` stops the drain
+-- | immediately; the unyielded tail of the stream is discarded but
+-- | any scoped finalizers still release).
+-- |
+-- | Pairs with `fromQueue` for stream-to-queue handoff. On bounded
+-- | queues this naturally backpressures: `offer` blocks at capacity,
+-- | which slows the stream pull.
+intoQueue :: forall r e a. Queue a -> Stream r e a -> RIO r e Unit
+intoQueue q s = do
+  step <- unStream s
+  case step of
+    Done -> pure unit
+    Yield a rest -> do
+      ok <- Queue.offer q a
+      if ok then intoQueue q rest
+      else pure unit
+
+-- | Drain the stream into a `RIO.Hub`, publishing each yielded
+-- | element to every current subscriber. Returns once the stream
+-- | ends; the stream's own back-pressure mechanism applies to the
+-- | rate of publication.
+-- |
+-- | Pairs with `fromHub` for stream-to-hub fan-out. Subscribers
+-- | added after publication has begun see only subsequent items;
+-- | subscribe before starting `intoHub` to receive the full run.
+intoHub :: forall r e a. Hub a -> Stream r e a -> RIO r e Unit
+intoHub hub s = do
+  step <- unStream s
+  case step of
+    Done -> pure unit
+    Yield a rest -> do
+      Hub.publish hub a
+      intoHub hub rest
 
 -- | Emit `unit` every `interval` milliseconds, sleeping on the
 -- | `Clock` service between yields. Infinite.
