@@ -18,6 +18,54 @@ will recognise most of these ceilings: those libraries hit them
 too, but they solve them by shipping their own fiber runtime
 rather than reusing a host effect type.
 
+## Why `Aff`?
+
+`rio` started as a prototype to answer a specific question: can
+PureScript's row types and `Variant` carry the ZIO / Effect-TS
+three-channel design (typed requirements, typed errors, typed
+success) cleanly enough to be usable in a real codebase? The
+answer turned out to be yes, and most of the surface in this
+repository (the `RIO` newtype, the `r` / `e` / `a` rows, the
+service-injection vocabulary, the layer algebra, the typed-error
+catch combinators, the cause tree, the schedule combinators)
+exists to make that case.
+
+Building on `Effect.Aff` was the pragmatic choice for that
+prototype. The reasoning was:
+
+- **Keep the initial scope tractable.** Writing a full custom
+  fiber runtime is a multi-month effort on its own, and on its
+  own it does not prove anything about PureScript's type
+  system. Reusing `Aff` removed an entire axis of work and let
+  the project focus on the type-level machinery, which is the
+  novel part.
+- **Borrow battle-tested mechanics for free.** `Aff` has been
+  in production use for years. Its continuation-based stack
+  safety, its cooperative cancellation, its `bracket` /
+  `finally` finaliser guarantees, and its `Promise` interop are
+  already correct. Reimplementing any of those badly would have
+  made `rio` worse than `Aff`, not better, and would have
+  obscured whether the row-type design itself was viable.
+- **Get to a usable surface quickly.** The goal was to ship a
+  working proof of concept: services, typed errors, layers,
+  concurrency, streams, STM, observability, all with a test
+  story (`itRIO`, `newTestClock`) that exercises the same
+  surface real users would. That meant prioritising vocabulary
+  and ergonomics over runtime ownership.
+- **Make the case for the design.** If `rio` looked compelling
+  on top of `Aff`, that was evidence the typed-channel approach
+  was worth carrying further (including, eventually, on top of
+  a custom runtime). If it did not look compelling, no amount
+  of bespoke scheduling would save it. Starting with `Aff` made
+  the design question separable from the runtime question.
+
+So this is a proof of concept that the ZIO / Effect-TS pattern
+ports to PureScript, demonstrated with a real surface, real
+tests, and real example services, while explicitly deferring
+the "own the runtime" question. The constraints documented
+below are the price of that deferral. They are also the menu
+of work for a future version that chooses to take it on.
+
 ## The core type, restated
 
 ```purescript
