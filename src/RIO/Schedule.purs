@@ -43,6 +43,7 @@ module RIO.Schedule
   , fibonacci
   , fixed
   , forever
+  , fromFunction
   , hourOfDay
   , intersect
   , minuteOfHour
@@ -62,6 +63,7 @@ module RIO.Schedule
   , spaced
   , step
   , tapOutput
+  , unfold
   , untilInput
   , untilOutput
   , whileInput
@@ -943,6 +945,62 @@ step
   -> i
   -> RIO r () (Step r i o)
 step (Schedule f) i = f i
+
+-- | Build a schedule from a state-threading function. Starts at
+-- | `seed` and at each step calls `f state input`, which returns
+-- | the per-step output, delay, and the next state. The schedule
+-- | never stops.
+-- |
+-- | This is the lowest-level constructor for custom schedules:
+-- | when none of the named combinators fit, you can describe an
+-- | arbitrary policy by carrying explicit state across iterations.
+-- | For schedules that need to read services or fail, drop down to
+-- | the `Schedule` newtype directly.
+-- |
+-- | ```purescript
+-- | -- a schedule that yields the running sum of inputs
+-- | sumSchedule :: Schedule () Int Int
+-- | sumSchedule = unfold 0 \acc i ->
+-- |   let next = acc + i
+-- |   in { output: next, delay: Milliseconds 0.0, state: next }
+-- | ```
+unfold
+  :: forall r s i o
+   . s
+  -> (s -> i -> { output :: o, delay :: Milliseconds, state :: s })
+  -> Schedule r i o
+unfold seed f = go seed
+  where
+  go s = Schedule \i -> RIO \_ ->
+    let
+      r = f s i
+    in
+      pure (Right (Continue r.output r.delay (go r.state)))
+
+-- | Build a stateless schedule from a pure function on the input.
+-- | The schedule never stops; each step emits the function's
+-- | result and the requested delay.
+-- |
+-- | Useful as an escape hatch when the only thing you need is a
+-- | reactive per-input decision (the policy itself has no memory).
+-- |
+-- | ```purescript
+-- | -- delay scaled by the magnitude of the input
+-- | proportional :: Schedule () Int Int
+-- | proportional = fromFunction \i ->
+-- |   { output: i
+-- |   , delay: Milliseconds (50.0 * toNumber i)
+-- |   }
+-- | ```
+fromFunction
+  :: forall r i o
+   . (i -> { output :: o, delay :: Milliseconds })
+  -> Schedule r i o
+fromFunction f = Schedule \i -> RIO \_ ->
+  let
+    r = f i
+  in
+    pure (Right (Continue r.output r.delay (fromFunction f)))
 
 -- | Internal: sleep only when the requested delay is positive.
 -- | Avoids an unnecessary `delay 0` round-trip.
