@@ -48,6 +48,7 @@ module RIO.Stream
   , iterateM
   , last
   , map
+  , mapAccum
   , mapM
   , range
   , repeat
@@ -59,6 +60,7 @@ module RIO.Stream
   , scan
   , scanM
   , single
+  , tap
   , take
   , takeWhile
   , tick
@@ -214,6 +216,42 @@ mapM f s = Stream do
     Yield a rest -> do
       b <- f a
       pure (Yield b (mapM f rest))
+
+-- | Map while threading a running accumulator through each element.
+-- |
+-- | The step function receives the current accumulator and the
+-- | element, and returns the next accumulator paired with the
+-- | emitted value. Useful for stateful transforms (numbering, deltas,
+-- | running sums that emit per-step values) where `scan` would only
+-- | expose the accumulator and `map` carries no state.
+mapAccum
+  :: forall r e s a b
+   . s
+  -> (s -> a -> Tuple s b)
+  -> Stream r e a
+  -> Stream r e b
+mapAccum seed step s = Stream do
+  inner <- unStream s
+  case inner of
+    Done -> pure Done
+    Yield a rest -> case step seed a of
+      Tuple seed' b -> pure (Yield b (mapAccum seed' step rest))
+
+-- | Run an effect for each element, then pass the element through
+-- | unchanged. Useful for tracing, metrics, or side-channel logging
+-- | inside a pipeline without disturbing the values flowing through.
+tap
+  :: forall r e a
+   . (a -> RIO r e Unit)
+  -> Stream r e a
+  -> Stream r e a
+tap f s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest -> do
+      f a
+      pure (Yield a (tap f rest))
 
 -- | Keep elements for which the predicate is true.
 filter

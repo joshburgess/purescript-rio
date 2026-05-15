@@ -20,10 +20,13 @@ module RIO.Queue
   ( Queue
   , bounded
   , offer
+  , offerAll
   , poll
   , shutdown
   , size
   , take
+  , takeAll
+  , takeUpTo
   , unbounded
   ) where
 
@@ -205,6 +208,53 @@ offerAff ref a = makeAff \resume -> do
           Ref.write (state { items = Array.snoc state.items a }) ref
           resume (Right true)
           pure nonCanceler
+
+-- | Offer every element of an array in order. On unbounded queues
+-- | this is always non-blocking; on bounded queues it blocks behind
+-- | backpressure exactly as if each element were offered individually.
+-- |
+-- | Returns the array of items that were *not* delivered because the
+-- | queue was shut down mid-offer. An empty array means everything
+-- | landed.
+offerAll :: forall r e a. Queue a -> Array a -> RIO r e (Array a)
+offerAll q xs = case Array.uncons xs of
+  Nothing -> pure []
+  Just { head, tail } -> do
+    ok <- offer q head
+    if ok then offerAll q tail
+    else pure xs
+
+-- | Drain everything currently buffered, without blocking. Returns
+-- | them in FIFO order. Wakes one blocked offerer per item drained
+-- | (so bounded-queue producers can refill the buffer).
+-- |
+-- | This is the "snapshot" companion to `take`: it never waits, so
+-- | the returned array reflects exactly what was available at call
+-- | time.
+takeAll :: forall r e a. Queue a -> RIO r e (Array a)
+takeAll q = go []
+  where
+  go acc = do
+    item <- poll q
+    case item of
+      Nothing -> pure acc
+      Just a -> go (Array.snoc acc a)
+
+-- | Drain up to `n` items, non-blocking. Returns fewer than `n` if
+-- | the queue runs dry before the cap. `n <= 0` yields an empty
+-- | array immediately.
+takeUpTo :: forall r e a. Queue a -> Int -> RIO r e (Array a)
+takeUpTo q n
+  | n <= 0 = pure []
+  | otherwise = go [] n
+      where
+      go acc remaining
+        | remaining <= 0 = pure acc
+        | otherwise = do
+            item <- poll q
+            case item of
+              Nothing -> pure acc
+              Just a -> go (Array.snoc acc a) (remaining - 1)
 
 -- | Shut down the queue. Every blocked taker wakes with `Nothing`;
 -- | every blocked offerer wakes with `false`. Subsequent `offer`s

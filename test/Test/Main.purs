@@ -43,6 +43,7 @@ import Test.RIO.MemoSpec as MemoSpec
 import Test.RIO.MetricsSpec as MetricsSpec
 import Test.RIO.PoolSpec as PoolSpec
 import Test.RIO.QueueSpec as QueueSpec
+import Test.RIO.Queue.BulkSpec as QueueBulkSpec
 import Test.RIO.Queue.PropertiesSpec as QueuePropertiesSpec
 import Test.RIO.RandomSpec as RandomSpec
 import Test.RIO.RefSpec as RefSpec
@@ -66,6 +67,7 @@ import Test.RIO.Stream.ParSpec as StreamParSpec
 import Test.RIO.Stream.PropertiesSpec as StreamPropertiesSpec
 import Test.RIO.Stream.ResourceSpec as StreamResourceSpec
 import Test.RIO.Stream.SourcesSpec as StreamSourcesSpec
+import Test.RIO.Stream.TapMapAccumSpec as StreamTapMapAccumSpec
 import Test.RIO.Stream.TimedSpec as StreamTimedSpec
 import Test.RIO.STMSpec as STMSpec
 import Test.RIO.STM.TArraySpec as TArraySpec
@@ -124,6 +126,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   SchedulePropertiesSpec.spec
   SemaphoreSpec.spec
   QueueSpec.spec
+  QueueBulkSpec.spec
   QueuePropertiesSpec.spec
   PoolSpec.spec
   CacheSpec.spec
@@ -136,6 +139,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   StreamPropertiesSpec.spec
   StreamResourceSpec.spec
   StreamSourcesSpec.spec
+  StreamTapMapAccumSpec.spec
   StreamTimedSpec.spec
   SinkSpec.spec
   SinkPropertiesSpec.spec
