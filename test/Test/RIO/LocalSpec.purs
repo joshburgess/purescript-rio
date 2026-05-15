@@ -135,6 +135,38 @@ spec = do
         after <- runRIO' (get l :: RIO () () String)
         after `shouldEqual` "outer"
 
+      it "nests: outer restores its snapshot when inner exits via typed failure" do
+        -- Docstring promises BOTH that `locally` blocks nest and
+        -- that they restore "regardless of how it terminates
+        -- (success, typed failure, defect, or interrupt)". The
+        -- success cross-product is pinned by "nests: inner
+        -- restores to outer's value, not the initial" below; the
+        -- termination cross-products are pinned only at depth-1.
+        -- Pin the depth-2-on-failure case: the inner `locally`'s
+        -- typed failure must still trigger the OUTER's `finally`
+        -- so the outer's snapshot ("middle") is restored, not the
+        -- initial ("outer"). A regression where the outer block's
+        -- `finally` was wired to only the success path of the
+        -- body would observe "outer" at the after-middle read.
+        let
+          program
+            :: RIO ()
+                 ()
+                 { atOuter :: String, atAfterMiddle :: String }
+          program = do
+            l <- newLocal "outer"
+            atAfterMiddle <- locally l "middle" do
+              _ <- catchTag (Proxy :: Proxy "boom") (\_ -> pure unit)
+                ( locally l "inner" do
+                    fail (Proxy :: Proxy "boom") unit
+                )
+              get l
+            atOuter <- get l
+            pure { atOuter, atAfterMiddle }
+        result <- runRIO program
+        result `shouldEqual` Right
+          { atOuter: "outer", atAfterMiddle: "middle" }
+
       it "nests: inner restores to outer's value, not the initial" do
         let
           program
