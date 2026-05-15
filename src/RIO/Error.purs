@@ -13,6 +13,7 @@ module RIO.Error
   , die
   , either
   , fail
+  , foldRIO
   , fromEither
   , fromMaybe
   , mapError
@@ -341,3 +342,31 @@ absolve inner = do
   case result of
     Right a -> pure a
     Left v -> rethrow v
+
+-- | Handle both arms of an `RIO` in one combinator: transform a
+-- | typed failure via `onError` and a success via `onSuccess`, with
+-- | both branches returning the same result type. The error row may
+-- | change.
+-- |
+-- | This is `catchAll` and `>>=` rolled into one. Equivalent to ZIO
+-- | `foldM` and Effect-TS `Effect.matchEffect`. Defects still
+-- | propagate as defects.
+-- |
+-- | ```purescript
+-- | -- decide how to react to either arm of a fallible computation
+-- | foldRIO
+-- |   (\err -> logFailure err *> pure fallback)
+-- |   (\value -> finalize value)
+-- |   runQuery
+-- | ```
+foldRIO
+  :: forall r e e' a b
+   . (Variant e -> RIO r e' b)
+  -> (a -> RIO r e' b)
+  -> RIO r e a
+  -> RIO r e' b
+foldRIO onError onSuccess inner = RIO \r -> do
+  res <- unRIO inner r
+  case res of
+    Right a -> unRIO (onSuccess a) r
+    Left v -> unRIO (onError v) r

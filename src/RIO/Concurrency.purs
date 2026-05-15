@@ -12,6 +12,7 @@
 -- | guarantees come from the Phase 0.5 spike (scenarios S1, S3).
 module RIO.Concurrency
   ( Fiber
+  , forever
   , fork
   , forkScoped
   , interrupt
@@ -461,6 +462,31 @@ raceAll
   -> RIO r e a
 raceAll arr = RIO \r ->
   Parallel.parOneOfMap (\rio -> unRIO rio r) arr
+
+-- | Repeat an action indefinitely. The return type is polymorphic
+-- | because `forever` never produces a value: it loops until the
+-- | fiber is interrupted (via `interrupt`, `race`, `timeout`, or
+-- | scope exit) or the action raises a typed failure / defect.
+-- |
+-- | Idiomatic with `forkScoped`: a supervised background worker
+-- | that runs for the lifetime of its scope.
+-- |
+-- | ```purescript
+-- | scoped do
+-- |   scope <- ask (Proxy :: Proxy "scope")
+-- |   _ <- forkScoped scope (forever pollOnce)
+-- |   doForeground
+-- | ```
+forever :: forall r e a b. RIO r e a -> RIO r e b
+forever m = RIO \r ->
+  let
+    go = do
+      res <- unRIO m r
+      case res of
+        Left v -> pure (Left v)
+        Right _ -> go
+  in
+    go
 
 -- | Run an action with a deadline. If `action` completes within
 -- | `ms`, the result is `Just a`; if the deadline fires first, the

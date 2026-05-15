@@ -22,6 +22,7 @@ import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.Error.CombinatorsSpec as ErrorCombinatorsSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.FailSpec as FailSpec
+import Test.RIO.FoldForeverSpec as FoldForeverSpec
 import Test.RIO.HubSpec as HubSpec
 import Test.RIO.Hub.PropertiesSpec as HubPropertiesSpec
 import Test.RIO.LayerSpec as LayerSpec
@@ -73,6 +74,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ErrorHandlingSpec.spec
   ErrorCombinatorsSpec.spec
   FailSpec.spec
+  FoldForeverSpec.spec
   ResourceSpec.spec
   ResourceDoSpec.spec
   LayerSpec.spec

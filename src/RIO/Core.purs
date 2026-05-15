@@ -23,10 +23,10 @@ import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Aff (Aff)
 import RIO.Env (ask, asks, provide, provideAll) as Exports
-import RIO.Error (catchAll, catchTag, die, fail, mapError, rethrow, sandbox, unsandbox) as Exports
+import RIO.Error (catchAll, catchTag, die, fail, foldRIO, mapError, rethrow, sandbox, unsandbox) as Exports
 import RIO.Internal (RIO, unRIO)
 import RIO.Internal (RIO) as Exports
-import RIO.Concurrency (Fiber, fork, forkScoped, interrupt, join, parSequence, parTraverse, parTraverseN, partitionPar, race, raceAll, timeout, uninterruptible, validatePar, zipPar) as Exports
+import RIO.Concurrency (Fiber, forever, fork, forkScoped, interrupt, join, parSequence, parTraverse, parTraverseN, partitionPar, race, raceAll, timeout, uninterruptible, validatePar, zipPar) as Exports
 import RIO.Deferred (Deferred, awaitDeferred, failDeferred, makeDeferred, pollDeferred, succeedDeferred) as Exports
 import RIO.Layer (Layer, andThen, buildLayer, combine, fromRIO, fromRecord, passthrough, provideLayer) as Exports
 import RIO.Memo (memoize) as Exports
