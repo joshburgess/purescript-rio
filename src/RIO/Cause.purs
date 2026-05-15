@@ -36,8 +36,15 @@ module RIO.Cause
   , bothPar
   , catchAllCause
   , catchSomeCause
+  , containsFailure
+  , defects
   , failCause
+  , failures
+  , find
   , foldCauseRIO
+  , hasDefect
+  , hasFailure
+  , isFailure
   , prettyCause
   , prettyCauseWithStack
   , fromOutcome
@@ -353,7 +360,7 @@ parTraverseCause f as = RIO \r -> do
     as
   let
     classified = map fromOutcome outcomes
-    failures = Array.mapMaybe
+    failed = Array.mapMaybe
       ( case _ of
           Left c -> Just c
           Right _ -> Nothing
@@ -365,7 +372,7 @@ parTraverseCause f as = RIO \r -> do
           Left _ -> Nothing
       )
       classified
-  pure $ Right $ case combineParallel failures of
+  pure $ Right $ case combineParallel failed of
     Nothing -> Right successes
     Just cause -> Left cause
 
@@ -497,6 +504,80 @@ combineParallel :: forall e. Array (Cause e) -> Maybe (Cause e)
 combineParallel arr = case Array.uncons arr of
   Nothing -> Nothing
   Just { head, tail } -> Just (Array.foldl Parallel head tail)
+
+-- | All typed failures (`Fail` leaves) in left-to-right order.
+-- |
+-- | A cause built from a pure success or a defect-only path returns
+-- | an empty array. Composite causes (Parallel / Sequential) are
+-- | flattened depth-first, left branch first.
+failures :: forall e. Cause e -> Array (Variant e)
+failures = case _ of
+  Fail v -> [ v ]
+  Die _ -> []
+  Parallel a b -> failures a <> failures b
+  Sequential a b -> failures a <> failures b
+
+-- | All defects (`Die` leaves) in left-to-right order.
+defects :: forall e. Cause e -> Array Error
+defects = case _ of
+  Fail _ -> []
+  Die err -> [ err ]
+  Parallel a b -> defects a <> defects b
+  Sequential a b -> defects a <> defects b
+
+-- | At least one typed failure somewhere in the cause tree?
+hasFailure :: forall e. Cause e -> Boolean
+hasFailure = case _ of
+  Fail _ -> true
+  Die _ -> false
+  Parallel a b -> hasFailure a || hasFailure b
+  Sequential a b -> hasFailure a || hasFailure b
+
+-- | At least one defect somewhere in the cause tree?
+hasDefect :: forall e. Cause e -> Boolean
+hasDefect = case _ of
+  Fail _ -> false
+  Die _ -> true
+  Parallel a b -> hasDefect a || hasDefect b
+  Sequential a b -> hasDefect a || hasDefect b
+
+-- | True if the cause is *purely* typed failures (no defects).
+-- |
+-- | Useful as a quick gate before a `failCause` rethrow or a
+-- | recovery path that only knows how to handle the typed row.
+isFailure :: forall e. Cause e -> Boolean
+isFailure c = hasFailure c && not (hasDefect c)
+
+-- | Does any typed failure inside the cause satisfy the predicate?
+-- |
+-- | Defects are skipped; only `Fail` leaves are inspected.
+containsFailure :: forall e. (Variant e -> Boolean) -> Cause e -> Boolean
+containsFailure p = case _ of
+  Fail v -> p v
+  Die _ -> false
+  Parallel a b -> containsFailure p a || containsFailure p b
+  Sequential a b -> containsFailure p a || containsFailure p b
+
+-- | Search the cause tree for the first node where the projection
+-- | returns `Just`. Visits every node (atomic and composite); the
+-- | first `Just` wins, in depth-first left-to-right order.
+-- |
+-- | The projection sees the full `Cause e` node, so callers can
+-- | match on subtrees as well as leaves.
+find :: forall e b. (Cause e -> Maybe b) -> Cause e -> Maybe b
+find p = go
+  where
+  go c = case p c of
+    Just b -> Just b
+    Nothing -> case c of
+      Fail _ -> Nothing
+      Die _ -> Nothing
+      Parallel a b -> case go a of
+        Just r -> Just r
+        Nothing -> go b
+      Sequential a b -> case go a of
+        Just r -> Just r
+        Nothing -> go b
 
 -- | Render a `Cause` as a multi-line, human-readable tree.
 -- |
