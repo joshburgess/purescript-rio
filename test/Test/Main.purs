@@ -13,17 +13,20 @@ import Test.RIO.Concurrency.PropertiesSpec as ConcurrencyPropertiesSpec
 import Test.RIO.Concurrency.NeverFilterSpec as NeverFilterSpec
 import Test.RIO.Concurrency.TimeoutRaceValidateSpec as TimeoutRaceValidateSpec
 import Test.RIO.Concurrency.ValidatePartitionSpec as ValidatePartitionSpec
+import Test.RIO.Concurrency.ZipWithParSpec as ZipWithParSpec
 import Test.RIO.ConditionalSpec as ConditionalSpec
 import Test.RIO.ConfigSpec as ConfigSpec
 import Test.RIO.Config.RotatingSpec as RotatingSpec
 import Test.RIO.CacheSpec as CacheSpec
 import Test.RIO.CauseSpec as CauseSpec
+import Test.RIO.Cause.CombinatorsSpec as CauseCombinatorsSpec
 import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.DeferredSpec as DeferredSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.Error.CombinatorsSpec as ErrorCombinatorsSpec
 import Test.RIO.Error.OrElseSpec as ErrorOrElseSpec
+import Test.RIO.Error.RefineSpec as ErrorRefineSpec
 import Test.RIO.Error.TapSpec as ErrorTapSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.FailSpec as FailSpec
@@ -45,6 +48,7 @@ import Test.RIO.Random.PropertiesSpec as RandomPropertiesSpec
 import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.Resource.DoSpec as ResourceDoSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
+import Test.RIO.Schedule.ElapsedSpec as ScheduleElapsedSpec
 import Test.RIO.Schedule.FixedSpec as ScheduleFixedSpec
 import Test.RIO.Schedule.PropertiesSpec as SchedulePropertiesSpec
 import Test.RIO.SemaphoreSpec as SemaphoreSpec
@@ -81,6 +85,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ErrorCombinatorsSpec.spec
   ErrorOrElseSpec.spec
   ErrorTapSpec.spec
+  ErrorRefineSpec.spec
   ConditionalSpec.spec
   FailSpec.spec
   FoldForeverSpec.spec
@@ -93,7 +98,9 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ValidatePartitionSpec.spec
   NeverFilterSpec.spec
   TimeoutRaceValidateSpec.spec
+  ZipWithParSpec.spec
   CauseSpec.spec
+  CauseCombinatorsSpec.spec
   DeferredSpec.spec
   ClockSpec.spec
   RandomSpec.spec
@@ -104,6 +111,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   RotatingSpec.spec
   ScheduleSpec.spec
   ScheduleFixedSpec.spec
+  ScheduleElapsedSpec.spec
   SchedulePropertiesSpec.spec
   SemaphoreSpec.spec
   QueueSpec.spec

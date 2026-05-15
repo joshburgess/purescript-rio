@@ -21,6 +21,8 @@ module RIO.Error
   , option
   , orDie
   , orElse
+  , refineOrDie
+  , refineOrDieWith
   , rethrow
   , sandbox
   , tap
@@ -39,6 +41,7 @@ import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Aff (attempt, throwError)
 import Effect.Exception (Error)
+import Effect.Exception (error) as Exception
 import Prim.Row (class Cons) as Row
 import Type.Proxy (Proxy)
 
@@ -477,6 +480,60 @@ orElse first fallback = catchAll (\_ -> fallback) first
 -- | ```
 option :: forall r e e' a. RIO r e a -> RIO r e' (Maybe a)
 option inner = catchAll (\_ -> pure Nothing) (map Just inner)
+
+-- | Narrow the error row, defecting any failure that does not fit
+-- | the new row.
+-- |
+-- | The classifier `(Variant e -> Maybe (Variant e'))` decides which
+-- | failures belong on the narrower row `e'` (return `Just`) and
+-- | which should be raised as defects (return `Nothing`). The
+-- | classifier-built `Error` for a defected failure is fixed at
+-- | `Exception.error "RIO.refineOrDie: unrefined failure"`; reach
+-- | for `refineOrDieWith` when the defect's message needs to capture
+-- | which leftover tag was thrown away.
+-- |
+-- | Mirrors ZIO `ZIO.refineOrDie` / Effect-TS `Effect.refineOrDie`.
+-- | The typical use is at a module boundary: declare which subset of
+-- | the inner program's errors are "in contract" and treat anything
+-- | else as a programmer bug.
+-- |
+-- | ```purescript
+-- | -- accept notFound; everything else becomes a defect
+-- | accept :: RIO r (notFound :: Int) Todo
+-- | accept = refineOrDie
+-- |   (Variant.on (Proxy :: _ "notFound")
+-- |     (Just <<< Variant.inj (Proxy :: _ "notFound"))
+-- |     (\_ -> Nothing))
+-- |   lookupTodo
+-- | ```
+refineOrDie
+  :: forall r e e' a
+   . (Variant e -> Maybe (Variant e'))
+  -> RIO r e a
+  -> RIO r e' a
+refineOrDie classify =
+  refineOrDieWith classify
+    (\_ -> Exception.error "RIO.refineOrDie: unrefined failure")
+
+-- | Like `refineOrDie`, but the caller supplies the defect's `Error`
+-- | per leftover failure. Useful when "this kind of failure shouldn't
+-- | reach here" wants a diagnostic message that names the actual
+-- | leftover tag.
+-- |
+-- | Mirrors ZIO `ZIO.refineOrDieWith`.
+refineOrDieWith
+  :: forall r e e' a
+   . (Variant e -> Maybe (Variant e'))
+  -> (Variant e -> Error)
+  -> RIO r e a
+  -> RIO r e' a
+refineOrDieWith classify toErr inner = RIO \r -> do
+  res <- unRIO inner r
+  case res of
+    Right a -> pure (Right a)
+    Left v -> case classify v of
+      Just v' -> pure (Left v')
+      Nothing -> throwError (toErr v)
 
 -- | Convert a typed failure into a defect via a user-supplied
 -- | translator. The error row is discharged on the resulting

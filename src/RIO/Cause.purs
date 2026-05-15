@@ -34,6 +34,9 @@ module RIO.Cause
   , acquireReleaseCause
   , attemptCause
   , bothPar
+  , catchAllCause
+  , failCause
+  , foldCauseRIO
   , prettyCause
   , prettyCauseWithStack
   , fromOutcome
@@ -42,10 +45,12 @@ module RIO.Cause
   , parTraverseCause
   , parSequenceCause
   , raceCause
+  , tapErrorCause
   ) where
 
 import Prelude
 
+import Control.Monad.Error.Class (throwError)
 import Control.Parallel (parallel, sequential)
 import Control.Parallel (parTraverse) as Parallel
 import Data.Array (foldl, intercalate, mapMaybe, uncons) as Array
@@ -166,6 +171,127 @@ attemptCause
 attemptCause action = RIO \r -> do
   outcome <- attempt (unRIO action r)
   pure (Right (fromOutcome outcome))
+
+-- | The cause-aware analogue of `RIO.Error.foldRIO`: branch on the
+-- | full `Cause` (every typed failure *and* every defect, including
+-- | the structural `Parallel` / `Sequential` shapes) on the failure
+-- | side, or on the success value on the other side.
+-- |
+-- | Unlike `foldRIO`, which only sees `Variant e` (typed failures)
+-- | and lets defects propagate, `foldCauseRIO` reifies the underlying
+-- | `Aff` exception channel into the `Die` leaf so handlers can react
+-- | to defects without going through `sandbox` first. The output's
+-- | error row `e'` is whatever the handler arms produce.
+-- |
+-- | ```purescript
+-- | -- log every failure (typed or defect) with the same renderer
+-- | foldCauseRIO
+-- |   (\cause -> logInfo (prettyCause renderFail cause) *> pure fallback)
+-- |   pure
+-- |   runQuery
+-- | ```
+foldCauseRIO
+  :: forall r e e' a b
+   . (Cause e -> RIO r e' b)
+  -> (a -> RIO r e' b)
+  -> RIO r e a
+  -> RIO r e' b
+foldCauseRIO onCause onOk inner = RIO \r -> do
+  outcome <- attempt (unRIO inner r)
+  case fromOutcome outcome of
+    Right a -> unRIO (onOk a) r
+    Left cause -> unRIO (onCause cause) r
+
+-- | Catch every failure (typed or defect) with a single handler and
+-- | replace the error row. The cause-aware sibling of
+-- | `RIO.Error.catchAll`: where `catchAll` only sees typed failures
+-- | (`Variant e`) and lets defects propagate, `catchAllCause` sees
+-- | the full `Cause` and can recover from defects too.
+-- |
+-- | Mirrors ZIO `ZIO.catchAllCause` / Effect-TS `Effect.catchAllCause`.
+-- | Useful when "convert any kind of failure to a default" is what the
+-- | call site wants and the distinction between typed failure and
+-- | defect doesn't matter for the recovery strategy.
+-- |
+-- | ```purescript
+-- | -- collapse every cause into a fallback value
+-- | safeProgram :: RIO r () Int
+-- | safeProgram = catchAllCause (\_ -> pure 0) program
+-- | ```
+catchAllCause
+  :: forall r e e' a
+   . (Cause e -> RIO r e' a)
+  -> RIO r e a
+  -> RIO r e' a
+catchAllCause handler inner = foldCauseRIO handler pure inner
+
+-- | Raise a pre-built `Cause` as a failure.
+-- |
+-- | For atomic causes the behaviour is exact: `Fail v` becomes a
+-- | typed failure on the row, `Die err` becomes a defect on the
+-- | underlying `Aff` channel. For composite causes (`Parallel`,
+-- | `Sequential`) the surface error model is lossy: only one leaf
+-- | can be raised at a time, so the leftmost leaf is selected. The
+-- | structural information is preserved if the caller round-trips
+-- | through `attemptCause` / `catchAllCause`, but it is *not*
+-- | preserved through `runRIO` / `runRIO'`.
+-- |
+-- | Mirrors ZIO `ZIO.failCause`. The typical use is "re-raise a
+-- | cause that was just observed" inside a `foldCauseRIO` /
+-- | `catchAllCause` handler.
+failCause :: forall r e a. Cause e -> RIO r e a
+failCause cause = case leftmostLeaf cause of
+  Fail v -> RIO \_ -> pure (Left v)
+  Die err -> RIO \_ -> throwError err
+  -- Unreachable: leftmostLeaf always returns Fail or Die.
+  _ -> RIO \_ ->
+    throwError (Exception.error "RIO.Cause.failCause: impossible")
+
+-- | The leftmost atomic leaf of a cause tree. Used by `failCause` to
+-- | pick a single leaf to raise when the cause is composite.
+leftmostLeaf :: forall e. Cause e -> Cause e
+leftmostLeaf = case _ of
+  Fail v -> Fail v
+  Die err -> Die err
+  Parallel a _ -> leftmostLeaf a
+  Sequential a _ -> leftmostLeaf a
+
+-- | Run a side-effecting handler on the full `Cause` and re-raise the
+-- | original failure unchanged. The cause-aware sibling of
+-- | `RIO.Error.tapError`: where `tapError` only fires on typed
+-- | failures, `tapErrorCause` fires on every failure (typed or defect).
+-- |
+-- | Mirrors ZIO `ZIO.tapErrorCause`. If the handler itself fails,
+-- | *that* failure replaces the original (same policy as `tapError`
+-- | and `tapBoth`). Successes pass through without invoking the
+-- | handler.
+-- |
+-- | ```purescript
+-- | runJob
+-- |   # tapErrorCause (\c -> logError (prettyCause renderFail c))
+-- | ```
+tapErrorCause
+  :: forall r e a
+   . (Cause e -> RIO r e Unit)
+  -> RIO r e a
+  -> RIO r e a
+tapErrorCause f inner = RIO \r -> do
+  outcome <- attempt (unRIO inner r)
+  case fromOutcome outcome of
+    Right a -> pure (Right a)
+    Left cause -> do
+      logged <- unRIO (f cause) r
+      case logged of
+        Left newFail -> pure (Left newFail)
+        Right _ -> case cause of
+          Fail v -> pure (Left v)
+          Die err -> throwError err
+          _ -> case leftmostLeaf cause of
+            Fail v -> pure (Left v)
+            Die err -> throwError err
+            -- Unreachable: leftmostLeaf returns Fail or Die.
+            _ -> throwError
+              (Exception.error "RIO.Cause.tapErrorCause: impossible")
 
 -- | Like `RIO.Concurrency.parTraverse`, but every branch runs to
 -- | completion under `attempt` and every failure is collected into a

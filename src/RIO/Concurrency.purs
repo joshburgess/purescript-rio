@@ -33,6 +33,7 @@ module RIO.Concurrency
   , validate
   , validatePar
   , zipPar
+  , zipWithPar
   ) where
 
 import Prelude
@@ -476,6 +477,29 @@ zipPar ra rb = RIO \r -> do
       case first of
         Just v -> pure (Left v)
         Nothing -> throwError err
+
+-- | Run two actions concurrently and combine their results with a
+-- | pure function. Equivalent to `Tuple <$> zipPar` followed by the
+-- | combiner, but spares the caller the destructuring boilerplate.
+-- |
+-- | Same failure semantics as `zipPar` / `parTraverse`: the first
+-- | `Left` cancels the other action and surfaces on the parent's row.
+-- |
+-- | Mirrors ZIO `ZIO.zipWithPar` / Effect-TS `Effect.zipWith` (with
+-- | the parallel evaluation strategy).
+-- |
+-- | ```purescript
+-- | -- fetch user record and audit log in parallel, then combine
+-- | report :: RIO r e Report
+-- | report = zipWithPar mkReport (fetchUser uid) (fetchAudit uid)
+-- | ```
+zipWithPar
+  :: forall r e a b c
+   . (a -> b -> c)
+  -> RIO r e a
+  -> RIO r e b
+  -> RIO r e c
+zipWithPar f ra rb = map (\(Tuple a b) -> f a b) (zipPar ra rb)
 
 -- | Race two actions: the first to complete wins, regardless of
 -- | whether it succeeds or fails with a typed error. The loser is

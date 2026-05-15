@@ -31,6 +31,7 @@ module RIO.Schedule
   ( Schedule
   , Step(..)
   , andThen
+  , elapsed
   , exponential
   , fibonacci
   , fixed
@@ -212,6 +213,41 @@ fixed (Milliseconds period) = start
 -- | `spaced (Milliseconds 0.0)`.
 forever :: forall r i. Schedule r i Int
 forever = spaced (Milliseconds 0.0)
+
+-- | Emit the total elapsed wall-clock time since the schedule started,
+-- | with no inter-step delay. Pair with `intersect` to gate another
+-- | schedule on a deadline ("retry forever, but stop after 30s").
+-- |
+-- | The first step emits `Milliseconds 0.0` (the schedule has just
+-- | begun) and never sleeps. Subsequent steps emit the difference
+-- | between the current wall-clock reading and the start time.
+-- |
+-- | Reads the `Clock` service, so this schedule is fully deterministic
+-- | under `RIO.Test.Clock`.
+-- |
+-- | ```purescript
+-- | -- retry forever, but give up once 30 seconds have elapsed
+-- | retry
+-- |   (untilOutput (\(Tuple _ ms) -> ms >= Milliseconds 30000.0)
+-- |     (intersect forever elapsed))
+-- |   fetch
+-- | ```
+elapsed
+  :: forall r i. Schedule (clock :: Clock | r) i Milliseconds
+elapsed = start
+  where
+  start = Schedule \_ -> do
+    Milliseconds t0 <- now
+    pure
+      ( Continue (Milliseconds 0.0) (Milliseconds 0.0) (go t0)
+      )
+
+  go t0 = Schedule \_ -> do
+    Milliseconds tNow <- now
+    let diff = tNow - t0
+    pure
+      ( Continue (Milliseconds diff) (Milliseconds 0.0) (go t0)
+      )
 
 -- | Fire exactly once (in `repeat` terms: the action runs twice,
 -- | once initially and once on the single recurrence).
