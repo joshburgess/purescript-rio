@@ -151,12 +151,19 @@ These were tracked in the original phase plan and are still
 open. They are listed roughly by impact, but none are blockers
 on the core demonstration.
 
-- **Custom `Fail` instances for row / variant error messages.**
-  The six-case `compile-fail` suite identifies two noisy cases
-  (payload-type mismatch on `catchTag`, and missing-tag on
-  `catchTag`) where the default inference error is hard to read.
-  Custom `Fail` instances can produce targeted error messages
-  for both. Tracked in `compile-fail/FINDINGS.md`.
+- **Friendlier missing-tag error for `catchTag`.** The
+  payload-type-mismatch case (case 03) was polished in `RIO.Error`
+  via a row-list-keyed `FindErrorTag` / `CatchableErrorTag` walk,
+  promoting it from ACCEPTABLE-NOISY to GOOD. The missing-tag
+  case (case 04) still surfaces the underlying `Prim.Row.Cons`
+  row-mismatch because the constraint required for the
+  residual-row calculation fires its error first at the use
+  site, shadowing the custom Fail attached to `FindErrorTag`'s
+  `Nil` instance. A future restructure that hides `Row.Cons`
+  entirely behind a class-method dispatch (with careful funcdep
+  coverage so the solver sees only one failure at the use site)
+  could let the friendly message win. Tracked in
+  `compile-fail/FINDINGS.md`.
 - **`rio-node` integration package.** A typed wrapper around the
   Node-specific subset of standard library effects (file system,
   child processes, OS signals) that today are reached via
@@ -167,13 +174,6 @@ on the core demonstration.
   DynamoDB, etc.) as RIO service rows with `Cause`-aware error
   variants. Equivalent in scope to early ZIO AWS or
   `@effect/aws-client`.
-- **RIO-tuned property-testing harness.** `purescript-quickcheck`
-  is usable today by lifting properties into `runRIO'`, but
-  there is no idiomatic combinator for "given a service mock,
-  generate N invocations and assert an invariant on the recorded
-  log". A small `RIO.Test.Property` module (along the lines of
-  ZIO's `zio-test` generators) would close the gap.
-
 ## Recommended priority order
 
 With `RIO.Sink` shipped (primitives, short-circuiting sinks,
@@ -184,8 +184,6 @@ the design call on a full `Channel` algebra, intentionally
 deferred: `Stream.mapM` / `Stream.flatMap` / `Sink.andThen`
 already cover the common transducer cases, and a Channel layer
 should be driven by a real use case the current API cannot
-express rather than by surface-area parity. The custom `Fail`
-instances are the highest leverage item in the list (they
-improve every contributor's experience); the integration
-packages and the property harness are scoped, additive work that
+express rather than by surface-area parity. The integration
+packages (`rio-node`, `rio-aws`) are scoped, additive work that
 can land any time.

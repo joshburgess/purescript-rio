@@ -11,6 +11,19 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Test.Property`: a thin RIO-tuned property harness exposing
+  `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
+  `generateSamples`. Property specs in this repo had each redefined
+  the same hand-rolled `forAll :: Gen a -> (a -> Aff Unit) -> Aff Unit`
+  helper that calls `randomSample'` and `for_`; the new module
+  standardises that pattern with a `MonadEffect`-polymorphic
+  signature so the same harness works for `Aff`-shaped specs and
+  for RIO programs (without forcing the latter through `runRIO`
+  at the property boundary). No shrinking, by design (the
+  PureScript QuickCheck port does not carry an integrated
+  shrinker); on failure the harness reports the first
+  counter-example with the body's own assertion. Whole-package
+  run goes `1081 -> 1091` tests passing.
 - `RIO.Error`: row-list-keyed payload lookup for `catchTag`. The new
   `FindErrorTag` / `FindErrorTagInRow` / `CatchableErrorTag` classes
   walk an error row's `RowList` to determine the handler's payload
