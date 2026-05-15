@@ -48,8 +48,10 @@ module RIO.Stream
   , fromHub
   , fromQueue
   , groupBy
+  , haltWhen
   , intoHub
   , intoQueue
+  , interruptWhen
   , head
   , intersperse
   , iterate
@@ -84,6 +86,7 @@ module RIO.Stream
 import Prelude hiding (map)
 
 import Data.Array as Array
+import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
@@ -91,7 +94,10 @@ import Effect.Aff (Milliseconds)
 
 import RIO.Clock (Clock)
 import RIO.Clock as Clock
+import RIO.Concurrency (race)
 import RIO.Core (RIO)
+import RIO.Deferred (Deferred, awaitDeferred, pollDeferred)
+import RIO.Error (rethrow)
 import RIO.Error as Error
 import RIO.Hub (Hub)
 import RIO.Hub as Hub
@@ -418,6 +424,69 @@ take n s
       case step of
         Done -> pure Done
         Yield a rest -> pure (Yield a (take (n - 1) rest))
+
+-- | Gracefully halt the stream when `sentinel` is fired. Each
+-- | step polls the deferred before pulling: if it is still
+-- | empty, the upstream is pulled normally; if it has been
+-- | filled with success, the stream emits `Done`; if it has
+-- | been filled with a typed failure, that failure is raised
+-- | on the error row.
+-- |
+-- | "Graceful" means the *next* pull observes the halt; an
+-- | in-flight pull is allowed to complete. For the variant that
+-- | races the pull against the sentinel and interrupts the
+-- | upstream as soon as the sentinel fires, see
+-- | `interruptWhen`.
+-- |
+-- | Mirrors ZIO `ZStream.haltWhen` and Effect-TS
+-- | `Stream.haltWhen`.
+-- |
+-- | ```purescript
+-- | stop <- makeDeferred
+-- | -- ... arrange for someone to `succeedDeferred stop unit`
+-- | runDrain (haltWhen stop (forever pollOnce))
+-- | ```
+haltWhen :: forall r e a. Deferred e Unit -> Stream r e a -> Stream r e a
+haltWhen sentinel s = Stream do
+  poll <- pollDeferred sentinel
+  case poll of
+    Just (Left v) -> rethrow v
+    Just (Right _) -> pure Done
+    Nothing -> do
+      step <- unStream s
+      case step of
+        Done -> pure Done
+        Yield a rest -> pure (Yield a (haltWhen sentinel rest))
+
+-- | Interrupt the stream when `sentinel` is fired by racing the
+-- | sentinel's completion against each upstream pull. If the
+-- | sentinel wins, the in-flight pull is cancelled (under `race`
+-- | semantics) and the stream emits `Done`; if the sentinel
+-- | fails, that failure is raised on the error row.
+-- |
+-- | The difference from `haltWhen`: `interruptWhen` will
+-- | terminate a pull that has already started; `haltWhen` will
+-- | only observe the halt between pulls.
+-- |
+-- | Mirrors ZIO `ZStream.interruptWhen` and Effect-TS
+-- | `Stream.interruptWhen`.
+interruptWhen :: forall r e a. Deferred e Unit -> Stream r e a -> Stream r e a
+interruptWhen sentinel s = Stream do
+  -- Pre-pull poll: if the sentinel has already fired, observe it
+  -- synchronously rather than depending on the race scheduler to
+  -- pick the completed side over a synchronous pull.
+  poll <- pollDeferred sentinel
+  case poll of
+    Just (Left v) -> rethrow v
+    Just (Right _) -> pure Done
+    Nothing -> race
+      (awaitDeferred sentinel *> pure Done)
+      ( do
+          step <- unStream s
+          case step of
+            Done -> pure Done
+            Yield a rest -> pure (Yield a (interruptWhen sentinel rest))
+      )
 
 -- | Drop the first `n` elements.
 drop :: forall r e a. Int -> Stream r e a -> Stream r e a
