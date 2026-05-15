@@ -104,6 +104,7 @@ import Test.RIO.STM.TQueue.BulkSpec as TQueueBulkSpec
 import Test.RIO.STM.TQueue.PropertiesSpec as TQueuePropertiesSpec
 import Test.RIO.STM.TSemaphoreSpec as TSemaphoreSpec
 import Test.RIO.STM.TSemaphore.PropertiesSpec as TSemaphorePropertiesSpec
+import Test.RIO.TagSpec as TagSpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
 import Test.RIO.TracerSpec as TracerSpec
 import Test.RIO.ValidationSpec as ValidationSpec
@@ -113,6 +114,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   CoreSpec.spec
   EffectAndFailSpec.spec
   EnvSpec.spec
+  TagSpec.spec
   ExitSpec.spec
   ErrorHandlingSpec.spec
   ErrorCombinatorsSpec.spec
