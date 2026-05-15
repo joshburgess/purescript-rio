@@ -27,6 +27,7 @@ import Test.RIO.Hub.PropertiesSpec as HubPropertiesSpec
 import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.LocalSpec as LocalSpec
 import Test.RIO.LoggerSpec as LoggerSpec
+import Test.RIO.MemoSpec as MemoSpec
 import Test.RIO.MetricsSpec as MetricsSpec
 import Test.RIO.PoolSpec as PoolSpec
 import Test.RIO.QueueSpec as QueueSpec
@@ -121,5 +122,6 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   MetricsSpec.spec
   LocalSpec.spec
   LoggerSpec.spec
+  MemoSpec.spec
   TestHelpersSpec.spec
   SpecHelpersSpec.spec

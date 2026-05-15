@@ -29,6 +29,7 @@ import RIO.Internal (RIO) as Exports
 import RIO.Concurrency (Fiber, fork, forkScoped, interrupt, join, parSequence, parTraverse, parTraverseN, partitionPar, race, raceAll, timeout, uninterruptible, validatePar, zipPar) as Exports
 import RIO.Deferred (Deferred, awaitDeferred, failDeferred, makeDeferred, pollDeferred, succeedDeferred) as Exports
 import RIO.Layer (Layer, andThen, buildLayer, combine, fromRIO, fromRecord, passthrough, provideLayer) as Exports
+import RIO.Memo (memoize) as Exports
 import RIO.Resource (Scope, acquireRelease, addFinalizer, ensuring, scoped) as Exports
 
 -- | Run an `RIO` whose environment row is empty, surfacing the error
