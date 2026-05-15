@@ -24,6 +24,7 @@ import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.LocalSpec as LocalSpec
 import Test.RIO.LoggerSpec as LoggerSpec
 import Test.RIO.MetricsSpec as MetricsSpec
+import Test.RIO.PoolSpec as PoolSpec
 import Test.RIO.QueueSpec as QueueSpec
 import Test.RIO.Queue.PropertiesSpec as QueuePropertiesSpec
 import Test.RIO.RandomSpec as RandomSpec
@@ -78,6 +79,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   SemaphoreSpec.spec
   QueueSpec.spec
   QueuePropertiesSpec.spec
+  PoolSpec.spec
   HubSpec.spec
   HubPropertiesSpec.spec
   StreamSpec.spec
