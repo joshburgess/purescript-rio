@@ -45,6 +45,7 @@ import Test.RIO.Stream.ParSpec as StreamParSpec
 import Test.RIO.Stream.PropertiesSpec as StreamPropertiesSpec
 import Test.RIO.Stream.ResourceSpec as StreamResourceSpec
 import Test.RIO.STMSpec as STMSpec
+import Test.RIO.STM.TArraySpec as TArraySpec
 import Test.RIO.STM.TMapSpec as TMapSpec
 import Test.RIO.STM.TMap.PropertiesSpec as TMapPropertiesSpec
 import Test.RIO.STM.THubSpec as THubSpec
@@ -97,6 +98,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   TQueuePropertiesSpec.spec
   TMapSpec.spec
   TMapPropertiesSpec.spec
+  TArraySpec.spec
   TSemaphoreSpec.spec
   TSemaphorePropertiesSpec.spec
   THubSpec.spec
