@@ -8,12 +8,17 @@
 module RIO.STM.TMap
   ( TMap
   , awaitKey
+  , clearTMap
   , deleteTMap
+  , entriesTMap
   , insertTMap
+  , keysTMap
   , lookupTMap
   , memberTMap
   , newTMap
   , sizeTMap
+  , updateTMap
+  , valuesTMap
   ) where
 
 import Prelude
@@ -21,8 +26,9 @@ import Prelude
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
+import Data.Tuple (Tuple, fst, snd)
 
-import RIO.STM (STM, TRef, modifyTRef, newTRef, readTRef, retry)
+import RIO.STM (STM, TRef, modifyTRef, newTRef, readTRef, retry, writeTRef)
 
 -- | A transactional map. Constructor hidden; identity is the
 -- | underlying `TRef`.
@@ -63,3 +69,32 @@ awaitKey k (TMap ref) = do
   case Map.lookup k m of
     Nothing -> retry
     Just v -> pure v
+
+-- | All keys in ascending order (Map's natural order under `Ord k`).
+keysTMap :: forall e k v. TMap k v -> STM e (Array k)
+keysTMap t = map fst <$> entriesTMap t
+
+-- | All values in key order.
+valuesTMap :: forall e k v. TMap k v -> STM e (Array v)
+valuesTMap t = map snd <$> entriesTMap t
+
+-- | All (key, value) pairs in key order.
+entriesTMap :: forall e k v. TMap k v -> STM e (Array (Tuple k v))
+entriesTMap (TMap ref) = Map.toUnfoldable <$> readTRef ref
+
+-- | Remove every entry from the map.
+clearTMap :: forall e k v. TMap k v -> STM e Unit
+clearTMap (TMap ref) = writeTRef ref Map.empty
+
+-- | Apply a function to the value at `k`, if present. No-op when
+-- | `k` is missing. To turn an absent key into a present one (or
+-- | vice versa), use a hand-written transaction with `lookupTMap`
+-- | and `insertTMap` / `deleteTMap`.
+updateTMap
+  :: forall e k v
+   . Ord k
+  => k
+  -> (v -> v)
+  -> TMap k v
+  -> STM e Unit
+updateTMap k f (TMap ref) = modifyTRef ref (Map.update (Just <<< f) k)
