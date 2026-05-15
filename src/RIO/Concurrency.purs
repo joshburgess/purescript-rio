@@ -12,6 +12,8 @@
 -- | guarantees come from the Phase 0.5 spike (scenarios S1, S3).
 module RIO.Concurrency
   ( Fiber
+  , async
+  , asyncInterrupt
   , filterPar
   , forever
   , fork
@@ -53,7 +55,8 @@ import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
-import Effect.Aff (Fiber, attempt, delay, error, forkAff, invincible, joinFiber, killFiber, never, parallel, sequential) as Aff
+import Effect (Effect)
+import Effect.Aff (Canceler(..), Fiber, attempt, delay, error, forkAff, invincible, joinFiber, killFiber, makeAff, never, nonCanceler, parallel, sequential) as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Prim.Row (class Cons) as Row
@@ -599,6 +602,63 @@ forever m = RIO \r ->
 -- | without imposing a sleep deadline.
 never :: forall r e a. RIO r e a
 never = RIO \_ -> Aff.never
+
+-- | Build a `RIO` action from a callback-style effect. The callback
+-- | (`Either (Variant e) a -> Effect Unit`) is invoked by the user-
+-- | supplied register function exactly once: `Right a` for success,
+-- | `Left v` for a typed failure. Subsequent invocations are
+-- | ignored by the underlying `Aff` machinery.
+-- |
+-- | This is the bridge primitive for callback-based or event-emitter
+-- | APIs (Node.js callbacks, browser APIs, third-party promise
+-- | libraries). Mirrors `ZIO.async` and `Effect.async`.
+-- |
+-- | The action is not cancellable: if the fiber it runs in is
+-- | interrupted while waiting for the callback, the underlying
+-- | resource keeps running and its eventual callback is dropped.
+-- | For cancellable bridges, use `asyncInterrupt`.
+-- |
+-- | ```purescript
+-- | -- wrap a Node.js-style (err, value) callback
+-- | readFile :: String -> RIO r (fs :: FsError) Buffer
+-- | readFile path = async \resume ->
+-- |   Fs.readFile path \err value -> case toMaybe err of
+-- |     Just e -> resume (Left (Variant.inj _fs e))
+-- |     Nothing -> resume (Right value)
+-- | ```
+async
+  :: forall r e a
+   . ((Either (Variant e) a -> Effect Unit) -> Effect Unit)
+  -> RIO r e a
+async register = RIO \_ -> Aff.makeAff \resume -> do
+  register \resolution -> resume (Right resolution)
+  pure Aff.nonCanceler
+
+-- | Like `async`, but the register function returns an `Effect Unit`
+-- | that will be invoked if the fiber is interrupted before the
+-- | callback fires. Use this to wire cancellation through to the
+-- | underlying API (clearing a timer, aborting a fetch, removing an
+-- | event listener).
+-- |
+-- | The cancellation effect runs once, on the interrupting fiber.
+-- | It must be idempotent and non-blocking; if it raises, the
+-- | exception is reported as an `Aff` defect on the interrupter.
+-- |
+-- | ```purescript
+-- | -- a fetch with AbortController-backed cancellation
+-- | fetchJSON :: URL -> RIO r (http :: HttpError) Json
+-- | fetchJSON url = asyncInterrupt \resume -> do
+-- |   controller <- newAbortController
+-- |   doFetch url controller resume
+-- |   pure (abort controller)
+-- | ```
+asyncInterrupt
+  :: forall r e a
+   . ((Either (Variant e) a -> Effect Unit) -> Effect (Effect Unit))
+  -> RIO r e a
+asyncInterrupt register = RIO \_ -> Aff.makeAff \resume -> do
+  cancel <- register \resolution -> resume (Right resolution)
+  pure (Aff.Canceler \_ -> liftEffect cancel)
 
 -- | Filter an array using an effectful predicate, running every
 -- | predicate call concurrently. Preserves input order on the

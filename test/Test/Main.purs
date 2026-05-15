@@ -8,6 +8,7 @@ import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
 import Test.RIO.ClockSpec as ClockSpec
 import Test.RIO.ConcurrencySpec as ConcurrencySpec
+import Test.RIO.Concurrency.AsyncSpec as ConcurrencyAsyncSpec
 import Test.RIO.Concurrency.ParSpec as ParSpec
 import Test.RIO.Concurrency.PropertiesSpec as ConcurrencyPropertiesSpec
 import Test.RIO.Concurrency.NeverFilterSpec as NeverFilterSpec
@@ -113,6 +114,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ResourceDoSpec.spec
   LayerSpec.spec
   ConcurrencySpec.spec
+  ConcurrencyAsyncSpec.spec
   ParSpec.spec
   ConcurrencyPropertiesSpec.spec
   ValidatePartitionSpec.spec
