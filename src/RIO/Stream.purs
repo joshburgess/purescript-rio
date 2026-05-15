@@ -33,6 +33,7 @@ module RIO.Stream
   , concat
   , distinct
   , drop
+  , dropUntil
   , dropWhile
   , empty
   , filter
@@ -65,6 +66,7 @@ module RIO.Stream
   , tap
   , tapError
   , take
+  , takeUntil
   , takeWhile
   , tick
   , unfoldM
@@ -543,6 +545,49 @@ dropWhile p s = Stream do
     Yield a rest ->
       if p a then unStream (dropWhile p rest)
       else pure (Yield a rest)
+
+-- | Take elements until the predicate first holds. The triggering
+-- | element *is* emitted (then the stream stops). If the predicate
+-- | never holds, the entire input is forwarded.
+-- |
+-- | This is the inclusive complement of `takeWhile`:
+-- |   * `takeWhile p` stops *at* the first element where `p` is
+-- |     false; that element is dropped.
+-- |   * `takeUntil p` stops *after* the first element where `p` is
+-- |     true; that element is kept.
+takeUntil
+  :: forall r e a
+   . (a -> Boolean)
+  -> Stream r e a
+  -> Stream r e a
+takeUntil p s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest ->
+      if p a then pure (Yield a empty)
+      else pure (Yield a (takeUntil p rest))
+
+-- | Drop elements until the predicate first holds, then yield the
+-- | rest. The triggering element is *also dropped*; the first
+-- | emitted element is the one *after* the trigger.
+-- |
+-- | This is the exclusive complement of `dropWhile`:
+-- |   * `dropWhile p` keeps the first element where `p` is false.
+-- |   * `dropUntil p` keeps the first element after the one where
+-- |     `p` is true.
+dropUntil
+  :: forall r e a
+   . (a -> Boolean)
+  -> Stream r e a
+  -> Stream r e a
+dropUntil p s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest ->
+      if p a then unStream rest
+      else unStream (dropUntil p rest)
 
 -- | Insert `sep` between consecutive elements. The output has
 -- | `2n - 1` elements when the input has `n` elements; an empty
