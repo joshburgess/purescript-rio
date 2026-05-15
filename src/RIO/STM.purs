@@ -35,6 +35,7 @@ module RIO.STM
   , orElse
   , readTRef
   , retry
+  , throwSTM
   , writeTRef
   ) where
 
@@ -278,6 +279,23 @@ failSTM
   -> v
   -> STM e a
 failSTM sym v = STM \_ -> pure (TxFailed (Variant.inj sym v))
+
+-- | Re-raise an already-constructed `Variant e` inside an `STM e`
+-- | transaction. Useful when a derived primitive (e.g.
+-- | `TDeferred`) stores a typed failure and wants to surface it on
+-- | the caller's row without re-tagging.
+-- |
+-- | ```purescript
+-- | -- propagate a stored failure or commit normally
+-- | atomically do
+-- |   mv <- readTRef cell
+-- |   case mv of
+-- |     Just (Left v) -> throwSTM v
+-- |     Just (Right a) -> writeTRef out a
+-- |     Nothing -> retry
+-- | ```
+throwSTM :: forall e a. Variant e -> STM e a
+throwSTM v = STM \_ -> pure (TxFailed v)
 
 -- | Run `left`; if it retries, fall through and run `right`. A
 -- | typed failure in `left` propagates without falling through.
