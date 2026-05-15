@@ -151,6 +151,34 @@ spec = do
         result <- runRIO parent
         result `shouldEqual` (Right 99 :: Either _ Int)
 
+      it "is a no-op on an already-killed fiber" do
+        -- Docstring promise: "Killing an already-completed or
+        -- already-killed fiber is a no-op." The completed half
+        -- is pinned above. Pin the already-killed half: a long
+        -- delay is killed, then `interrupt` is called again. A
+        -- regression that, e.g., panicked on a second
+        -- `killFiber` to the same handle would surface here as
+        -- a defect at the second `interrupt` call. The sandbox
+        -- around the second interrupt would observe `Left e`
+        -- instead of `Right unit`; pin success.
+        let
+          child :: RIO () () Int
+          child = do
+            liftAff (delay (Milliseconds 5000.0))
+            pure 1
+
+          parent :: RIO () () (Either _ Unit)
+          parent = do
+            fib <- fork child
+            liftAff (delay (Milliseconds 5.0))
+            interrupt fib
+            _ <- sandbox (join fib)
+            sandbox (interrupt fib)
+        result <- runRIO parent
+        case result of
+          Right (Right unit') -> unit' `shouldEqual` unit
+          _ -> 1 `shouldEqual` 0
+
     describe "join surfaces interrupt as a defect" do
       it "joining an interrupted fiber throws inside Aff" do
         let
