@@ -16,6 +16,18 @@ Both rows are open by default, so requirements aggregate
 automatically on composition and shrink as services are
 provided and failures are handled.
 
+> **Before you commit**, read
+> [`docs/aff-constraints.md`](./docs/aff-constraints.md). `rio`
+> sits on top of `Effect.Aff`; that is a deliberate choice and a
+> hard upper bound. The doc spells out what the bound looks like
+> in practice (typed errors as wrapping, no fiber identity or
+> supervision, scheduling on the JS event loop, `Local` as shared
+> rather than per-fiber state, virtual time via `Clock`
+> discipline, and so on) and what a future custom fiber runtime
+> would have to provide to escape it. It is the most useful
+> single page in this repository if you are evaluating `rio` for
+> production.
+
 ## Why
 
 If you've used ZIO in Scala or Effect-TS in TypeScript, you
@@ -190,6 +202,15 @@ or point your `spago.yaml` at the git remote directly.
   the observability services.
 
 ## Documentation
+
+Foundational reading:
+
+- [`docs/aff-constraints.md`](./docs/aff-constraints.md): the
+  hard constraint that `rio` is built on `Effect.Aff`, what that
+  gives us for free, what it cannot give us, and what a future
+  custom fiber runtime would have to provide to lift each
+  ceiling. Read this before adopting `rio` for anything
+  load-bearing.
 
 Walkthrough docs:
 
