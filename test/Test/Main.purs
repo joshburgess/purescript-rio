@@ -42,6 +42,7 @@ import Test.RIO.Hub.PropertiesSpec as HubPropertiesSpec
 import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.LocalSpec as LocalSpec
 import Test.RIO.LoggerSpec as LoggerSpec
+import Test.RIO.Logger.CompositionSpec as LoggerCompositionSpec
 import Test.RIO.MemoSpec as MemoSpec
 import Test.RIO.MetricsSpec as MetricsSpec
 import Test.RIO.PoolSpec as PoolSpec
@@ -182,6 +183,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   MetricsSpec.spec
   LocalSpec.spec
   LoggerSpec.spec
+  LoggerCompositionSpec.spec
   MemoSpec.spec
   TestHelpersSpec.spec
   SpecHelpersSpec.spec

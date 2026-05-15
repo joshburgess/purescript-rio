@@ -55,7 +55,11 @@
 module RIO.Logger
   ( LogLevel(..)
   , Logger
+  , combineLoggers
   , consoleLogger
+  , filterLevel
+  , formatJsonLine
+  , jsonLogger
   , logDebug
   , logError
   , logInfo
@@ -164,6 +168,97 @@ renderFields fields =
   where
   renderOne :: Tuple String String -> String
   renderOne (Tuple k v) = k <> "=" <> v
+
+-- | Tee every emission into both wrapped loggers. Annotations
+-- | are read from the first logger; `setAnnotations` writes to
+-- | both so that direct use of either child stays in sync with
+-- | the combined view.
+-- |
+-- | Useful for fan-out backends, e.g. mirroring `consoleLogger`
+-- | with a JSON file backend, or wiring a `RecordingLogger`
+-- | alongside `consoleLogger` in integration tests.
+-- |
+-- | ```purescript
+-- | logger <- liftEffect do
+-- |   c <- consoleLogger
+-- |   j <- jsonLogger
+-- |   pure (combineLoggers c j)
+-- | ```
+combineLoggers :: Logger -> Logger -> Logger
+combineLoggers a b =
+  { log: \level msg fields -> do
+      a.log level msg fields
+      b.log level msg fields
+  , getAnnotations: a.getAnnotations
+  , setAnnotations: \as -> do
+      a.setAnnotations as
+      b.setAnnotations as
+  }
+
+-- | Drop emissions whose level is below `minLevel`. Annotation
+-- | reads and writes pass through unchanged, so `withFields`
+-- | still scopes correctly even when every emission inside is
+-- | filtered away.
+-- |
+-- | The level ordering follows the `Ord LogLevel` instance:
+-- | `LogTrace < LogDebug < LogInfo < LogWarn < LogError`.
+-- |
+-- | ```purescript
+-- | infoOnly = filterLevel LogInfo consoleLogger
+-- | ```
+filterLevel :: LogLevel -> Logger -> Logger
+filterLevel minLevel logger =
+  { log: \level msg fields ->
+      if level >= minLevel then logger.log level msg fields
+      else pure unit
+  , getAnnotations: logger.getAnnotations
+  , setAnnotations: logger.setAnnotations
+  }
+
+-- | Render a single emission as a one-line JSON object. The
+-- | shape is
+-- | `{"level":"INFO","message":"...","fields":{"k":"v",...}}`.
+-- | Field order matches the input array.
+-- |
+-- | Pure, no side effects, so it is the building block both for
+-- | `jsonLogger` and for any custom JSON backend that wants to
+-- | route lines somewhere other than the console.
+formatJsonLine
+  :: LogLevel
+  -> String
+  -> Array (Tuple String String)
+  -> String
+formatJsonLine level msg fields =
+  "{\"level\":"
+    <> show (renderLevelTag level)
+    <> ",\"message\":"
+    <> show msg
+    <> ",\"fields\":"
+    <> renderJsonFields fields
+    <> "}"
+
+renderJsonFields :: Array (Tuple String String) -> String
+renderJsonFields fields =
+  "{" <> Array.intercalate "," (map renderPair fields) <> "}"
+  where
+  renderPair :: Tuple String String -> String
+  renderPair (Tuple k v) = show k <> ":" <> show v
+
+-- | A logger that writes one JSON object per line to
+-- | `Effect.Console.log`. The format is the one produced by
+-- | `formatJsonLine`, which makes it suitable for piping into
+-- | log aggregators that expect newline-delimited JSON.
+jsonLogger :: Effect Logger
+jsonLogger = do
+  ref <- Ref.new []
+  let
+    emit level msg fields =
+      Console.log (formatJsonLine level msg fields)
+  pure
+    { log: emit
+    , getAnnotations: Ref.read ref
+    , setAnnotations: \as -> Ref.write as ref
+    }
 
 -- | Emit at `LogTrace`. The level is the noisiest in the
 -- | hierarchy; production deployments typically filter it out
