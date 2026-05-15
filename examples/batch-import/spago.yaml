@@ -1,0 +1,17 @@
+package:
+  name: rio-example-batch-import
+  dependencies:
+    - aff
+    - arrays
+    - effect
+    - either
+    - foldable-traversable
+    - integers
+    - maybe
+    - prelude
+    - rio
+    - strings
+    - tuples
+    - variant
+  run:
+    main: Example.BatchImport.Main
