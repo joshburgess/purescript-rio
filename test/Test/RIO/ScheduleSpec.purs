@@ -23,18 +23,24 @@ import RIO.Schedule
   , Step(..)
   , andThen
   , exponential
+  , fibonacci
   , forever
   , intersect
   , jittered
   , mapSchedule
   , once
   , recurs
+  , recursUntil
+  , recursWhile
   , repeat
   , retry
   , retryOrElse
   , spaced
   , step
+  , untilInput
+  , untilOutput
   , whileInput
+  , whileOutput
   )
 import RIO.Test.Clock (newTestClock)
 
@@ -570,6 +576,116 @@ spec = do
             case out2 of
               Continue o2 _ next2 -> do
                 o2 `shouldEqual` 2
+                out3 <- runRIO' (step next2 3)
+                case out3 of
+                  Done -> pure unit
+                  Continue _ _ _ -> 1 `shouldEqual` 0
+              Done -> 1 `shouldEqual` 0
+          Done -> 1 `shouldEqual` 0
+
+    describe "fibonacci" do
+      it "emits delays following the Fibonacci sequence starting from base, base" do
+        let
+          sched = fibonacci (Milliseconds 100.0) :: Schedule () Unit Milliseconds
+        delays <- runRIO' (collectDelays 7 sched)
+        delays `shouldEqual`
+          [ Milliseconds 100.0
+          , Milliseconds 200.0
+          , Milliseconds 300.0
+          , Milliseconds 500.0
+          , Milliseconds 800.0
+          , Milliseconds 1300.0
+          , Milliseconds 2100.0
+          ]
+
+      it "emits its current delay as the per-step output (like exponential)" do
+        let
+          sched = fibonacci (Milliseconds 100.0) :: Schedule () Unit Milliseconds
+        outputs <- runRIO' (collectOutputs 4 sched)
+        outputs `shouldEqual`
+          [ Milliseconds 100.0
+          , Milliseconds 200.0
+          , Milliseconds 300.0
+          , Milliseconds 500.0
+          ]
+
+    describe "untilInput" do
+      it "stops the moment the predicate holds" do
+        let
+          sched =
+            untilInput (\(n :: Int) -> n >= 5) (recurs 10)
+              :: Schedule () Int Int
+        out0 <- runRIO' (step sched 99)
+        case out0 of
+          Done -> pure unit
+          Continue _ _ _ -> 1 `shouldEqual` 0
+
+      it "delegates to the inner schedule until the predicate holds" do
+        let
+          sched =
+            untilInput (\(n :: Int) -> n >= 3) (recurs 10)
+              :: Schedule () Int Int
+        out1 <- runRIO' (step sched 1)
+        case out1 of
+          Continue _ _ next1 -> do
+            out2 <- runRIO' (step next1 2)
+            case out2 of
+              Continue _ _ next2 -> do
+                out3 <- runRIO' (step next2 3)
+                case out3 of
+                  Done -> pure unit
+                  Continue _ _ _ -> 1 `shouldEqual` 0
+              Done -> 1 `shouldEqual` 0
+          Done -> 1 `shouldEqual` 0
+
+    describe "whileOutput" do
+      it "continues only while the inner schedule's output matches the predicate" do
+        let
+          sched =
+            whileOutput (\(n :: Int) -> n < 3) (recurs 10)
+              :: Schedule () Unit Int
+        outputs <- runRIO' (collectOutputs 10 sched)
+        outputs `shouldEqual` [ 1, 2 ]
+
+    describe "untilOutput" do
+      it "stops the moment the inner schedule's output matches the predicate" do
+        let
+          sched =
+            untilOutput (\(n :: Int) -> n >= 3) (recurs 10)
+              :: Schedule () Unit Int
+        outputs <- runRIO' (collectOutputs 10 sched)
+        outputs `shouldEqual` [ 1, 2 ]
+
+    describe "recursWhile / recursUntil" do
+      it "recursWhile is forever filtered by the input predicate" do
+        let
+          sched =
+            recursWhile (\(n :: Int) -> n < 3) :: Schedule () Int Int
+        out1 <- runRIO' (step sched 1)
+        case out1 of
+          Continue o1 _ next1 -> do
+            o1 `shouldEqual` 1
+            out2 <- runRIO' (step next1 2)
+            case out2 of
+              Continue o2 _ next2 -> do
+                o2 `shouldEqual` 2
+                out3 <- runRIO' (step next2 3)
+                case out3 of
+                  Done -> pure unit
+                  Continue _ _ _ -> 1 `shouldEqual` 0
+              Done -> 1 `shouldEqual` 0
+          Done -> 1 `shouldEqual` 0
+
+      it "recursUntil is forever stopped by the input predicate" do
+        let
+          sched =
+            recursUntil (\(n :: Int) -> n >= 3) :: Schedule () Int Int
+        out1 <- runRIO' (step sched 1)
+        case out1 of
+          Continue _ _ next1 -> do
+            out2 <- runRIO' (step next1 2)
+            case out2 of
+              Continue _ _ next2 -> do
                 out3 <- runRIO' (step next2 3)
                 case out3 of
                   Done -> pure unit

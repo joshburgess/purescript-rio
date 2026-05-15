@@ -32,18 +32,24 @@ module RIO.Schedule
   , Step(..)
   , andThen
   , exponential
+  , fibonacci
   , forever
   , intersect
   , jittered
   , mapSchedule
   , once
   , recurs
+  , recursUntil
+  , recursWhile
   , repeat
   , retry
   , retryOrElse
   , spaced
   , step
+  , untilInput
+  , untilOutput
   , whileInput
+  , whileOutput
   ) where
 
 import Prelude
@@ -128,6 +134,26 @@ exponential (Milliseconds base) factor = go base
       delay = Milliseconds ms
     in
       pure (Right (Continue delay delay (go (ms * factor))))
+
+-- | Fibonacci backoff: each delay is the sum of the previous two,
+-- | starting from `base` and `base`. Output is the current delay.
+-- |
+-- | Useful when you want growth between linear (`spaced`) and
+-- | aggressive (`exponential`). Pair with `jittered` to soften the
+-- | thundering-herd risk.
+-- |
+-- | ```purescript
+-- | -- 100ms, 100ms, 200ms, 300ms, 500ms, 800ms, 1300ms, ...
+-- | fibonacci (Milliseconds 100.0)
+-- | ```
+fibonacci :: forall r i. Milliseconds -> Schedule r i Milliseconds
+fibonacci (Milliseconds base) = go base base
+  where
+  go prev curr = Schedule \_ -> RIO \_ ->
+    let
+      delay = Milliseconds curr
+    in
+      pure (Right (Continue delay delay (go curr (prev + curr))))
 
 -- | Never stops; output is the iteration count. Equivalent to
 -- | `spaced (Milliseconds 0.0)`.
@@ -223,6 +249,56 @@ whileInput pred (Schedule s) = Schedule \i -> RIO \env ->
       Right Done -> pure (Right Done)
       Right (Continue o d next) ->
         pure (Right (Continue o d (whileInput pred next)))
+
+-- | The dual of `whileInput`: stop the moment the input satisfies the
+-- | predicate. Equivalent to `whileInput (not <<< pred)`, exposed as
+-- | a named entry point so retry-until-condition policies are
+-- | discoverable.
+untilInput
+  :: forall r i o
+   . (i -> Boolean)
+  -> Schedule r i o
+  -> Schedule r i o
+untilInput pred = whileInput (not <<< pred)
+
+-- | Continue only while the underlying schedule's own output
+-- | satisfies the predicate. Pair with `repeat` to stop on a sentinel
+-- | value (a counter reaching a threshold, an `exponential` delay
+-- | exceeding a budget, etc.).
+whileOutput
+  :: forall r i o
+   . (o -> Boolean)
+  -> Schedule r i o
+  -> Schedule r i o
+whileOutput pred (Schedule s) = Schedule \i -> RIO \env -> do
+  res <- unRIO (s i) env
+  case res of
+    Left v -> Variant.case_ v
+    Right Done -> pure (Right Done)
+    Right (Continue o d next) ->
+      if pred o then pure (Right (Continue o d (whileOutput pred next)))
+      else pure (Right Done)
+
+-- | The dual of `whileOutput`: stop the moment the underlying
+-- | schedule's output satisfies the predicate.
+untilOutput
+  :: forall r i o
+   . (o -> Boolean)
+  -> Schedule r i o
+  -> Schedule r i o
+untilOutput pred = whileOutput (not <<< pred)
+
+-- | `forever` but only while the input matches the predicate.
+-- | Equivalent to `whileInput pred forever`, exposed as a named
+-- | constructor for discoverability when reaching for a
+-- | "retry while this condition holds" policy.
+recursWhile :: forall r i. (i -> Boolean) -> Schedule r i Int
+recursWhile pred = whileInput pred forever
+
+-- | `forever` but only until the input matches the predicate.
+-- | Equivalent to `untilInput pred forever`.
+recursUntil :: forall r i. (i -> Boolean) -> Schedule r i Int
+recursUntil pred = untilInput pred forever
 
 -- | Multiply every delay by a uniform random factor in `[lo, hi]`,
 -- | sampled per step. Use a tight band like `0.8`/`1.2` to soften a
