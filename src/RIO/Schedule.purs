@@ -34,6 +34,7 @@ module RIO.Schedule
   , asUnit
   , collectAll
   , addDelayM
+  , dayOfWeek
   , delayed
   , dimap
   , elapsed
@@ -42,7 +43,9 @@ module RIO.Schedule
   , fibonacci
   , fixed
   , forever
+  , hourOfDay
   , intersect
+  , minuteOfHour
   , jittered
   , mapDelay
   , mapInput
@@ -71,7 +74,9 @@ import Prelude
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Int (ceil, toNumber) as Int
+import Data.Maybe (Maybe(..))
 import Data.Newtype (unwrap)
+import Data.Number (floor) as Number
 import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
@@ -80,7 +85,7 @@ import Effect.Class (liftEffect)
 import Effect.Random as Random
 import Unsafe.Coerce (unsafeCoerce)
 
-import RIO.Clock (Clock, now, sleep)
+import RIO.Clock (Clock, now, partsFromMs, sleep)
 import RIO.Internal (RIO(..), unRIO)
 
 -- | A scheduling policy: given an input `i`, fire `Step r i o`.
@@ -706,6 +711,92 @@ delayed (Milliseconds offset) (Schedule s) = Schedule \i -> RIO \env -> do
     Right Done -> pure (Right Done)
     Right (Continue o (Milliseconds d) next) ->
       pure (Right (Continue o (Milliseconds (d + offset)) next))
+
+-- | Fire on each minute boundary (UTC). The emitted delay is the
+-- | distance from the current wall-clock time to the next minute
+-- | boundary; subsequent steps emit one full minute apart. The
+-- | output is the minute-of-hour (`0..59`) at the firing target.
+-- |
+-- | Use with `intersect` and `whileOutput` to build "every minute
+-- | at second 0" or "only during minute 30" predicates.
+-- |
+-- | ```purescript
+-- | -- run an action exactly on each minute boundary
+-- | _ <- repeat minuteOfHour action
+-- | ```
+minuteOfHour :: forall r i. Schedule (clock :: Clock | r) i Int
+minuteOfHour = boundarySchedule minuteMs (\p -> p.minute)
+
+-- | Fire on each hour boundary (UTC). The output is the
+-- | hour-of-day (`0..23`) at the firing target.
+-- |
+-- | ```purescript
+-- | -- run an hourly sync on the hour
+-- | _ <- repeat (whileOutput (_ == 9) hourOfDay) runDailyJob
+-- | ```
+hourOfDay :: forall r i. Schedule (clock :: Clock | r) i Int
+hourOfDay = boundarySchedule hourMs (\p -> p.hour)
+
+-- | Fire on each UTC midnight boundary. The output is the ISO
+-- | day-of-week (`1 = Monday`, `7 = Sunday`) of the firing target.
+-- |
+-- | ```purescript
+-- | -- "every Monday at midnight"
+-- | _ <- repeat (whileOutput (_ == 1) dayOfWeek) weeklyReport
+-- | ```
+dayOfWeek :: forall r i. Schedule (clock :: Clock | r) i Int
+dayOfWeek = boundarySchedule dayMs (\p -> p.dayOfWeek)
+
+-- | Internal helper: a schedule that fires on each `unit`
+-- | boundary (a UTC multiple of `unit` ms since the epoch) and
+-- | reads the requested field from the wall-clock parts at the
+-- | firing target.
+boundarySchedule
+  :: forall r i
+   . Number
+  -> ( { year :: Int
+       , month :: Int
+       , day :: Int
+       , hour :: Int
+       , minute :: Int
+       , second :: Int
+       , millisecond :: Int
+       , dayOfWeek :: Int
+       }
+       -> Int
+     )
+  -> Schedule (clock :: Clock | r) i Int
+boundarySchedule unit_ readField = start
+  where
+  start = Schedule \_ -> do
+    Milliseconds tNow <- now
+    let
+      target = Number.floor (tNow / unit_) * unit_ + unit_
+      delay = Milliseconds (target - tNow)
+      output = case partsFromMs (Milliseconds target) of
+        Just p -> readField p
+        _ -> -1
+    pure (Continue output delay (go target))
+
+  go target = Schedule \_ -> do
+    Milliseconds tNow <- now
+    let
+      nextTarget = target + unit_
+      raw = nextTarget - tNow
+      delay = Milliseconds (if raw < 0.0 then 0.0 else raw)
+      output = case partsFromMs (Milliseconds nextTarget) of
+        Just p -> readField p
+        _ -> -1
+    pure (Continue output delay (go nextTarget))
+
+minuteMs :: Number
+minuteMs = 60000.0
+
+hourMs :: Number
+hourMs = 3600000.0
+
+dayMs :: Number
+dayMs = 86400000.0
 
 -- | Run `action`, then repeat under `schedule`. The schedule sees
 -- | each successful result as input; while it says `Continue`, the

@@ -6,6 +6,7 @@ import Effect (Effect)
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
+import Test.RIO.Clock.PartsSpec as ClockPartsSpec
 import Test.RIO.ClockSpec as ClockSpec
 import Test.RIO.ConcurrencySpec as ConcurrencySpec
 import Test.RIO.Concurrency.AsyncSpec as ConcurrencyAsyncSpec
@@ -61,6 +62,7 @@ import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.Resource.DoSpec as ResourceDoSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
 import Test.RIO.Schedule.CollectRepetitionsTapSpec as ScheduleCollectRepetitionsTapSpec
+import Test.RIO.Schedule.CronSpec as ScheduleCronSpec
 import Test.RIO.Schedule.DimapDelaySpec as ScheduleDimapDelaySpec
 import Test.RIO.Schedule.ElapsedSpec as ScheduleElapsedSpec
 import Test.RIO.Schedule.EventuallySpec as ScheduleEventuallySpec
@@ -138,6 +140,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   CauseInspectionSpec.spec
   DeferredSpec.spec
   ClockSpec.spec
+  ClockPartsSpec.spec
   RandomSpec.spec
   RandomPropertiesSpec.spec
   RandomShufflePickSpec.spec
@@ -153,6 +156,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ScheduleElapsedSpec.spec
   ScheduleEventuallySpec.spec
   ScheduleCollectRepetitionsTapSpec.spec
+  ScheduleCronSpec.spec
   ScheduleDimapDelaySpec.spec
   SchedulePropertiesSpec.spec
   SemaphoreSpec.spec

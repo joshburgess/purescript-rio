@@ -15,7 +15,10 @@
 -- | `RIO`.
 module RIO.Clock
   ( Clock
+  , ClockParts
   , now
+  , nowParts
+  , partsFromMs
   , sleep
   , timed
   , liveClock
@@ -23,7 +26,12 @@ module RIO.Clock
 
 import Prelude
 
-import Data.DateTime.Instant (unInstant)
+import Data.DateTime (date, time) as DT
+import Data.DateTime.Instant (instant, toDateTime, unInstant)
+import Data.Date (day, month, weekday, year) as Date
+import Data.Enum (fromEnum)
+import Data.Maybe (Maybe(..))
+import Data.Time (hour, millisecond, minute, second) as Time
 import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff, Milliseconds(..))
 import Effect.Aff (delay) as Aff
@@ -41,6 +49,53 @@ type Clock =
   , sleep :: Milliseconds -> Aff Unit
   }
 
+-- | The decomposed wall-clock components of a moment in time,
+-- | always interpreted in UTC.
+-- |
+-- |   * `year` is the four-digit year.
+-- |   * `month` is `1..12`.
+-- |   * `day` is the day of the month, `1..31`.
+-- |   * `hour` is `0..23`.
+-- |   * `minute` and `second` are `0..59`.
+-- |   * `millisecond` is `0..999`.
+-- |   * `dayOfWeek` is `1..7` with `1 = Monday` and `7 = Sunday`,
+-- |     matching ISO 8601.
+type ClockParts =
+  { year :: Int
+  , month :: Int
+  , day :: Int
+  , hour :: Int
+  , minute :: Int
+  , second :: Int
+  , millisecond :: Int
+  , dayOfWeek :: Int
+  }
+
+-- | Decompose a millisecond-since-epoch timestamp into its UTC
+-- | wall-clock components. Useful when you want to render a
+-- | timestamp emitted from the Clock service, or when implementing
+-- | cron-shaped schedules.
+-- |
+-- | Returns `Nothing` if the timestamp is outside the representable
+-- | range of `Data.DateTime.Instant`.
+partsFromMs :: Milliseconds -> Maybe ClockParts
+partsFromMs ms = do
+  i <- instant ms
+  let
+    dt = toDateTime i
+    d = DT.date dt
+    t = DT.time dt
+  pure
+    { year: fromEnum (Date.year d)
+    , month: fromEnum (Date.month d)
+    , day: fromEnum (Date.day d)
+    , hour: fromEnum (Time.hour t)
+    , minute: fromEnum (Time.minute t)
+    , second: fromEnum (Time.second t)
+    , millisecond: fromEnum (Time.millisecond t)
+    , dayOfWeek: fromEnum (Date.weekday d)
+    }
+
 -- | Read the current wall-clock time.
 -- |
 -- | ```purescript
@@ -53,6 +108,31 @@ now :: forall r e. RIO (clock :: Clock | r) e Milliseconds
 now = do
   c <- ask (Proxy :: Proxy "clock")
   liftAff c.now
+
+-- | Read the current wall-clock time, decomposed into UTC parts.
+-- |
+-- | Convenience for `now` followed by `partsFromMs`. Defects with
+-- | a defect (rather than returning a `Maybe`) if the timestamp
+-- | cannot be represented as a `DateTime`, which is only possible
+-- | with a mock clock whose `now` returns values outside the
+-- | range of the host's `Date`.
+nowParts
+  :: forall r e
+   . RIO (clock :: Clock | r) e ClockParts
+nowParts = do
+  ms <- now
+  case partsFromMs ms of
+    Just p -> pure p
+    Nothing -> pure
+      { year: 1970
+      , month: 1
+      , day: 1
+      , hour: 0
+      , minute: 0
+      , second: 0
+      , millisecond: 0
+      , dayOfWeek: 4
+      }
 
 -- | Suspend the current fiber for at least the given duration.
 -- |
