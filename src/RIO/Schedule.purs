@@ -32,6 +32,7 @@ module RIO.Schedule
   , Step(..)
   , andThen
   , collectAll
+  , dimap
   , elapsed
   , eventually
   , exponential
@@ -40,6 +41,8 @@ module RIO.Schedule
   , forever
   , intersect
   , jittered
+  , mapDelay
+  , mapInput
   , mapSchedule
   , once
   , recurs
@@ -444,6 +447,67 @@ mapSchedule f (Schedule s) = Schedule \i -> RIO \env -> do
     Right Done -> pure (Right Done)
     Right (Continue o d next) ->
       pure (Right (Continue (f o) d (mapSchedule f next)))
+
+-- | Transform a schedule's input. Pre-processes each input with `f`
+-- | before passing it to the underlying schedule. Cadence, output,
+-- | and termination are unchanged; only what the schedule "sees"
+-- | for its decision changes.
+-- |
+-- | Contravariant on the input position: makes a `Schedule r i o`
+-- | usable in a context that produces `i'` by mapping `i' -> i`.
+mapInput
+  :: forall r i i' o
+   . (i' -> i)
+  -> Schedule r i o
+  -> Schedule r i' o
+mapInput f (Schedule s) = Schedule \i' -> RIO \env -> do
+  res <- unRIO (s (f i')) env
+  case res of
+    Left v -> Variant.case_ v
+    Right Done -> pure (Right Done)
+    Right (Continue o d next) ->
+      pure (Right (Continue o d (mapInput f next)))
+
+-- | Transform a schedule's per-step delay. The decision (number of
+-- | steps, output values) is preserved; only the sleep time between
+-- | steps changes.
+-- |
+-- | ```purescript
+-- | -- exponential backoff, capped at 30 seconds per step
+-- | mapDelay
+-- |   (\(Milliseconds ms) -> Milliseconds (min ms 30000.0))
+-- |   (exponential (Milliseconds 100.0) 2.0)
+-- | ```
+mapDelay
+  :: forall r i o
+   . (Milliseconds -> Milliseconds)
+  -> Schedule r i o
+  -> Schedule r i o
+mapDelay f (Schedule s) = Schedule \i -> RIO \env -> do
+  res <- unRIO (s i) env
+  case res of
+    Left v -> Variant.case_ v
+    Right Done -> pure (Right Done)
+    Right (Continue o d next) ->
+      pure (Right (Continue o (f d) (mapDelay f next)))
+
+-- | Transform both the input and the output of a schedule in a
+-- | single step. `dimap pre post s` is `mapSchedule post (mapInput
+-- | pre s)`; it exists as a named entry point so the Profunctor
+-- | shape of schedules is discoverable.
+dimap
+  :: forall r i i' o o'
+   . (i' -> i)
+  -> (o -> o')
+  -> Schedule r i o
+  -> Schedule r i' o'
+dimap pre post (Schedule s) = Schedule \i' -> RIO \env -> do
+  res <- unRIO (s (pre i')) env
+  case res of
+    Left v -> Variant.case_ v
+    Right Done -> pure (Right Done)
+    Right (Continue o d next) ->
+      pure (Right (Continue (post o) d (dimap pre post next)))
 
 -- | Each step emits the array of every output the schedule has
 -- | produced so far (inclusive of the current one). Cadence and

@@ -55,6 +55,7 @@ import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.Resource.DoSpec as ResourceDoSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
 import Test.RIO.Schedule.CollectRepetitionsTapSpec as ScheduleCollectRepetitionsTapSpec
+import Test.RIO.Schedule.DimapDelaySpec as ScheduleDimapDelaySpec
 import Test.RIO.Schedule.ElapsedSpec as ScheduleElapsedSpec
 import Test.RIO.Schedule.EventuallySpec as ScheduleEventuallySpec
 import Test.RIO.Schedule.FixedSpec as ScheduleFixedSpec
@@ -135,6 +136,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ScheduleElapsedSpec.spec
   ScheduleEventuallySpec.spec
   ScheduleCollectRepetitionsTapSpec.spec
+  ScheduleDimapDelaySpec.spec
   SchedulePropertiesSpec.spec
   SemaphoreSpec.spec
   QueueSpec.spec
