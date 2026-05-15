@@ -20,10 +20,12 @@ import Test.RIO.Config.RotatingSpec as RotatingSpec
 import Test.RIO.CacheSpec as CacheSpec
 import Test.RIO.CauseSpec as CauseSpec
 import Test.RIO.Cause.CombinatorsSpec as CauseCombinatorsSpec
+import Test.RIO.Cause.CatchSomeSpec as CauseCatchSomeSpec
 import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.DeferredSpec as DeferredSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
+import Test.RIO.Error.CatchSomeSpec as ErrorCatchSomeSpec
 import Test.RIO.Error.CombinatorsSpec as ErrorCombinatorsSpec
 import Test.RIO.Error.OrElseSpec as ErrorOrElseSpec
 import Test.RIO.Error.RefineSpec as ErrorRefineSpec
@@ -32,6 +34,7 @@ import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.FailSpec as FailSpec
 import Test.RIO.FoldForeverSpec as FoldForeverSpec
 import Test.RIO.HubSpec as HubSpec
+import Test.RIO.IterateReplicateSpec as IterateReplicateSpec
 import Test.RIO.Hub.PropertiesSpec as HubPropertiesSpec
 import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.LocalSpec as LocalSpec
@@ -86,7 +89,9 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ErrorOrElseSpec.spec
   ErrorTapSpec.spec
   ErrorRefineSpec.spec
+  ErrorCatchSomeSpec.spec
   ConditionalSpec.spec
+  IterateReplicateSpec.spec
   FailSpec.spec
   FoldForeverSpec.spec
   ResourceSpec.spec
@@ -101,6 +106,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ZipWithParSpec.spec
   CauseSpec.spec
   CauseCombinatorsSpec.spec
+  CauseCatchSomeSpec.spec
   DeferredSpec.spec
   ClockSpec.spec
   RandomSpec.spec

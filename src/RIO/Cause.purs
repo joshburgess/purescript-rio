@@ -35,6 +35,7 @@ module RIO.Cause
   , attemptCause
   , bothPar
   , catchAllCause
+  , catchSomeCause
   , failCause
   , foldCauseRIO
   , prettyCause
@@ -224,6 +225,33 @@ catchAllCause
   -> RIO r e a
   -> RIO r e' a
 catchAllCause handler inner = foldCauseRIO handler pure inner
+
+-- | The cause-aware sibling of `RIO.Error.catchSome`: examine the
+-- | full `Cause` and decide per failure whether to handle it
+-- | (`Just (handler …)` recovers) or let it propagate unchanged
+-- | (`Nothing` re-raises).
+-- |
+-- | Unlike `catchAllCause`, the error row is preserved: handled
+-- | failures are discharged but unhandled ones flow through `e`.
+-- | Unhandled composites are re-raised by picking their leftmost
+-- | leaf (matching `failCause`'s policy), so the structural shape
+-- | survives only through `catchAllCause`.
+-- |
+-- | Mirrors ZIO `ZIO.catchSomeCause`. Use this when "log unknown
+-- | defects but pass them through" or "recover from a specific tag
+-- | but keep the rest" is the recovery story.
+catchSomeCause
+  :: forall r e a
+   . (Cause e -> Maybe (RIO r e a))
+  -> RIO r e a
+  -> RIO r e a
+catchSomeCause classify inner = RIO \r -> do
+  outcome <- attempt (unRIO inner r)
+  case fromOutcome outcome of
+    Right a -> pure (Right a)
+    Left cause -> case classify cause of
+      Just handler -> unRIO handler r
+      Nothing -> unRIO (failCause cause) r
 
 -- | Raise a pre-built `Cause` as a failure.
 -- |

@@ -12,6 +12,9 @@
 module RIO.Core
   ( module Exports
   , ifM
+  , iterate
+  , replicateM
+  , replicateM_
   , runRIO
   , runRIO'
   , unlessM
@@ -26,7 +29,7 @@ import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Aff (Aff)
 import RIO.Env (ask, asks, provide, provideAll) as Exports
-import RIO.Error (catchAll, catchTag, die, fail, foldRIO, mapBoth, mapError, option, orDie, orElse, refineOrDie, refineOrDieWith, rethrow, sandbox, tap, tapBoth, tapDefect, tapError, unsandbox) as Exports
+import RIO.Error (catchAll, catchSome, catchTag, die, fail, foldRIO, mapBoth, mapError, option, orDie, orElse, orElseFail, orElseSucceed, refineOrDie, refineOrDieWith, rethrow, sandbox, tap, tapBoth, tapDefect, tapError, unsandbox) as Exports
 import RIO.Internal (RIO, unRIO)
 import RIO.Internal (RIO) as Exports
 import RIO.Concurrency (Fiber, filterPar, forever, fork, forkScoped, interrupt, join, never, parSequence, parTraverse, parTraverseN, partition, partitionPar, race, raceAll, raceEither, timeout, timeoutFail, uninterruptible, validate, validatePar, zipPar, zipWithPar) as Exports
@@ -119,3 +122,70 @@ ifM
 ifM cond thenBranch elseBranch = do
   b <- cond
   if b then thenBranch else elseBranch
+
+-- | Run `action` `n` times and collect every result in input order.
+-- | Non-positive `n` returns an empty array without running the
+-- | action.
+-- |
+-- | Mirrors ZIO `ZIO.replicateM` / Effect-TS `Effect.replicate`.
+-- | Sequential: each invocation runs after the previous one
+-- | finishes. For concurrent replication, reach for
+-- | `parSequence (Array.replicate n action)`.
+-- |
+-- | ```purescript
+-- | -- sample the random source 100 times in a row
+-- | samples <- replicateM 100 nextSample
+-- | ```
+replicateM :: forall r e a. Int -> RIO r e a -> RIO r e (Array a)
+replicateM n action
+  | n <= 0 = pure []
+  | otherwise = do
+      a <- action
+      rest <- replicateM (n - 1) action
+      pure ([ a ] <> rest)
+
+-- | The discard sibling of `replicateM`: run `action` `n` times and
+-- | throw the results away. Non-positive `n` is a no-op.
+-- |
+-- | ```purescript
+-- | -- warm up the cache with 10 dummy reads
+-- | replicateM_ 10 (load "warmup-key")
+-- | ```
+replicateM_ :: forall r e a. Int -> RIO r e a -> RIO r e Unit
+replicateM_ n action
+  | n <= 0 = pure unit
+  | otherwise = do
+      _ <- action
+      replicateM_ (n - 1) action
+
+-- | Iterate a stateful step: starting from `seed`, repeatedly apply
+-- | `step` while `cont` holds, threading the accumulated state.
+-- | Returns the final state.
+-- |
+-- | The predicate is checked *before* each step, so a `cont` that is
+-- | `false` on the seed returns the seed unchanged without invoking
+-- | `step`.
+-- |
+-- | Mirrors ZIO `ZIO.iterate`. Use this for bounded effectful loops
+-- | that thread state through each iteration; for unbounded loops
+-- | with the same body, reach for `forever` instead.
+-- |
+-- | ```purescript
+-- | -- consume the queue until it is empty, counting drained items
+-- | final <- iterate { queue, drained: 0 } (\s -> s.queue /= []) \s -> do
+-- |   case Array.uncons s.queue of
+-- |     Nothing -> pure s
+-- |     Just { head: _, tail } ->
+-- |       pure { queue: tail, drained: s.drained + 1 }
+-- | ```
+iterate
+  :: forall r e a
+   . a
+  -> (a -> Boolean)
+  -> (a -> RIO r e a)
+  -> RIO r e a
+iterate seed cont step =
+  if cont seed then do
+    next <- step seed
+    iterate next cont step
+  else pure seed

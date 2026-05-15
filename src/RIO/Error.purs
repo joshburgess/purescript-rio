@@ -9,6 +9,7 @@
 module RIO.Error
   ( absolve
   , catchAll
+  , catchSome
   , catchTag
   , die
   , either
@@ -21,6 +22,8 @@ module RIO.Error
   , option
   , orDie
   , orElse
+  , orElseFail
+  , orElseSucceed
   , refineOrDie
   , refineOrDieWith
   , rethrow
@@ -464,6 +467,72 @@ foldRIO onError onSuccess inner = RIO \r -> do
 -- | ```
 orElse :: forall r e e' a. RIO r e a -> RIO r e' a -> RIO r e' a
 orElse first fallback = catchAll (\_ -> fallback) first
+
+-- | Catch some failures, leave the rest. The classifier decides per
+-- | failure whether to handle it (`Just (handler …)` recovers) or
+-- | pass it through unchanged (`Nothing` re-raises on the same row).
+-- |
+-- | Unlike `catchAll`, the error row is preserved: handled failures
+-- | are discharged but unhandled ones keep flowing through `e`.
+-- | Unlike `catchTag`, the classifier can look at any tag (or any
+-- | combination of tags) at once rather than naming one.
+-- |
+-- | Mirrors ZIO `ZIO.catchSome` / Effect-TS `Effect.catchSome`.
+-- |
+-- | ```purescript
+-- | -- recover from "notFound" with a default; let "parseError" surface
+-- | safeLookup =
+-- |   catchSome
+-- |     (Variant.on (Proxy :: _ "notFound")
+-- |       (\_ -> Just (pure defaultItem))
+-- |       (\_ -> Nothing))
+-- |     loadItem
+-- | ```
+catchSome
+  :: forall r e a
+   . (Variant e -> Maybe (RIO r e a))
+  -> RIO r e a
+  -> RIO r e a
+catchSome classify inner = RIO \r -> do
+  res <- unRIO inner r
+  case res of
+    Right a -> pure (Right a)
+    Left v -> case classify v of
+      Just handler -> unRIO handler r
+      Nothing -> pure (Left v)
+
+-- | Replace any typed failure with a pure success value. The error
+-- | row is discharged. Defects still propagate.
+-- |
+-- | Mirrors ZIO `ZIO.orElseSucceed`. Sugar for
+-- | `catchAll (\_ -> pure a)`.
+-- |
+-- | ```purescript
+-- | -- treat any cache failure as a miss
+-- | record <- orElseSucceed defaultRecord (fromCache key)
+-- | ```
+orElseSucceed :: forall r e e' a. a -> RIO r e a -> RIO r e' a
+orElseSucceed a = catchAll (\_ -> pure a)
+
+-- | Replace any typed failure with a different typed failure. The
+-- | original payload is discarded; the new failure sits on a
+-- | replacement row chosen by the caller.
+-- |
+-- | Mirrors ZIO `ZIO.orElseFail`. Useful at boundaries where one
+-- | family of upstream errors should be summarised under a single
+-- | downstream tag without case-analysis.
+-- |
+-- | ```purescript
+-- | -- collapse every parse-level failure into one "invalid input" tag
+-- | validated =
+-- |   orElseFail (Variant.inj (Proxy :: _ "invalidInput") form) parseForm
+-- | ```
+orElseFail
+  :: forall r e e' a
+   . Variant e'
+  -> RIO r e a
+  -> RIO r e' a
+orElseFail v = catchAll (\_ -> rethrow v)
 
 -- | Reflect a fallible action into the success channel as
 -- | `Maybe a`: `Just a` on success, `Nothing` on any typed
