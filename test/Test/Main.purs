@@ -11,6 +11,7 @@ import Test.RIO.ConcurrencySpec as ConcurrencySpec
 import Test.RIO.Concurrency.ParSpec as ParSpec
 import Test.RIO.Concurrency.PropertiesSpec as ConcurrencyPropertiesSpec
 import Test.RIO.Concurrency.NeverFilterSpec as NeverFilterSpec
+import Test.RIO.Concurrency.TimeoutRaceValidateSpec as TimeoutRaceValidateSpec
 import Test.RIO.Concurrency.ValidatePartitionSpec as ValidatePartitionSpec
 import Test.RIO.ConditionalSpec as ConditionalSpec
 import Test.RIO.ConfigSpec as ConfigSpec
@@ -23,6 +24,7 @@ import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.Error.CombinatorsSpec as ErrorCombinatorsSpec
 import Test.RIO.Error.OrElseSpec as ErrorOrElseSpec
+import Test.RIO.Error.TapSpec as ErrorTapSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.FailSpec as FailSpec
 import Test.RIO.FoldForeverSpec as FoldForeverSpec
@@ -43,6 +45,7 @@ import Test.RIO.Random.PropertiesSpec as RandomPropertiesSpec
 import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.Resource.DoSpec as ResourceDoSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
+import Test.RIO.Schedule.FixedSpec as ScheduleFixedSpec
 import Test.RIO.Schedule.PropertiesSpec as SchedulePropertiesSpec
 import Test.RIO.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.SinkSpec as SinkSpec
@@ -77,6 +80,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ErrorHandlingSpec.spec
   ErrorCombinatorsSpec.spec
   ErrorOrElseSpec.spec
+  ErrorTapSpec.spec
   ConditionalSpec.spec
   FailSpec.spec
   FoldForeverSpec.spec
@@ -88,6 +92,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ConcurrencyPropertiesSpec.spec
   ValidatePartitionSpec.spec
   NeverFilterSpec.spec
+  TimeoutRaceValidateSpec.spec
   CauseSpec.spec
   DeferredSpec.spec
   ClockSpec.spec
@@ -98,6 +103,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ConfigSpec.spec
   RotatingSpec.spec
   ScheduleSpec.spec
+  ScheduleFixedSpec.spec
   SchedulePropertiesSpec.spec
   SemaphoreSpec.spec
   QueueSpec.spec

@@ -33,6 +33,7 @@ module RIO.Schedule
   , andThen
   , exponential
   , fibonacci
+  , fixed
   , forever
   , intersect
   , jittered
@@ -55,6 +56,7 @@ module RIO.Schedule
 import Prelude
 
 import Data.Either (Either(..))
+import Data.Int (ceil, toNumber) as Int
 import Data.Newtype (unwrap)
 import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
@@ -64,7 +66,7 @@ import Effect.Class (liftEffect)
 import Effect.Random as Random
 import Unsafe.Coerce (unsafeCoerce)
 
-import RIO.Clock (Clock, sleep)
+import RIO.Clock (Clock, now, sleep)
 import RIO.Internal (RIO(..), unRIO)
 
 -- | A scheduling policy: given an input `i`, fire `Step r i o`.
@@ -154,6 +156,57 @@ fibonacci (Milliseconds base) = go base base
       delay = Milliseconds curr
     in
       pure (Right (Continue delay delay (go curr (prev + curr))))
+
+-- | Fire on a fixed cadence regardless of how long the work takes.
+-- |
+-- | Unlike `spaced ms`, which waits `ms` *after* each completion (so a
+-- | slow run drifts the cadence), `fixed ms` targets every `ms`
+-- | milliseconds on the wall clock. If a run overshoots the next
+-- | scheduled fire time, the runner fires immediately and re-aligns
+-- | to the next future multiple of the period; no firings are
+-- | bunched up to "catch up".
+-- |
+-- | The output is the actual sleep duration the runner used for that
+-- | step (so observers can see whether the cadence is being kept or
+-- | the work is overshooting).
+-- |
+-- | Reads the `Clock` service to compute the remaining delay on each
+-- | step, so the schedule's environment row carries `clock :: Clock`.
+-- | Under `RIO.Test.Clock` this is fully deterministic.
+-- |
+-- | ```purescript
+-- | -- poll on a 30s cadence; one slow poll won't shift later firings
+-- | _ <- repeat (fixed (Milliseconds 30000.0)) pollOnce
+-- | ```
+fixed
+  :: forall r i
+   . Milliseconds
+  -> Schedule (clock :: Clock | r) i Milliseconds
+fixed (Milliseconds period) = start
+  where
+  start = Schedule \_ -> do
+    Milliseconds t0 <- now
+    pure (Continue (Milliseconds period) (Milliseconds period) (go (t0 + period)))
+
+  go target = Schedule \_ -> do
+    Milliseconds tNow <- now
+    let
+      -- If the action overshot the target, jump ahead to the next
+      -- future multiple of `period`; otherwise sleep the remaining
+      -- distance to the target.
+      raw = target - tNow
+      delay = if raw < 0.0 then 0.0 else raw
+      -- Advance to the next future fire time. When we've overshot by
+      -- one or more periods, this catches us up without re-firing the
+      -- missed targets.
+      nextTarget =
+        if raw >= 0.0 then target + period
+        else
+          let
+            overshoots = Int.toNumber (Int.ceil ((-raw) / period))
+          in
+            target + period * (overshoots + 1.0)
+    pure (Continue (Milliseconds delay) (Milliseconds delay) (go nextTarget))
 
 -- | Never stops; output is the iteration count. Equivalent to
 -- | `spaced (Milliseconds 0.0)`.
