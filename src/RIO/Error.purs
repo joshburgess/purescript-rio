@@ -24,6 +24,8 @@ module RIO.Error
   , rethrow
   , sandbox
   , tap
+  , tapBoth
+  , tapDefect
   , tapError
   , unsandbox
   ) where
@@ -278,6 +280,77 @@ tapError f inner = RIO \r -> do
       case logged of
         Right _ -> pure (Left v)
         Left newFail -> pure (Left newFail)
+
+-- | Fire one of two side-effecting handlers depending on whether the
+-- | inner action succeeded or raised a typed failure, then re-emit
+-- | the original outcome unchanged. The two-arm sibling of `tap` /
+-- | `tapError`.
+-- |
+-- | Mirrors ZIO `ZIO.tapBoth` / Effect `Effect.tapBoth`. Useful for
+-- | structured telemetry that wants to record every outcome on a
+-- | single call site without caring which arm fired.
+-- |
+-- | A handler that fails replaces the original outcome (same policy
+-- | as `tap` and `tapError`). Defects bypass both handlers and
+-- | propagate via `Aff`'s exception channel.
+-- |
+-- | ```purescript
+-- | runJob
+-- |   # tapBoth
+-- |       (\v -> incrementCounter "job.failure")
+-- |       (\_ -> incrementCounter "job.success")
+-- | ```
+tapBoth
+  :: forall r e a
+   . (Variant e -> RIO r e Unit)
+  -> (a -> RIO r e Unit)
+  -> RIO r e a
+  -> RIO r e a
+tapBoth onErr onOk inner = RIO \r -> do
+  res <- unRIO inner r
+  case res of
+    Right a -> do
+      logged <- unRIO (onOk a) r
+      case logged of
+        Right _ -> pure (Right a)
+        Left newFail -> pure (Left newFail)
+    Left v -> do
+      logged <- unRIO (onErr v) r
+      case logged of
+        Right _ -> pure (Left v)
+        Left newFail -> pure (Left newFail)
+
+-- | Fire a handler when the inner action raises a defect (an `Aff`
+-- | exception, whether from `die`, a lifted `Aff`, or a runtime
+-- | panic), then re-raise the defect unchanged. Typed failures and
+-- | successes pass through without calling the handler.
+-- |
+-- | Mirrors ZIO `ZIO.tapDefect`. Pair with structured logging or a
+-- | metrics emitter to surface "this should never happen" failures
+-- | without converting them into typed errors.
+-- |
+-- | A handler that itself raises a defect replaces the original; a
+-- | handler that fails with a typed error is *not* possible because
+-- | the handler runs in the same error row `e` as the inner program
+-- | but its typed failures cannot intercept a defect (the original
+-- | defect always wins).
+-- |
+-- | ```purescript
+-- | safeFetch url
+-- |   # tapDefect (\err -> logError ("uncaught: " <> message err))
+-- | ```
+tapDefect
+  :: forall r e a
+   . (Error -> RIO r e Unit)
+  -> RIO r e a
+  -> RIO r e a
+tapDefect f inner = RIO \r -> do
+  attempted <- attempt (unRIO inner r)
+  case attempted of
+    Right res -> pure res
+    Left err -> do
+      _ <- attempt (unRIO (f err) r)
+      throwError err
 
 -- | Lift a pure `Either (Variant e) a` into `RIO`. `Left` becomes a
 -- | typed failure on the row; `Right` becomes a success.
