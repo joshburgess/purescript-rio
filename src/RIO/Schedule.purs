@@ -31,6 +31,7 @@ module RIO.Schedule
   ( Schedule
   , Step(..)
   , andThen
+  , collectAll
   , elapsed
   , eventually
   , exponential
@@ -45,10 +46,12 @@ module RIO.Schedule
   , recursUntil
   , recursWhile
   , repeat
+  , repetitions
   , retry
   , retryOrElse
   , spaced
   , step
+  , tapOutput
   , untilInput
   , untilOutput
   , whileInput
@@ -57,6 +60,7 @@ module RIO.Schedule
 
 import Prelude
 
+import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Int (ceil, toNumber) as Int
 import Data.Newtype (unwrap)
@@ -440,6 +444,75 @@ mapSchedule f (Schedule s) = Schedule \i -> RIO \env -> do
     Right Done -> pure (Right Done)
     Right (Continue o d next) ->
       pure (Right (Continue (f o) d (mapSchedule f next)))
+
+-- | Each step emits the array of every output the schedule has
+-- | produced so far (inclusive of the current one). Cadence and
+-- | termination are unchanged; only the output type widens.
+-- |
+-- | Useful for collecting retry delays, recurrence counts, or
+-- | observed timestamps as the schedule runs.
+-- |
+-- | Note: the accumulator grows without bound, so this is not
+-- | appropriate for unbounded schedules unless you're going to
+-- | stop early. Pair with `recurs`, `untilOutput`, etc.
+collectAll
+  :: forall r i o
+   . Schedule r i o
+  -> Schedule r i (Array o)
+collectAll = go []
+  where
+  go acc (Schedule s) = Schedule \i -> RIO \env -> do
+    res <- unRIO (s i) env
+    case res of
+      Left v -> Variant.case_ v
+      Right Done -> pure (Right Done)
+      Right (Continue o d next) ->
+        let
+          acc' = Array.snoc acc o
+        in
+          pure (Right (Continue acc' d (go acc' next)))
+
+-- | Replace each output with the 1-based iteration count. Cadence
+-- | is unchanged. Equivalent to `mapSchedule` ing the underlying
+-- | output away and counting steps.
+-- |
+-- | ```purescript
+-- | -- a deadline schedule that emits "1, 2, 3, ..." through repeat
+-- | repetitions (spaced (Milliseconds 100.0))
+-- | ```
+repetitions
+  :: forall r i o
+   . Schedule r i o
+  -> Schedule r i Int
+repetitions = go 1
+  where
+  go n (Schedule s) = Schedule \i -> RIO \env -> do
+    res <- unRIO (s i) env
+    case res of
+      Left v -> Variant.case_ v
+      Right Done -> pure (Right Done)
+      Right (Continue _ d next) ->
+        pure (Right (Continue n d (go (n + 1) next)))
+
+-- | Run a side-effecting handler with each emitted output, then
+-- | pass the output through unchanged. Cadence is unaffected.
+-- |
+-- | Mirrors `RIO.Stream.tap` and ZIO's `Schedule.tapOutput`: drop
+-- | this between schedule construction and `repeat` / `retry` to
+-- | trace, count, or log every step without changing the program.
+tapOutput
+  :: forall r i o
+   . (o -> RIO r () Unit)
+  -> Schedule r i o
+  -> Schedule r i o
+tapOutput f (Schedule s) = Schedule \i -> RIO \env -> do
+  res <- unRIO (s i) env
+  case res of
+    Left v -> Variant.case_ v
+    Right Done -> pure (Right Done)
+    Right (Continue o d next) -> do
+      _ <- unRIO (f o) env
+      pure (Right (Continue o d (tapOutput f next)))
 
 -- | Run `action`, then repeat under `schedule`. The schedule sees
 -- | each successful result as input; while it says `Continue`, the
