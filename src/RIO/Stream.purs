@@ -29,12 +29,14 @@ module RIO.Stream
   , Step(..)
   , unStream
   , chunk
+  , collectSome
   , concat
   , distinct
   , drop
   , dropWhile
   , empty
   , filter
+  , filterM
   , find
   , flatMap
   , flatten
@@ -61,6 +63,7 @@ module RIO.Stream
   , scanM
   , single
   , tap
+  , tapError
   , take
   , takeWhile
   , tick
@@ -75,11 +78,13 @@ import Prelude hiding (map)
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
+import Data.Variant (Variant)
 import Effect.Aff (Milliseconds)
 
 import RIO.Clock (Clock)
 import RIO.Clock as Clock
 import RIO.Core (RIO)
+import RIO.Error as Error
 import RIO.Hub (Hub)
 import RIO.Hub as Hub
 import RIO.Queue (Queue)
@@ -253,6 +258,24 @@ tap f s = Stream do
       f a
       pure (Yield a (tap f rest))
 
+-- | Run an effect on every typed failure surfaced while pulling the
+-- | stream, then re-raise the failure unchanged. Defects flow
+-- | through without invoking the handler (same policy as
+-- | `RIO.Error.tapError`).
+-- |
+-- | The handler fires per failed pull, so a stream that recovers
+-- | partway is observable element-by-element.
+tapError
+  :: forall r e a
+   . (Variant e -> RIO r e Unit)
+  -> Stream r e a
+  -> Stream r e a
+tapError f s = Stream do
+  step <- Error.tapError f (unStream s)
+  case step of
+    Done -> pure Done
+    Yield a rest -> pure (Yield a (tapError f rest))
+
 -- | Keep elements for which the predicate is true.
 filter
   :: forall r e a
@@ -266,6 +289,41 @@ filter p s = Stream do
     Yield a rest ->
       if p a then pure (Yield a (filter p rest))
       else unStream (filter p rest)
+
+-- | Filter with an effectful predicate. The predicate runs in the
+-- | same `RIO r e` as the stream's pull effect, so it can read
+-- | services, hit refs, or itself fail with a typed error (which
+-- | aborts the stream).
+filterM
+  :: forall r e a
+   . (a -> RIO r e Boolean)
+  -> Stream r e a
+  -> Stream r e a
+filterM p s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest -> do
+      keep <- p a
+      if keep then pure (Yield a (filterM p rest))
+      else unStream (filterM p rest)
+
+-- | Filter + map in one pass: keep the elements where the function
+-- | returns `Just`, replacing them with the inner value. Elements
+-- | producing `Nothing` are dropped silently. The `filterMap`
+-- | from `Data.Array`, lifted to a stream.
+collectSome
+  :: forall r e a b
+   . (a -> Maybe b)
+  -> Stream r e a
+  -> Stream r e b
+collectSome f s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest -> case f a of
+      Just b -> pure (Yield b (collectSome f rest))
+      Nothing -> unStream (collectSome f rest)
 
 -- | Concatenate two streams: drain the first, then drain the
 -- | second.

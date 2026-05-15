@@ -63,6 +63,7 @@ import Test.RIO.Sink.PropertiesSpec as SinkPropertiesSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.StreamSpec as StreamSpec
 import Test.RIO.Stream.CombinatorsSpec as StreamCombinatorsSpec
+import Test.RIO.Stream.FilterMapCollectSpec as StreamFilterMapCollectSpec
 import Test.RIO.Stream.HeadLastFindSpec as StreamHeadLastFindSpec
 import Test.RIO.Stream.ParSpec as StreamParSpec
 import Test.RIO.Stream.PropertiesSpec as StreamPropertiesSpec
@@ -136,6 +137,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   HubPropertiesSpec.spec
   StreamSpec.spec
   StreamCombinatorsSpec.spec
+  StreamFilterMapCollectSpec.spec
   StreamHeadLastFindSpec.spec
   StreamParSpec.spec
   StreamPropertiesSpec.spec
