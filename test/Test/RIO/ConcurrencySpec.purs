@@ -848,6 +848,89 @@ spec = do
         order <- liftEffect (Ref.read events)
         Array.elem "worker:start" order `shouldEqual` true
         Array.elem "worker:should-not-fire" order `shouldEqual` false
+
+      it "interrupts the fiber when the scope exits with a defect" do
+        -- Third of `forkScoped`'s four advertised termination
+        -- paths: "success, typed failure, defect, or kill". The
+        -- success and typed-failure paths are pinned above; this
+        -- pin covers the defect path. A scope body that `die`s
+        -- collapses into an Aff exception during the bracket
+        -- release, and the finalizer chain still runs LIFO. A
+        -- regression that special-cased only the "Right v" exit
+        -- of the scope body (and skipped registered finalizers
+        -- when the body threw) would still pass the success and
+        -- typed-failure pins but would let the worker delay run
+        -- to completion here.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          worker :: forall r. RIO r () Unit
+          worker = do
+            liftAff (push "worker:start")
+            liftAff (delay (Milliseconds 500.0))
+            liftAff (push "worker:should-not-fire")
+
+          program :: RIO () () (Either _ Unit)
+          program = sandbox $ scoped do
+            scope <- ask (Proxy :: Proxy "scope")
+            _ <- forkScoped scope worker
+            liftAff (delay (Milliseconds 20.0))
+            die (error "scope-defect")
+
+        result <- runRIO program
+        case result of
+          Right (Left e) -> message e `shouldEqual` "scope-defect"
+          _ -> 1 `shouldEqual` 0
+        liftAff (delay (Milliseconds 80.0))
+        order <- liftEffect (Ref.read events)
+        Array.elem "worker:start" order `shouldEqual` true
+        Array.elem "worker:should-not-fire" order `shouldEqual` false
+
+      it "interrupts the fiber when the outer scope-bearing fiber is killed" do
+        -- Final advertised termination path: "kill". The scope's
+        -- finalizer must fire when the fiber owning the scope is
+        -- itself killed (not just when the scope body completes
+        -- or throws). Set this up by forking the `scoped` block
+        -- into an outer fiber and interrupting it mid-flight.
+        -- A regression that attached the worker-kill finalizer
+        -- via `Aff.finally` around the inner scope body would
+        -- skip the cleanup when the outer fiber is killed (the
+        -- body is interrupted partway through, never reaching
+        -- the finally hook); registering on the scope and
+        -- letting the runtime run finalizers on kill is the
+        -- only path that survives this test.
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          worker :: forall r. RIO r () Unit
+          worker = do
+            liftAff (push "worker:start")
+            liftAff (delay (Milliseconds 500.0))
+            liftAff (push "worker:should-not-fire")
+
+          outer :: RIO () () Unit
+          outer = scoped do
+            scope <- ask (Proxy :: Proxy "scope")
+            _ <- forkScoped scope worker
+            liftAff (delay (Milliseconds 500.0))
+            liftAff (push "outer:should-not-fire")
+
+          program :: RIO () () Unit
+          program = do
+            fib <- fork outer
+            liftAff (delay (Milliseconds 20.0))
+            interrupt fib
+            _ <- sandbox (join fib)
+            pure unit
+
+        _ <- runRIO program
+        liftAff (delay (Milliseconds 100.0))
+        order <- liftEffect (Ref.read events)
+        Array.elem "worker:start" order `shouldEqual` true
+        Array.elem "worker:should-not-fire" order `shouldEqual` false
+        Array.elem "outer:should-not-fire" order `shouldEqual` false
   where
   nowMs = do
     instant <- Now.now
