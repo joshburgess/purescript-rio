@@ -44,6 +44,7 @@ import Test.RIO.LocalSpec as LocalSpec
 import Test.RIO.LoggerSpec as LoggerSpec
 import Test.RIO.Logger.CompositionSpec as LoggerCompositionSpec
 import Test.RIO.MemoSpec as MemoSpec
+import Test.RIO.MetricSpec as MetricSpec
 import Test.RIO.MetricsSpec as MetricsSpec
 import Test.RIO.PoolSpec as PoolSpec
 import Test.RIO.QueueSpec as QueueSpec
@@ -186,6 +187,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   THubPropertiesSpec.spec
   TDeferredSpec.spec
   TracerSpec.spec
+  MetricSpec.spec
   MetricsSpec.spec
   LocalSpec.spec
   LoggerSpec.spec
