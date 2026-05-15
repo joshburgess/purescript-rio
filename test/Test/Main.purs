@@ -70,6 +70,7 @@ import Test.RIO.Stream.HeadLastFindSpec as StreamHeadLastFindSpec
 import Test.RIO.Stream.ParSpec as StreamParSpec
 import Test.RIO.Stream.PropertiesSpec as StreamPropertiesSpec
 import Test.RIO.Stream.ResourceSpec as StreamResourceSpec
+import Test.RIO.Stream.SlidingGroupConsSpec as StreamSlidingGroupConsSpec
 import Test.RIO.Stream.SourcesSpec as StreamSourcesSpec
 import Test.RIO.Stream.TakeDropUntilSpec as StreamTakeDropUntilSpec
 import Test.RIO.Stream.TapMapAccumSpec as StreamTapMapAccumSpec
@@ -149,6 +150,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   StreamParSpec.spec
   StreamPropertiesSpec.spec
   StreamResourceSpec.spec
+  StreamSlidingGroupConsSpec.spec
   StreamSourcesSpec.spec
   StreamTakeDropUntilSpec.spec
   StreamTapMapAccumSpec.spec

@@ -28,9 +28,11 @@ module RIO.Stream
   ( Stream(..)
   , Step(..)
   , unStream
+  , append
   , chunk
   , collectSome
   , concat
+  , cons
   , distinct
   , drop
   , dropUntil
@@ -45,6 +47,7 @@ module RIO.Stream
   , fromArray
   , fromHub
   , fromQueue
+  , groupBy
   , head
   , intersperse
   , iterate
@@ -63,6 +66,7 @@ module RIO.Stream
   , scan
   , scanM
   , single
+  , sliding
   , tap
   , tapError
   , take
@@ -118,6 +122,25 @@ empty = Stream (pure Done)
 -- | A single-element stream.
 single :: forall r e a. a -> Stream r e a
 single a = Stream (pure (Yield a empty))
+
+-- | Prepend an element to a stream. The result yields `a` first,
+-- | then every element of `s`. Constant-time: no work is done on
+-- | the tail until it is pulled.
+cons :: forall r e a. a -> Stream r e a -> Stream r e a
+cons a s = Stream (pure (Yield a s))
+
+-- | Append an element after every element of a stream. The result
+-- | yields the input first, then `a` once the input has finished.
+-- |
+-- | Lazy: the input is not run until pulled. On an infinite input
+-- | the appended element is never reached, which is consistent
+-- | with `concat s (single a)`.
+append :: forall r e a. Stream r e a -> a -> Stream r e a
+append s a = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure (Yield a empty)
+    Yield x rest -> pure (Yield x (append rest a))
 
 -- | A stream of the elements of an array, in input order.
 fromArray :: forall r e a. Array a -> Stream r e a
@@ -515,6 +538,44 @@ chunkGo n acc t = Stream do
         if Array.length acc' >= n then pure (Yield acc' (chunkGo n [] rest))
         else unStream (chunkGo n acc' rest)
 
+-- | A sliding window of size `n` over the stream. The window
+-- | advances by one element per output: every yielded array
+-- | overlaps the previous one in `n - 1` positions.
+-- |
+-- | * When `n <= 0`, the result is empty.
+-- | * When the input has fewer than `n` elements, no windows are
+-- |   emitted (use `chunk` if you need the partial trailing block).
+-- | * Each emitted array has length exactly `n`.
+-- |
+-- | Memory is bounded by `n`: only the current window is kept.
+sliding :: forall r e a. Int -> Stream r e a -> Stream r e (Array a)
+sliding n s
+  | n <= 0 = empty
+  | otherwise = slidingGo n [] s
+
+slidingGo
+  :: forall r e a
+   . Int
+  -> Array a
+  -> Stream r e a
+  -> Stream r e (Array a)
+slidingGo n buf t = Stream do
+  step <- unStream t
+  case step of
+    Done -> pure Done
+    Yield a rest ->
+      let
+        buf' = Array.snoc buf a
+        len = Array.length buf'
+      in
+        if len < n then unStream (slidingGo n buf' rest)
+        else if len == n then pure (Yield buf' (slidingGo n buf' rest))
+        else
+          let
+            buf'' = Array.drop 1 buf'
+          in
+            pure (Yield buf'' (slidingGo n buf'' rest))
+
 -- | Take elements while the predicate holds. Stops at (and does
 -- | not emit) the first element for which `p` is false.
 takeWhile
@@ -628,6 +689,46 @@ distinct s = Stream do
       Yield a rest ->
         if a == prev then unStream (go prev rest)
         else pure (Yield a (go a rest))
+
+-- | Group consecutive elements for which the relation holds between
+-- | each adjacent pair into the same array. A new chunk is emitted
+-- | whenever the relation breaks, and the trailing chunk is emitted
+-- | when the input ends.
+-- |
+-- | ```purescript
+-- | -- runs of equal numbers
+-- | groupBy (==) (fromArray [ 1, 1, 2, 2, 2, 3 ])
+-- |   -- yields [ 1, 1 ], [ 2, 2, 2 ], [ 3 ]
+-- | ```
+-- |
+-- | The relation is evaluated against the immediately preceding
+-- | element, not against the first element of the current chunk;
+-- | this matches the typical "edges between neighbours" reading.
+groupBy
+  :: forall r e a
+   . (a -> a -> Boolean)
+  -> Stream r e a
+  -> Stream r e (Array a)
+groupBy eq s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest -> unStream (groupByGo eq a [ a ] rest)
+
+groupByGo
+  :: forall r e a
+   . (a -> a -> Boolean)
+  -> a
+  -> Array a
+  -> Stream r e a
+  -> Stream r e (Array a)
+groupByGo eq prev acc t = Stream do
+  step <- unStream t
+  case step of
+    Done -> pure (Yield acc empty)
+    Yield a rest ->
+      if eq prev a then unStream (groupByGo eq a (Array.snoc acc a) rest)
+      else pure (Yield acc (groupByGo eq a [ a ] rest))
 
 -- | Pull the first element of the stream, or `Nothing` if the
 -- | stream is empty. The rest of the stream is discarded.
