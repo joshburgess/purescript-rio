@@ -219,10 +219,10 @@ GitHub Actions picks up the right semantics automatically.
 
 ## What is *not* in this phase
 
-**Profile-driven `unsafeCoerce` hot-path tightening.** The risk
-table in `PROJECT_BUILD_PLAN.md` calls out the `Record` /
-`Variant` indirection cost as a Medium risk; the headline numbers
-above suggest the indirection is already cheap enough (service
-lookup is indistinguishable from a pure loop, the `Variant`
-round-trip is sub-microsecond). We will revisit if a real
-program's profile flags either as a bottleneck.
+**Profile-driven `unsafeCoerce` hot-path tightening.** `Record`
+and `Variant` indirection costs were the most-watched performance
+risk during the initial build, but the headline numbers above
+suggest the indirection is already cheap enough (service lookup
+is indistinguishable from a pure loop, the `Variant` round-trip
+is sub-microsecond). We will revisit if a real program's profile
+flags either as a bottleneck.

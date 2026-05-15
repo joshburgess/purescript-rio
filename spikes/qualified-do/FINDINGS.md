@@ -93,7 +93,7 @@ This is mildly annoying. If `Resource.do` ships, the docs need to
 lead with the rule "every `<-` is an `Acquire`; lift plain actions
 explicitly", or users will hit this on day one.
 
-### Generator-style direct syntax (the original `PROJECT_BUILD_PLAN.md` motivation)
+### Generator-style direct syntax (the original motivation)
 
 Qualified-do gives you sugar over user-chosen `bind`/`apply`/etc.
 What it does **not** give you:

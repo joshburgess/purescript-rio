@@ -361,12 +361,11 @@ full `Channel` algebra for stream-to-stream transducers (only
 if a concrete use case shows up that `mapM` / `flatMap` /
 `Sink.andThen` cannot already express; see
 [`docs/sink-design.md`](./docs/sink-design.md)), real-Postgres
-CI coverage for
-`rio-postgres` (currently builds against the driver but has no
-integration tests; Docker-backed locally is the intended
-setup), custom `Fail` instances for the worst row / variant
-error messages, and a property-testing harness tuned for RIO.
-See [`PROJECT_BUILD_PLAN.md`](./PROJECT_BUILD_PLAN.md).
+CI coverage for `rio-postgres` (currently builds against the
+driver but has no integration tests; Docker-backed locally is
+the intended setup), custom `Fail` instances for the worst row
+/ variant error messages, and a property-testing harness tuned
+for RIO. See [`FUTURE_WORK.md`](./FUTURE_WORK.md).
 
 ## License
 
