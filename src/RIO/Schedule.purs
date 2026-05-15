@@ -32,6 +32,7 @@ module RIO.Schedule
   , Step(..)
   , andThen
   , collectAll
+  , addDelayM
   , dimap
   , elapsed
   , eventually
@@ -43,6 +44,7 @@ module RIO.Schedule
   , jittered
   , mapDelay
   , mapInput
+  , modifyDelayM
   , mapSchedule
   , once
   , recurs
@@ -490,6 +492,70 @@ mapDelay f (Schedule s) = Schedule \i -> RIO \env -> do
     Right Done -> pure (Right Done)
     Right (Continue o d next) ->
       pure (Right (Continue o (f d) (mapDelay f next)))
+
+-- | Effectful sibling of `mapDelay`. The transform runs in
+-- | `RIO r ()`, so it can read services from `r` (a config
+-- | service that exposes the current cap, a feature flag, a
+-- | clock-aware jitter source). Schedules cannot fail, so the
+-- | transform's error row is fixed to `()`.
+-- |
+-- | ```purescript
+-- | -- cap each delay at the value read from a runtime config
+-- | capByConfig
+-- |   :: Schedule (config :: Config) Int Int
+-- |   -> Schedule (config :: Config) Int Int
+-- | capByConfig =
+-- |   modifyDelayM \(Milliseconds ms) -> do
+-- |     cfg <- ask (Proxy :: Proxy "config")
+-- |     pure (Milliseconds (min ms cfg.maxBackoffMs))
+-- | ```
+modifyDelayM
+  :: forall r i o
+   . (Milliseconds -> RIO r () Milliseconds)
+  -> Schedule r i o
+  -> Schedule r i o
+modifyDelayM f (Schedule s) = Schedule \i -> RIO \env -> do
+  res <- unRIO (s i) env
+  case res of
+    Left v -> Variant.case_ v
+    Right Done -> pure (Right Done)
+    Right (Continue o d next) -> do
+      d' <- unRIO (f d) env
+      case d' of
+        Left v -> Variant.case_ v
+        Right delay -> pure (Right (Continue o delay (modifyDelayM f next)))
+
+-- | Add an effectful delta to each step's delay, where the
+-- | delta is computed from the step's output. The decision and
+-- | the underlying delay are preserved; only an additive
+-- | adjustment is layered on top.
+-- |
+-- | Like `modifyDelayM`, the per-step computation runs in
+-- | `RIO r ()` so it can read services.
+-- |
+-- | ```purescript
+-- | -- extend each retry by a randomly sampled jitter
+-- | withJitter =
+-- |   addDelayM \_ -> do
+-- |     ms <- liftEffect (Random.randomRange 0.0 50.0)
+-- |     pure (Milliseconds ms)
+-- | ```
+addDelayM
+  :: forall r i o
+   . (o -> RIO r () Milliseconds)
+  -> Schedule r i o
+  -> Schedule r i o
+addDelayM f (Schedule s) = Schedule \i -> RIO \env -> do
+  res <- unRIO (s i) env
+  case res of
+    Left v -> Variant.case_ v
+    Right Done -> pure (Right Done)
+    Right (Continue o (Milliseconds d) next) -> do
+      extra <- unRIO (f o) env
+      case extra of
+        Left v -> Variant.case_ v
+        Right (Milliseconds add) ->
+          pure (Right (Continue o (Milliseconds (d + add)) (addDelayM f next)))
 
 -- | Transform both the input and the output of a schedule in a
 -- | single step. `dimap pre post s` is `mapSchedule post (mapInput
