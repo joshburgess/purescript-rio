@@ -82,6 +82,7 @@ import Test.RIO.STM.TDeferredSpec as TDeferredSpec
 import Test.RIO.STM.THubSpec as THubSpec
 import Test.RIO.STM.THub.PropertiesSpec as THubPropertiesSpec
 import Test.RIO.STM.TQueueSpec as TQueueSpec
+import Test.RIO.STM.TQueue.BulkSpec as TQueueBulkSpec
 import Test.RIO.STM.TQueue.PropertiesSpec as TQueuePropertiesSpec
 import Test.RIO.STM.TSemaphoreSpec as TSemaphoreSpec
 import Test.RIO.STM.TSemaphore.PropertiesSpec as TSemaphorePropertiesSpec
@@ -154,6 +155,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   SinkPropertiesSpec.spec
   STMSpec.spec
   TQueueSpec.spec
+  TQueueBulkSpec.spec
   TQueuePropertiesSpec.spec
   TMapSpec.spec
   TMapPropertiesSpec.spec

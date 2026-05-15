@@ -14,12 +14,15 @@
 -- | the public API.
 module RIO.STM.TQueue
   ( TQueue
+  , flushTQueue
   , isEmptyTQueue
   , lengthTQueue
   , newTQueue
   , peekTQueue
   , readTQueue
+  , tryPeekTQueue
   , tryReadTQueue
+  , writeAllTQueue
   , writeTQueue
   ) where
 
@@ -82,3 +85,34 @@ isEmptyTQueue (TQueue ref) = do
 -- | Current size.
 lengthTQueue :: forall e a. TQueue a -> STM e Int
 lengthTQueue (TQueue ref) = Array.length <$> readTRef ref
+
+-- | Look at the value at the front without removing it. Returns
+-- | `Nothing` (non-blocking) when the queue is empty, matching
+-- | the policy of `tryReadTQueue`. Use `peekTQueue` instead when
+-- | you want the retry-on-empty behaviour.
+tryPeekTQueue :: forall e a. TQueue a -> STM e (Maybe a)
+tryPeekTQueue (TQueue ref) = do
+  xs <- readTRef ref
+  case Array.uncons xs of
+    Nothing -> pure Nothing
+    Just { head } -> pure (Just head)
+
+-- | Atomically dequeue every element in FIFO order, leaving the
+-- | queue empty. Returns an empty array (non-blocking) when there
+-- | was nothing to drain.
+-- |
+-- | Because the read and the clear happen inside one transaction,
+-- | a concurrent producer that commits during the flush either
+-- | lands fully inside this batch or fully after it. Pair with
+-- | `writeAllTQueue` for a bulk-handoff pattern.
+flushTQueue :: forall e a. TQueue a -> STM e (Array a)
+flushTQueue (TQueue ref) = do
+  xs <- readTRef ref
+  writeTRef ref []
+  pure xs
+
+-- | Enqueue an array of values in order, atomically. Never blocks.
+-- | A concurrent reader sees either zero or all of the new items;
+-- | nothing in between.
+writeAllTQueue :: forall e a. TQueue a -> Array a -> STM e Unit
+writeAllTQueue (TQueue ref) xs = modifyTRef ref (\ys -> ys <> xs)
