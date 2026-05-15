@@ -16,7 +16,11 @@ module RIO.Error
   , foldRIO
   , fromEither
   , fromMaybe
+  , mapBoth
   , mapError
+  , option
+  , orDie
+  , orElse
   , rethrow
   , sandbox
   , tap
@@ -370,3 +374,82 @@ foldRIO onError onSuccess inner = RIO \r -> do
   case res of
     Right a -> unRIO (onSuccess a) r
     Left v -> unRIO (onError v) r
+
+-- | Try the first action; if it fails with a typed error, run the
+-- | fallback and use its result. The first action's error row is
+-- | discarded - only the fallback's row is observable.
+-- |
+-- | Defects still propagate; `orElse` only routes around typed
+-- | failures.
+-- |
+-- | ```purescript
+-- | -- read from the cache, falling back to the source on miss
+-- | record <- fromCache key `orElse` fromSource key
+-- | ```
+orElse :: forall r e e' a. RIO r e a -> RIO r e' a -> RIO r e' a
+orElse first fallback = catchAll (\_ -> fallback) first
+
+-- | Reflect a fallible action into the success channel as
+-- | `Maybe a`: `Just a` on success, `Nothing` on any typed
+-- | failure. The error row collapses to whatever the caller fixes
+-- | it at (usually `()`).
+-- |
+-- | Defects still propagate; this only soft-handles typed errors.
+-- |
+-- | ```purescript
+-- | maybeUser <- option (loadUser uid)
+-- | case maybeUser of
+-- |   Just u -> renderProfile u
+-- |   Nothing -> renderAnonymous
+-- | ```
+option :: forall r e e' a. RIO r e a -> RIO r e' (Maybe a)
+option inner = catchAll (\_ -> pure Nothing) (map Just inner)
+
+-- | Convert a typed failure into a defect via a user-supplied
+-- | translator. The error row is discharged on the resulting
+-- | action; any failure that occurs becomes an `Aff` exception
+-- | observable only through `sandbox`.
+-- |
+-- | Use this at boundaries where a failure indicates a programmer
+-- | bug rather than a recoverable condition - the caller can no
+-- | longer match on the typed error.
+-- |
+-- | ```purescript
+-- | -- treat "missing config" as an internal invariant violation
+-- | config <- orDie
+-- |   (\_ -> Exception.error "internal: config not loaded")
+-- |   loadConfig
+-- | ```
+orDie
+  :: forall r e e' a
+   . (Variant e -> Error)
+  -> RIO r e a
+  -> RIO r e' a
+orDie toErr inner = catchAll (\v -> die (toErr v)) inner
+
+-- | Map both arms of an `RIO`: transform the typed failure with
+-- | `onError` and the success value with `onSuccess`, replacing the
+-- | error row in the process. This is the bimap for `RIO`.
+-- |
+-- | ```purescript
+-- | -- rename one tag and normalize the result in one pass
+-- | normalize :: RIO r (lookupFailed :: Int | r') (Array Item)
+-- | normalize =
+-- |   mapBoth
+-- |     (Variant.on (Proxy :: _ "notFound")
+-- |       (\id -> Variant.inj (Proxy :: _ "lookupFailed") id)
+-- |       identity)
+-- |     (Array.sortBy compareById)
+-- |     fetchItems
+-- | ```
+mapBoth
+  :: forall r e e' a b
+   . (Variant e -> Variant e')
+  -> (a -> b)
+  -> RIO r e a
+  -> RIO r e' b
+mapBoth onError onSuccess inner = RIO \r -> do
+  res <- unRIO inner r
+  case res of
+    Right a -> pure (Right (onSuccess a))
+    Left v -> pure (Left (onError v))

@@ -21,6 +21,7 @@ import Test.RIO.DeferredSpec as DeferredSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
 import Test.RIO.Error.CombinatorsSpec as ErrorCombinatorsSpec
+import Test.RIO.Error.OrElseSpec as ErrorOrElseSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.FailSpec as FailSpec
 import Test.RIO.FoldForeverSpec as FoldForeverSpec
@@ -74,6 +75,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   EnvSpec.spec
   ErrorHandlingSpec.spec
   ErrorCombinatorsSpec.spec
+  ErrorOrElseSpec.spec
   FailSpec.spec
   FoldForeverSpec.spec
   ResourceSpec.spec
