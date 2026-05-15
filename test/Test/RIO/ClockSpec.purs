@@ -10,7 +10,9 @@ import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 
-import RIO.Clock (Clock, now, sleep)
+import Data.Tuple (Tuple(..))
+
+import RIO.Clock (Clock, now, sleep, timed)
 import RIO.Core (RIO, provideAll, runRIO')
 import RIO.Test.Clock (newTestClock)
 
@@ -114,3 +116,43 @@ spec = do
         Aff.delay (Milliseconds 0.0)
         finalFlag <- liftEffect (Ref.read flag)
         finalFlag `shouldEqual` false
+
+    describe "timed" do
+      it "reports zero duration when the action does not advance the clock" do
+        -- Without any sleep / advance in the body, both `now`
+        -- samples return the same virtual time and the elapsed
+        -- duration is exactly zero.
+        tc <- newTestClock
+        let
+          program :: RIO (clock :: Clock) () (Tuple Milliseconds Int)
+          program = timed (pure 7)
+        Tuple elapsed value <- runRIO'
+          (provideAll { clock: tc.clock } program)
+        un Milliseconds elapsed `shouldEqual` 0.0
+        value `shouldEqual` 7
+
+      it "reports the advance between the before- and after-samples" do
+        -- The body advances the test clock between the two `now`
+        -- samples taken inside `timed`. The reported elapsed is
+        -- whatever virtual time accrued between the two samples.
+        tc <- newTestClock
+        _ <- Aff.forkAff do
+          Aff.delay (Milliseconds 5.0)
+          tc.advance (Milliseconds 125.0)
+        let
+          program :: RIO (clock :: Clock) () (Tuple Milliseconds Unit)
+          program = timed (sleep (Milliseconds 1.0))
+        Tuple elapsed _ <- runRIO'
+          (provideAll { clock: tc.clock } program)
+        -- The fork advanced the clock by 125ms in between the
+        -- two `now` samples that `timed` brackets the action with.
+        un Milliseconds elapsed `shouldEqual` 125.0
+
+      it "preserves the action's return value alongside the duration" do
+        tc <- newTestClock
+        let
+          program :: RIO (clock :: Clock) () (Tuple Milliseconds String)
+          program = timed (pure "result")
+        Tuple _ value <- runRIO'
+          (provideAll { clock: tc.clock } program)
+        value `shouldEqual` "result"

@@ -17,13 +17,15 @@ module RIO.Clock
   ( Clock
   , now
   , sleep
+  , timed
   , liveClock
   ) where
 
 import Prelude
 
 import Data.DateTime.Instant (unInstant)
-import Effect.Aff (Aff, Milliseconds)
+import Data.Tuple (Tuple(..))
+import Effect.Aff (Aff, Milliseconds(..))
 import Effect.Aff (delay) as Aff
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
@@ -69,6 +71,31 @@ sleep :: forall r e. Milliseconds -> RIO (clock :: Clock | r) e Unit
 sleep ms = do
   c <- ask (Proxy :: Proxy "clock")
   liftAff (c.sleep ms)
+
+-- | Run an action and return how long it took alongside the
+-- | result. The duration is computed by sampling `now` before and
+-- | after; under the live clock this is wall-clock time including
+-- | any time the fiber was suspended by other work on the event
+-- | loop. Under a mock clock the duration is whatever the mock
+-- | reports.
+-- |
+-- | Returns the duration first so the result destructures cleanly
+-- | as `Tuple elapsed value`.
+-- |
+-- | ```purescript
+-- | -- log how long the query took
+-- | Tuple elapsed rows <- timed runQuery
+-- | logInfo ("query took " <> show elapsed)
+-- | ```
+timed
+  :: forall r e a
+   . RIO (clock :: Clock | r) e a
+  -> RIO (clock :: Clock | r) e (Tuple Milliseconds a)
+timed action = do
+  Milliseconds startMs <- now
+  result <- action
+  Milliseconds endMs <- now
+  pure (Tuple (Milliseconds (endMs - startMs)) result)
 
 -- | A production-ready implementation backed by `Effect.Now` and
 -- | `Effect.Aff.delay`. Provide it via `provide` / `provideAll` or
