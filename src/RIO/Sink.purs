@@ -45,6 +45,13 @@ module RIO.Sink
   , mapResult
   , mapInput
   , filterIn
+  , contramapM
+  , foreach
+  , sum
+  , product
+  , minimum
+  , maximum
+  , mconcat
   , andThen
   , zipPar
   , zipParWith
@@ -196,6 +203,75 @@ mapInput f sink = Sink do
     Halt a -> pure (Halt a)
     Need k finish ->
       pure (Need (\j -> mapInput f (k (f j))) finish)
+
+-- | Effectful contravariant input map. Each input is first
+-- | transformed by the effectful function before being fed to the
+-- | underlying sink. The transformation runs in `RIO`, so it can
+-- | read services, raise typed failures, or sleep.
+contramapM
+  :: forall r e i j a
+   . (j -> RIO r e i)
+  -> Sink r e i a
+  -> Sink r e j a
+contramapM f sink = Sink do
+  step <- unSink sink
+  case step of
+    Halt a -> pure (Halt a)
+    Need k finish ->
+      pure
+        ( Need
+            ( \j -> Sink do
+                i <- f j
+                unSink (contramapM f (k i))
+            )
+            finish
+        )
+
+-- | Run an effectful action on every element pulled. Returns
+-- | `unit` when the stream ends. Useful for sending each item to
+-- | a queue or hub.
+foreach :: forall r e i. (i -> RIO r e Unit) -> Sink r e i Unit
+foreach f = Sink
+  ( pure
+      ( Need
+          ( \i -> Sink do
+              f i
+              unSink (foreach f)
+          )
+          (pure unit)
+      )
+  )
+
+-- | Sum every element. Empty stream sums to `zero`.
+sum :: forall r e i. Semiring i => Sink r e i i
+sum = foldL zero (+)
+
+-- | Multiply every element. Empty stream products to `one`.
+product :: forall r e i. Semiring i => Sink r e i i
+product = foldL one (*)
+
+-- | The minimum element, or `Nothing` on an empty stream.
+minimum :: forall r e i. Ord i => Sink r e i (Maybe i)
+minimum = go Nothing
+  where
+  go acc = Sink (pure (Need (step acc) (pure acc)))
+  step acc i = case acc of
+    Nothing -> go (Just i)
+    Just curr -> go (Just (min curr i))
+
+-- | The maximum element, or `Nothing` on an empty stream.
+maximum :: forall r e i. Ord i => Sink r e i (Maybe i)
+maximum = go Nothing
+  where
+  go acc = Sink (pure (Need (step acc) (pure acc)))
+  step acc i = case acc of
+    Nothing -> go (Just i)
+    Just curr -> go (Just (max curr i))
+
+-- | Concatenate every element under its `Monoid`. Empty stream
+-- | yields `mempty`.
+mconcat :: forall r e i. Monoid i => Sink r e i i
+mconcat = foldL mempty append
 
 -- | Drop inputs for which the predicate is false before feeding
 -- | them to the underlying sink.

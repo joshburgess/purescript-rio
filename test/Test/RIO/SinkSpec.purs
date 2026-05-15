@@ -374,3 +374,133 @@ spec = describe "RIO.Sink" do
       r1 <- runRIO' (Sink.runSink (Sink.foldL 100 (+)) source)
       r2 <- runRIO' (Stream.runFold 100 (+) source)
       r1 `shouldEqual` r2
+
+  describe "sum / product" do
+    it "sum totals every element pulled" do
+      r <- runRIO' (Sink.runSink (Sink.sum :: Sink () () Int Int) source)
+      r `shouldEqual` 15
+
+    it "sum of an empty stream is zero" do
+      r <- runRIO'
+        (Sink.runSink (Sink.sum :: Sink () () Int Int) Stream.empty)
+      r `shouldEqual` 0
+
+    it "product multiplies every element" do
+      r <- runRIO'
+        (Sink.runSink (Sink.product :: Sink () () Int Int) source)
+      r `shouldEqual` 120
+
+    it "product of an empty stream is one" do
+      r <- runRIO'
+        (Sink.runSink (Sink.product :: Sink () () Int Int) Stream.empty)
+      r `shouldEqual` 1
+
+  describe "minimum / maximum" do
+    it "minimum of [3, 1, 4, 1, 5] is Just 1" do
+      r <- runRIO'
+        ( Sink.runSink
+            (Sink.minimum :: Sink () () Int (Maybe Int))
+            (Stream.fromArray [ 3, 1, 4, 1, 5 ])
+        )
+      r `shouldEqual` Just 1
+
+    it "minimum of empty is Nothing" do
+      r <- runRIO'
+        ( Sink.runSink
+            (Sink.minimum :: Sink () () Int (Maybe Int))
+            Stream.empty
+        )
+      r `shouldEqual` Nothing
+
+    it "maximum of [3, 1, 4, 1, 5] is Just 5" do
+      r <- runRIO'
+        ( Sink.runSink
+            (Sink.maximum :: Sink () () Int (Maybe Int))
+            (Stream.fromArray [ 3, 1, 4, 1, 5 ])
+        )
+      r `shouldEqual` Just 5
+
+    it "maximum of empty is Nothing" do
+      r <- runRIO'
+        ( Sink.runSink
+            (Sink.maximum :: Sink () () Int (Maybe Int))
+            Stream.empty
+        )
+      r `shouldEqual` Nothing
+
+  describe "mconcat" do
+    it "concatenates strings in input order" do
+      r <- runRIO'
+        ( Sink.runSink
+            (Sink.mconcat :: Sink () () String String)
+            (Stream.fromArray [ "a", "b", "c" ])
+        )
+      r `shouldEqual` "abc"
+
+    it "mconcat of empty is mempty" do
+      r <- runRIO'
+        ( Sink.runSink
+            (Sink.mconcat :: Sink () () String String)
+            Stream.empty
+        )
+      r `shouldEqual` ""
+
+  describe "foreach" do
+    it "runs the action on every element in input order" do
+      events <- liftEffect (Ref.new [])
+      let
+        push :: Int -> RIO () () Unit
+        push i = liftEffect (Ref.modify_ (\xs -> xs <> [ i ]) events)
+      _ <- runRIO' (Sink.runSink (Sink.foreach push) source)
+      out <- liftEffect (Ref.read events)
+      out `shouldEqual` [ 1, 2, 3, 4, 5 ]
+
+    it "returns unit on an empty stream and runs nothing" do
+      events <- liftEffect (Ref.new [])
+      let
+        push :: Int -> RIO () () Unit
+        push i = liftEffect (Ref.modify_ (\xs -> xs <> [ i ]) events)
+      r <- runRIO' (Sink.runSink (Sink.foreach push) Stream.empty)
+      r `shouldEqual` unit
+      out <- liftEffect (Ref.read events)
+      out `shouldEqual` []
+
+    it "propagates a typed failure raised by the action" do
+      let
+        push :: Int -> RIO () (boom :: String) Unit
+        push i =
+          if i == 3 then fail (Proxy :: Proxy "boom") "three"
+          else pure unit
+
+        program :: RIO () (boom :: String) Unit
+        program = Sink.runSink (Sink.foreach push)
+          (Stream.fromArray [ 1, 2, 3, 4, 5 ])
+      result <- runRIO program
+      case result of
+        Left _ -> pure unit
+        Right _ -> Spec.fail "expected typed failure"
+
+  describe "contramapM" do
+    it "feeds the transformed input to the underlying sink" do
+      let
+        program :: RIO () () (Array Int)
+        program = Sink.runSink
+          (Sink.contramapM (\s -> pure (s * 10)) Sink.collect)
+          source
+      r <- runRIO' program
+      r `shouldEqual` [ 10, 20, 30, 40, 50 ]
+
+    it "propagates a typed failure raised by the transformer" do
+      let
+        f :: Int -> RIO () (boom :: String) Int
+        f i =
+          if i == 3 then fail (Proxy :: Proxy "boom") "three"
+          else pure i
+
+        program :: RIO () (boom :: String) (Array Int)
+        program = Sink.runSink (Sink.contramapM f Sink.collect)
+          (Stream.fromArray [ 1, 2, 3, 4, 5 ])
+      result <- runRIO program
+      case result of
+        Left _ -> pure unit
+        Right _ -> Spec.fail "expected typed failure"
