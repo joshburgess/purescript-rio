@@ -23,13 +23,16 @@ module RIO.Random
   , nextRange
   , pickRandom
   , shuffle
+  , weighted
   , liveRandom
   ) where
 
 import Prelude
 
 import Data.Array as Array
+import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
+import Data.Tuple (Tuple(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
@@ -123,6 +126,49 @@ shuffle = go []
       case Array.uncons after of
         Nothing -> pure (acc <> before)
         Just { head, tail } -> go (Array.snoc acc head) (before <> tail)
+
+-- | Pick an element of an array of `(weight, value)` pairs with
+-- | probability proportional to its weight. Returns `Nothing`
+-- | when the array is empty or every weight is non-positive.
+-- |
+-- | Non-positive weights are skipped during selection. If you
+-- | pass a mix of positive and non-positive weights only the
+-- | positive entries participate; the total against which the
+-- | draw is made is the sum of the positive weights.
+-- |
+-- | Mirrors ZIO `Random.weighted` and Effect-TS
+-- | `Random.weighted`.
+-- |
+-- | ```purescript
+-- | -- 70 % "cache", 25 % "primary", 5 % "fallback"
+-- | choice <- weighted
+-- |   [ Tuple 70.0 "cache"
+-- |   , Tuple 25.0 "primary"
+-- |   , Tuple  5.0 "fallback"
+-- |   ]
+-- | ```
+weighted
+  :: forall r e a
+   . Array (Tuple Number a)
+  -> RIO (random :: Random | r) e (Maybe a)
+weighted pairs =
+  let
+    total = foldl
+      (\acc (Tuple w _) -> if w > 0.0 then acc + w else acc)
+      0.0
+      pairs
+  in
+    if total <= 0.0 then pure Nothing
+    else do
+      draw <- nextRange 0.0 total
+      pure (selectAt draw pairs)
+  where
+  selectAt :: Number -> Array (Tuple Number a) -> Maybe a
+  selectAt draw xs = case Array.uncons xs of
+    Nothing -> Nothing
+    Just { head: Tuple w a, tail } ->
+      if w > 0.0 && draw < w then Just a
+      else selectAt (draw - (if w > 0.0 then w else 0.0)) tail
 
 -- | A production-ready implementation backed by `Effect.Random`,
 -- | which in turn delegates to `Math.random()`. Provide it via
