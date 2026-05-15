@@ -18,6 +18,7 @@ import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.DeferredSpec as DeferredSpec
 import Test.RIO.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.EnvSpec as EnvSpec
+import Test.RIO.Error.CombinatorsSpec as ErrorCombinatorsSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.FailSpec as FailSpec
 import Test.RIO.HubSpec as HubSpec
@@ -68,6 +69,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   EffectAndFailSpec.spec
   EnvSpec.spec
   ErrorHandlingSpec.spec
+  ErrorCombinatorsSpec.spec
   FailSpec.spec
   ResourceSpec.spec
   ResourceDoSpec.spec

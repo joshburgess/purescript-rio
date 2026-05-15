@@ -7,19 +7,26 @@
 -- | distinguishing typed failures (in the row) from `Aff` exceptions
 -- | (defects).
 module RIO.Error
-  ( fail
-  , rethrow
-  , catchTag
+  ( absolve
   , catchAll
-  , mapError
+  , catchTag
   , die
+  , either
+  , fail
+  , fromEither
+  , fromMaybe
+  , mapError
+  , rethrow
   , sandbox
+  , tap
+  , tapError
   , unsandbox
   ) where
 
 import Prelude
 
 import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Data.Symbol (class IsSymbol)
 import Data.Variant (Variant)
 import Data.Variant as Variant
@@ -222,3 +229,115 @@ unsandbox inner = RIO \r -> do
     Right (Right a) -> pure (Right a)
     Right (Left err) -> throwError err
     Left typedFail -> pure (Left typedFail)
+
+-- | Run a side-effecting action on the success value and pass the
+-- | value through unchanged.
+-- |
+-- | If `inner` fails, the failure propagates without running `f`.
+-- | If `f` itself fails or raises a defect, that failure takes
+-- | over (the original value never reaches downstream).
+-- |
+-- | ```purescript
+-- | result <- tap (\record -> logInfo ("loaded " <> record.id)) loadRecord
+-- | ```
+tap :: forall r e a. (a -> RIO r e Unit) -> RIO r e a -> RIO r e a
+tap f inner = do
+  a <- inner
+  f a
+  pure a
+
+-- | Run a side-effecting action on a typed failure and re-raise the
+-- | failure unchanged.
+-- |
+-- | The handler sees the full row's `Variant` and runs in the same
+-- | row, so it can read services and perform effectful work (e.g.
+-- | logging a metric, emitting a structured log line) before the
+-- | failure continues upward. If the handler itself fails, *that*
+-- | failure replaces the original.
+-- |
+-- | ```purescript
+-- | runQuery
+-- |   # tapError (\v -> incrementCounter "query.failure")
+-- | ```
+tapError
+  :: forall r e a
+   . (Variant e -> RIO r e Unit)
+  -> RIO r e a
+  -> RIO r e a
+tapError f inner = RIO \r -> do
+  res <- unRIO inner r
+  case res of
+    Right a -> pure (Right a)
+    Left v -> do
+      logged <- unRIO (f v) r
+      case logged of
+        Right _ -> pure (Left v)
+        Left newFail -> pure (Left newFail)
+
+-- | Lift a pure `Either (Variant e) a` into `RIO`. `Left` becomes a
+-- | typed failure on the row; `Right` becomes a success.
+-- |
+-- | The dual of `either`: where `either` reflects a typed failure
+-- | into the success channel, `fromEither` lifts a pure result back
+-- | into the row.
+fromEither :: forall r e a. Either (Variant e) a -> RIO r e a
+fromEither (Right a) = RIO \_ -> pure (Right a)
+fromEither (Left v) = RIO \_ -> pure (Left v)
+
+-- | Lift a pure `Maybe a` into `RIO`. `Nothing` becomes the supplied
+-- | typed failure; `Just` becomes a success.
+-- |
+-- | ```purescript
+-- | userId <- fromMaybe
+-- |   (Variant.inj (Proxy :: Proxy "notFound") "user")
+-- |   (Map.lookup "alice" users)
+-- | ```
+fromMaybe :: forall r e a. Variant e -> Maybe a -> RIO r e a
+fromMaybe _ (Just a) = RIO \_ -> pure (Right a)
+fromMaybe v Nothing = RIO \_ -> pure (Left v)
+
+-- | Reflect a typed failure into the success channel as `Left`. A
+-- | success becomes `Right a`; a typed failure becomes
+-- | `Left (Variant e)` while the error row collapses to whatever
+-- | the caller fixes it at (commonly `()`).
+-- |
+-- | Defects (`die` / `Aff` exceptions) continue to propagate; this
+-- | only reifies the typed-error row. Use `sandbox` when you also
+-- | want to reify defects.
+-- |
+-- | ```purescript
+-- | -- handle the failure locally as a value
+-- | outcome <- either runQuery
+-- | case outcome of
+-- |   Right rows -> ...
+-- |   Left v -> logFailure v
+-- | ```
+either
+  :: forall r e e' a
+   . RIO r e a
+  -> RIO r e' (Either (Variant e) a)
+either inner = RIO \r -> do
+  res <- unRIO inner r
+  case res of
+    Right a -> pure (Right (Right a))
+    Left v -> pure (Right (Left v))
+
+-- | Collapse a `RIO r e (Either (Variant e2) a)` into
+-- | `RIO r e a` by turning a `Left v` in the success channel into a
+-- | typed failure on the row. The caller's row must already contain
+-- | the tags from `e2` for the result to typecheck.
+-- |
+-- | This is the inverse of `either`: combine a wrapped Either back
+-- | into the typed-error row.
+-- |
+-- | ```purescript
+-- | -- run a sub-program that returned its failure as a value
+-- | -- and surface it back on the parent's row
+-- | absolve (either subprogram)
+-- | ```
+absolve :: forall r e a. RIO r e (Either (Variant e) a) -> RIO r e a
+absolve inner = do
+  result <- inner
+  case result of
+    Right a -> pure a
+    Left v -> rethrow v
