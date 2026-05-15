@@ -12,11 +12,13 @@
 -- | guarantees come from the Phase 0.5 spike (scenarios S1, S3).
 module RIO.Concurrency
   ( Fiber
+  , filterPar
   , forever
   , fork
   , forkScoped
   , interrupt
   , join
+  , never
   , parSequence
   , parTraverse
   , parTraverseN
@@ -44,7 +46,7 @@ import Data.Time.Duration (Milliseconds)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
-import Effect.Aff (Fiber, attempt, delay, error, forkAff, invincible, joinFiber, killFiber, parallel, sequential) as Aff
+import Effect.Aff (Fiber, attempt, delay, error, forkAff, invincible, joinFiber, killFiber, never, parallel, sequential) as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 
@@ -487,6 +489,49 @@ forever m = RIO \r ->
         Right _ -> go
   in
     go
+
+-- | An action that never completes on its own. The success type is
+-- | polymorphic because `never` cannot return a value: it only
+-- | exits when the fiber it runs in is interrupted, killed, or
+-- | beaten by another participant in a `race` / `timeout`.
+-- |
+-- | The canonical use is the "wait for something else" half of a
+-- | race: `race never something` waits until `something` completes
+-- | without imposing a sleep deadline.
+never :: forall r e a. RIO r e a
+never = RIO \_ -> Aff.never
+
+-- | Filter an array using an effectful predicate, running every
+-- | predicate call concurrently. Preserves input order on the
+-- | survivors.
+-- |
+-- | Failure semantics match `parTraverse`: the first typed failure
+-- | from a predicate call cancels the rest and surfaces on the
+-- | parent row.
+-- |
+-- | ```purescript
+-- | -- keep only the URLs that respond, with a 1s timeout each
+-- | reachable :: Array URL -> RIO r e (Array URL)
+-- | reachable urls = filterPar
+-- |   (\u -> map (_ /= Nothing) (timeout (Milliseconds 1000.0) (ping u)))
+-- |   urls
+-- | ```
+filterPar
+  :: forall r e a
+   . (a -> RIO r e Boolean)
+  -> Array a
+  -> RIO r e (Array a)
+filterPar pred as = do
+  flags <- parTraverse (\a -> map (Tuple a) (pred a)) as
+  pure (filterKept flags)
+  where
+  filterKept = map (\(Tuple a _) -> a) <<< filterTrue
+
+  filterTrue :: Array (Tuple a Boolean) -> Array (Tuple a Boolean)
+  filterTrue = foldr step []
+    where
+    step (Tuple a true) acc = [ Tuple a true ] <> acc
+    step _ acc = acc
 
 -- | Run an action with a deadline. If `action` completes within
 -- | `ms`, the result is `Just a`; if the deadline fires first, the

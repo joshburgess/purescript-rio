@@ -10,6 +10,7 @@ import Test.RIO.ClockSpec as ClockSpec
 import Test.RIO.ConcurrencySpec as ConcurrencySpec
 import Test.RIO.Concurrency.ParSpec as ParSpec
 import Test.RIO.Concurrency.PropertiesSpec as ConcurrencyPropertiesSpec
+import Test.RIO.Concurrency.NeverFilterSpec as NeverFilterSpec
 import Test.RIO.Concurrency.ValidatePartitionSpec as ValidatePartitionSpec
 import Test.RIO.ConfigSpec as ConfigSpec
 import Test.RIO.Config.RotatingSpec as RotatingSpec
@@ -82,6 +83,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ParSpec.spec
   ConcurrencyPropertiesSpec.spec
   ValidatePartitionSpec.spec
+  NeverFilterSpec.spec
   CauseSpec.spec
   DeferredSpec.spec
   ClockSpec.spec
