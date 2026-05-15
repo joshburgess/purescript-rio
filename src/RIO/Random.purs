@@ -21,11 +21,15 @@ module RIO.Random
   , nextInt
   , nextNumber
   , nextRange
+  , pickRandom
+  , shuffle
   , liveRandom
   ) where
 
 import Prelude
 
+import Data.Array as Array
+import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
@@ -83,6 +87,42 @@ nextBoolean :: forall r e. RIO (random :: Random | r) e Boolean
 nextBoolean = do
   s <- ask (Proxy :: Proxy "random")
   liftAff s.nextBoolean
+
+-- | Pick a uniformly random element from an array. Returns
+-- | `Nothing` if the array is empty.
+pickRandom
+  :: forall r e a
+   . Array a
+  -> RIO (random :: Random | r) e (Maybe a)
+pickRandom xs = case Array.length xs of
+  0 -> pure Nothing
+  n -> do
+    i <- nextInt 0 (n - 1)
+    pure (Array.index xs i)
+
+-- | Fisher-Yates shuffle. Each permutation is equally likely if
+-- | the underlying `Random` is uniform.
+-- |
+-- | Implementation note: this is O(n^2) because PureScript arrays
+-- | are immutable; the algorithm repeatedly draws a random index
+-- | into the remaining tail and splits it out. For the use cases
+-- | a shuffle is normally reached for (test fixtures, deck
+-- | dealing, small batches) this is fine; do not call on hot paths
+-- | over very large arrays.
+shuffle
+  :: forall r e a
+   . Array a
+  -> RIO (random :: Random | r) e (Array a)
+shuffle = go []
+  where
+  go acc remaining = case Array.length remaining of
+    0 -> pure acc
+    n -> do
+      i <- nextInt 0 (n - 1)
+      let { before, after } = Array.splitAt i remaining
+      case Array.uncons after of
+        Nothing -> pure (acc <> before)
+        Just { head, tail } -> go (Array.snoc acc head) (before <> tail)
 
 -- | A production-ready implementation backed by `Effect.Random`,
 -- | which in turn delegates to `Math.random()`. Provide it via

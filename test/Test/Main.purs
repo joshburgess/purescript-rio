@@ -50,6 +50,7 @@ import Test.RIO.RandomSpec as RandomSpec
 import Test.RIO.RefSpec as RefSpec
 import Test.RIO.Ref.SynchronizedSpec as SynchronizedRefSpec
 import Test.RIO.Random.PropertiesSpec as RandomPropertiesSpec
+import Test.RIO.Random.ShufflePickSpec as RandomShufflePickSpec
 import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.Resource.DoSpec as ResourceDoSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
@@ -118,6 +119,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ClockSpec.spec
   RandomSpec.spec
   RandomPropertiesSpec.spec
+  RandomShufflePickSpec.spec
   RefSpec.spec
   SynchronizedRefSpec.spec
   ConfigSpec.spec
