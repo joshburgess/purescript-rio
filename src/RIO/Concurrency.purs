@@ -22,11 +22,15 @@ module RIO.Concurrency
   , parSequence
   , parTraverse
   , parTraverseN
+  , partition
   , partitionPar
   , race
   , raceAll
+  , raceEither
   , timeout
+  , timeoutFail
   , uninterruptible
+  , validate
   , validatePar
   , zipPar
   ) where
@@ -42,13 +46,17 @@ import Data.Array.NonEmpty as NEA
 import Data.Either (Either(..))
 import Data.Foldable (foldr)
 import Data.Maybe (Maybe(..))
+import Data.Symbol (class IsSymbol)
 import Data.Time.Duration (Milliseconds)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
+import Data.Variant as Variant
 import Effect.Aff (Fiber, attempt, delay, error, forkAff, invincible, joinFiber, killFiber, never, parallel, sequential) as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
+import Prim.Row (class Cons) as Row
+import Type.Proxy (Proxy)
 
 import RIO.Internal (RIO(..), unRIO)
 import RIO.Resource (Scope, addFinalizer)
@@ -360,6 +368,50 @@ partitionPar f as = RIO \r -> do
   results <- Parallel.parTraverse (\a -> unRIO (f a) r) as
   pure (Right (partitionEithers results))
 
+-- | Sequential sibling of `validatePar`: same accumulating-errors
+-- | semantics, but actions run one after another in input order
+-- | rather than concurrently. Use this when ordering matters (the
+-- | first failure's diagnostics depend on side effects from earlier
+-- | items) or when parallelism is undesired.
+-- |
+-- | The error order is deterministic: input order, not finish order.
+-- |
+-- | ```purescript
+-- | -- run migrations in order; report every failure but don't stop
+-- | -- at the first one
+-- | result <- validate runMigration migrations
+-- | ```
+validate
+  :: forall r e e' a b
+   . (a -> RIO r e b)
+  -> Array a
+  -> RIO r e' (Either (NonEmptyArray (Variant e)) (Array b))
+validate f as = RIO \r -> do
+  results <- traverse (\a -> unRIO (f a) r) as
+  let Tuple errs succs = partitionEithers results
+  case NEA.fromArray errs of
+    Nothing -> pure (Right (Right succs))
+    Just nea -> pure (Right (Left nea))
+
+-- | Sequential sibling of `partitionPar`. Runs each action in order
+-- | and partitions the results into typed failures and successes,
+-- | preserving input order within each side.
+-- |
+-- | ```purescript
+-- | -- process each input in order, then route the failures
+-- | Tuple errs okays <- partition handle inputs
+-- | report errs
+-- | continueWith okays
+-- | ```
+partition
+  :: forall r e e' a b
+   . (a -> RIO r e b)
+  -> Array a
+  -> RIO r e' (Tuple (Array (Variant e)) (Array b))
+partition f as = RIO \r -> do
+  results <- traverse (\a -> unRIO (f a) r) as
+  pure (Right (partitionEithers results))
+
 partitionEithers
   :: forall a b
    . Array (Either a b)
@@ -465,6 +517,29 @@ raceAll
 raceAll arr = RIO \r ->
   Parallel.parOneOfMap (\rio -> unRIO rio r) arr
 
+-- | Race two actions and preserve which arm won. The first arm
+-- | becomes `Left`; the second becomes `Right`. The loser is
+-- | interrupted under the usual `race` semantics.
+-- |
+-- | Useful when the two branches have different result types or when
+-- | downstream code needs to know which side fired without inspecting
+-- | the value itself. Mirrors ZIO `ZIO.raceEither` / Effect
+-- | `Effect.raceEither`.
+-- |
+-- | ```purescript
+-- | -- whichever finishes first; downstream knows which source it was
+-- | outcome <- raceEither (fromCache key) (fromRemote key)
+-- | case outcome of
+-- |   Left hit -> recordCacheHit hit
+-- |   Right res -> recordRemoteHit res
+-- | ```
+raceEither
+  :: forall r e a b
+   . RIO r e a
+  -> RIO r e b
+  -> RIO r e (Either a b)
+raceEither ra rb = race (map Left ra) (map Right rb)
+
 -- | Repeat an action indefinitely. The return type is polymorphic
 -- | because `forever` never produces a value: it loops until the
 -- | fiber is interrupted (via `interrupt`, `race`, `timeout`, or
@@ -558,3 +633,36 @@ timeout ms action =
   race
     (map Just action)
     (RIO \_ -> Aff.delay ms *> pure (Right Nothing))
+
+-- | A timeout that produces a typed failure on expiry rather than
+-- | wrapping the result in `Maybe`. The caller supplies the failure
+-- | the row should see when the deadline fires, so the call site
+-- | doesn't need a `case _ of Just x -> ...; Nothing -> fail ...`
+-- | shim.
+-- |
+-- | Mirrors ZIO `ZIO.timeoutFail` / Effect `Effect.timeoutFail`. The
+-- | losing action is interrupted under the usual `race` semantics,
+-- | and any resources it holds via `acquireRelease` or `Scope` are
+-- | released.
+-- |
+-- | ```purescript
+-- | -- treat >500ms as a typed `slow` failure rather than a Maybe
+-- | row <- timeoutFail
+-- |   (Proxy :: Proxy "slow") "fetchFromCache"
+-- |   (Milliseconds 500.0)
+-- |   (fetchFromCache key)
+-- | ```
+timeoutFail
+  :: forall r e sym a tail b
+   . Row.Cons sym a tail e
+  => IsSymbol sym
+  => Proxy sym
+  -> a
+  -> Milliseconds
+  -> RIO r e b
+  -> RIO r e b
+timeoutFail sym a ms action = do
+  result <- timeout ms action
+  case result of
+    Just b -> pure b
+    Nothing -> RIO \_ -> pure (Left (Variant.inj sym a))
