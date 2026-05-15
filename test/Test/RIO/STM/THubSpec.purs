@@ -126,6 +126,32 @@ spec = describe "RIO.STM.THub" do
       result <- runRIO' program
       result `shouldEqual` [ 2, 3 ]
 
+    it "consecutive overflows drop oldest-first across the whole sequence" do
+      -- Docstring promise: a subscriber's buffer "loses its oldest
+      -- entry" when full. The existing "drops the oldest value
+      -- when the buffer is full" test publishes 3 values into cap
+      -- 2 and observes `[2, 3]`, which only pins a single drop.
+      -- A regression that drops from a fixed buffer offset (e.g.,
+      -- always discarding index 0 of the original buffer rather
+      -- than re-reading the head after each drop, or shifting an
+      -- index without modular reduction in a ring buffer) would
+      -- pass the single-overflow case but yield `[2, 4]` instead
+      -- of `[3, 4]` for two consecutive overflows. Pin two
+      -- consecutive overflows into cap 2 with publishes
+      -- `[1, 2, 3, 4]`: the surviving buffer must be `[3, 4]`.
+      let
+        program :: RIO () () (Array Int)
+        program = do
+          hub <- atomically (newSlidingTHub 2)
+          sub <- atomically (subscribeTHub hub)
+          _ <- atomically (publishTHub hub 1)
+          _ <- atomically (publishTHub hub 2)
+          _ <- atomically (publishTHub hub 3)
+          _ <- atomically (publishTHub hub 4)
+          traverse (\_ -> atomically (takeSubscription sub)) [ 0, 0 ]
+      result <- runRIO' program
+      result `shouldEqual` [ 3, 4 ]
+
     it "publishTHub always returns true for sliding" do
       let
         program :: RIO () () { r1 :: Boolean, r2 :: Boolean, r3 :: Boolean }
