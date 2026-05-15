@@ -28,12 +28,17 @@ module RIO.Stream
   ( Stream(..)
   , Step(..)
   , unStream
+  , chunk
   , concat
+  , distinct
   , drop
+  , dropWhile
   , empty
   , filter
   , flatMap
+  , flatten
   , fromArray
+  , intersperse
   , map
   , mapM
   , repeatM
@@ -41,9 +46,15 @@ module RIO.Stream
   , runDrain
   , runFold
   , runFoldM
+  , scan
+  , scanM
   , single
   , take
+  , takeWhile
   , unfoldM
+  , zip
+  , zipWith
+  , zipWithIndex
   ) where
 
 import Prelude hiding (map)
@@ -215,6 +226,192 @@ runFold seed step s = do
   case st of
     Done -> pure seed
     Yield a rest -> runFold (step seed a) step rest
+
+-- | Pair two streams elementwise. Ends when either input ends, so
+-- | the output length is the minimum of the two inputs.
+-- |
+-- | Both streams are stepped on each output, in left-then-right
+-- | order. There is no buffering: this is a strict zip on a pull
+-- | stream.
+zip
+  :: forall r e a b
+   . Stream r e a
+  -> Stream r e b
+  -> Stream r e (Tuple a b)
+zip = zipWith Tuple
+
+-- | Combine two streams elementwise with a function. Ends when
+-- | either input ends.
+zipWith
+  :: forall r e a b c
+   . (a -> b -> c)
+  -> Stream r e a
+  -> Stream r e b
+  -> Stream r e c
+zipWith f l r = Stream do
+  stepL <- unStream l
+  case stepL of
+    Done -> pure Done
+    Yield a restL -> do
+      stepR <- unStream r
+      case stepR of
+        Done -> pure Done
+        Yield b restR -> pure (Yield (f a b) (zipWith f restL restR))
+
+-- | Pair each element with its 0-based position in the stream.
+zipWithIndex
+  :: forall r e a
+   . Stream r e a
+  -> Stream r e (Tuple Int a)
+zipWithIndex = go 0
+  where
+  go :: Int -> Stream r e a -> Stream r e (Tuple Int a)
+  go i s = Stream do
+    step <- unStream s
+    case step of
+      Done -> pure Done
+      Yield a rest -> pure (Yield (Tuple i a) (go (i + 1) rest))
+
+-- | Running prefix fold. Emits the seed first, then one element
+-- | per input element with the accumulator applied. The output is
+-- | always one element longer than the input.
+-- |
+-- | ```purescript
+-- | -- prefix sums of [1, 2, 3] starting at 0 yields [0, 1, 3, 6]
+-- | runCollect (scan 0 (+) (fromArray [1, 2, 3]))
+-- | ```
+scan
+  :: forall r e a b
+   . b
+  -> (b -> a -> b)
+  -> Stream r e a
+  -> Stream r e b
+scan seed step s = Stream do
+  pure (Yield seed (scanRest seed step s))
+  where
+  scanRest :: b -> (b -> a -> b) -> Stream r e a -> Stream r e b
+  scanRest acc f t = Stream do
+    st <- unStream t
+    case st of
+      Done -> pure Done
+      Yield a rest ->
+        let
+          acc' = f acc a
+        in
+          pure (Yield acc' (scanRest acc' f rest))
+
+-- | Effectful variant of `scan`. Each step yields the updated
+-- | accumulator and runs in `RIO r e`.
+scanM
+  :: forall r e a b
+   . b
+  -> (b -> a -> RIO r e b)
+  -> Stream r e a
+  -> Stream r e b
+scanM seed step s = Stream do
+  pure (Yield seed (go seed step s))
+  where
+  go :: b -> (b -> a -> RIO r e b) -> Stream r e a -> Stream r e b
+  go acc f t = Stream do
+    st <- unStream t
+    case st of
+      Done -> pure Done
+      Yield a rest -> do
+        acc' <- f acc a
+        pure (Yield acc' (go acc' f rest))
+
+-- | Group consecutive elements into arrays of size `n`. The final
+-- | chunk may be shorter when the input length is not a multiple
+-- | of `n`. `n <= 0` produces an empty stream.
+chunk :: forall r e a. Int -> Stream r e a -> Stream r e (Array a)
+chunk n s
+  | n <= 0 = empty
+  | otherwise = chunkGo n [] s
+
+chunkGo :: forall r e a. Int -> Array a -> Stream r e a -> Stream r e (Array a)
+chunkGo n acc t = Stream do
+  step <- unStream t
+  case step of
+    Done ->
+      if Array.null acc then pure Done
+      else pure (Yield acc empty)
+    Yield a rest ->
+      let
+        acc' = Array.snoc acc a
+      in
+        if Array.length acc' >= n then pure (Yield acc' (chunkGo n [] rest))
+        else unStream (chunkGo n acc' rest)
+
+-- | Take elements while the predicate holds. Stops at (and does
+-- | not emit) the first element for which `p` is false.
+takeWhile
+  :: forall r e a
+   . (a -> Boolean)
+  -> Stream r e a
+  -> Stream r e a
+takeWhile p s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest ->
+      if p a then pure (Yield a (takeWhile p rest))
+      else pure Done
+
+-- | Drop elements while the predicate holds, then yield the rest
+-- | unchanged. The first failing element is included in the
+-- | output.
+dropWhile
+  :: forall r e a
+   . (a -> Boolean)
+  -> Stream r e a
+  -> Stream r e a
+dropWhile p s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest ->
+      if p a then unStream (dropWhile p rest)
+      else pure (Yield a rest)
+
+-- | Insert `sep` between consecutive elements. The output has
+-- | `2n - 1` elements when the input has `n` elements; an empty
+-- | input stays empty.
+intersperse :: forall r e a. a -> Stream r e a -> Stream r e a
+intersperse sep s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest -> pure (Yield a (prefixed rest))
+  where
+  prefixed :: Stream r e a -> Stream r e a
+  prefixed t = Stream do
+    step <- unStream t
+    case step of
+      Done -> pure Done
+      Yield a rest -> pure (Yield sep (Stream (pure (Yield a (prefixed rest)))))
+
+-- | Flatten a stream of streams into one stream. Each inner stream
+-- | is drained in full before the next is stepped.
+flatten :: forall r e a. Stream r e (Stream r e a) -> Stream r e a
+flatten ss = flatMap ss identity
+
+-- | Drop consecutive duplicate elements (keeps the first of each
+-- | run). Compares with `Eq`.
+distinct :: forall r e a. Eq a => Stream r e a -> Stream r e a
+distinct s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest -> pure (Yield a (go a rest))
+  where
+  go :: a -> Stream r e a -> Stream r e a
+  go prev t = Stream do
+    step <- unStream t
+    case step of
+      Done -> pure Done
+      Yield a rest ->
+        if a == prev then unStream (go prev rest)
+        else pure (Yield a (go a rest))
 
 -- | Left fold with an effectful accumulator step.
 runFoldM
