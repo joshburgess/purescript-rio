@@ -65,6 +65,7 @@ import Test.RIO.Schedule.FixedSpec as ScheduleFixedSpec
 import Test.RIO.Schedule.PropertiesSpec as SchedulePropertiesSpec
 import Test.RIO.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.SinkSpec as SinkSpec
+import Test.RIO.Sink.AggregateSpec as SinkAggregateSpec
 import Test.RIO.Sink.PropertiesSpec as SinkPropertiesSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.StreamSpec as StreamSpec
@@ -165,6 +166,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   StreamTapMapAccumSpec.spec
   StreamTimedSpec.spec
   SinkSpec.spec
+  SinkAggregateSpec.spec
   SinkPropertiesSpec.spec
   STMSpec.spec
   TQueueSpec.spec

@@ -31,6 +31,8 @@ module RIO.Sink
   , Step(..)
   , unSink
   , runSink
+  , aggregate
+  , transduce
   , drain
   , head
   , last
@@ -100,6 +102,79 @@ runSink sink stream = do
       case sstep of
         Stream.Done -> finish
         Stream.Yield i rest -> runSink (k i) rest
+
+-- | Repeatedly run `sink` against `stream`, emitting each
+-- | sink result as a stream element. Each cycle starts from a
+-- | fresh instance of `sink`; when one halts the next cycle
+-- | resumes from the current stream position.
+-- |
+-- | Semantics:
+-- |
+-- |  * If the input stream is empty, the output stream is empty
+-- |    (no phantom "empty chunk" is emitted).
+-- |  * If the stream ends while the sink is mid-consumption, the
+-- |    sink's `finish` runs and its value is emitted as the
+-- |    final element.
+-- |  * If the sink halts without ever consuming, one virtual
+-- |    input is dropped per emitted value to guarantee progress;
+-- |    the output stream then mirrors the input length.
+-- |
+-- | Mirrors ZIO's `ZStream.aggregate` and Effect-TS
+-- | `Stream.aggregate`. The classic batching idiom is
+-- | `aggregate (take n)` to chop the upstream into `n`-sized
+-- | chunks.
+-- |
+-- | ```purescript
+-- | chunked :: Stream r e (Array Int)
+-- | chunked = aggregate (take 3) (fromArray [1, 2, 3, 4, 5, 6, 7])
+-- | -- chunks: [[1,2,3], [4,5,6], [7]]
+-- | ```
+aggregate
+  :: forall r e a b
+   . Sink r e a b
+  -> Stream r e a
+  -> Stream r e b
+aggregate sinkTpl inStream = Stream.Stream (newCycle inStream)
+  where
+  newCycle :: Stream r e a -> RIO r e (Stream.Step r e b)
+  newCycle stream = do
+    sstep <- unSink sinkTpl
+    case sstep of
+      Halt b -> do
+        instep <- Stream.unStream stream
+        case instep of
+          Stream.Done -> pure Stream.Done
+          Stream.Yield _ rest ->
+            pure (Stream.Yield b (Stream.Stream (newCycle rest)))
+      Need k _ -> do
+        instep <- Stream.unStream stream
+        case instep of
+          Stream.Done -> pure Stream.Done
+          Stream.Yield a rest -> continuing (k a) rest
+
+  continuing :: Sink r e a b -> Stream r e a -> RIO r e (Stream.Step r e b)
+  continuing sink stream = do
+    sstep <- unSink sink
+    case sstep of
+      Halt b ->
+        pure (Stream.Yield b (Stream.Stream (newCycle stream)))
+      Need k finish -> do
+        instep <- Stream.unStream stream
+        case instep of
+          Stream.Done -> do
+            b <- finish
+            pure (Stream.Yield b Stream.empty)
+          Stream.Yield a rest -> continuing (k a) rest
+
+-- | Alias for `aggregate` matching ZIO's older `transduce`
+-- | naming. Provided so code ported from ZIO snippets reads
+-- | the same; reach for `aggregate` in new code.
+transduce
+  :: forall r e a b
+   . Sink r e a b
+  -> Stream r e a
+  -> Stream r e b
+transduce = aggregate
 
 -- | Drain the stream for its effects; return `unit`.
 drain :: forall r e i. Sink r e i Unit
