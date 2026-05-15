@@ -12,6 +12,7 @@ import Test.RIO.Concurrency.ParSpec as ParSpec
 import Test.RIO.Concurrency.PropertiesSpec as ConcurrencyPropertiesSpec
 import Test.RIO.ConfigSpec as ConfigSpec
 import Test.RIO.Config.RotatingSpec as RotatingSpec
+import Test.RIO.CacheSpec as CacheSpec
 import Test.RIO.CauseSpec as CauseSpec
 import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.DeferredSpec as DeferredSpec
@@ -80,6 +81,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   QueueSpec.spec
   QueuePropertiesSpec.spec
   PoolSpec.spec
+  CacheSpec.spec
   HubSpec.spec
   HubPropertiesSpec.spec
   StreamSpec.spec
