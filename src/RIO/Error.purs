@@ -11,6 +11,9 @@ module RIO.Error
   , catchAll
   , catchSome
   , catchTag
+  , class CatchableErrorTag
+  , class FindErrorTag
+  , class FindErrorTagInRow
   , die
   , either
   , fail
@@ -46,9 +49,65 @@ import Effect.Aff (attempt, throwError)
 import Effect.Exception (Error)
 import Effect.Exception (error) as Exception
 import Prim.Row (class Cons) as Row
+import Prim.RowList (class RowToList, RowList) as RL
+import Prim.RowList (Cons, Nil) as RLP
+import Prim.TypeError (class Fail, Above, Beside, Text)
 import Type.Proxy (Proxy)
 
 import RIO.Internal (RIO(..), unRIO)
+
+-- | Internal helper that walks an `e`-row's `RowList` to look up a
+-- | tag symbol. The funcdep `sym l -> a` means the payload type is
+-- | determined by the symbol and the row list, so when a user's
+-- | `catchTag` handler claims a payload type different from what
+-- | the row carries, the conflict surfaces as a clean "could not
+-- | match" at the handler argument rather than as a `Prim.Row.Cons`
+-- | row-mismatch.
+-- |
+-- | The `Nil` instance carries a `Fail` constraint that fires when
+-- | the tag is genuinely absent from the row, producing a friendlier
+-- | message than the default `Cons` constraint error.
+class FindErrorTag (sym :: Symbol) (l :: RL.RowList Type) (a :: Type) | sym l -> a
+
+instance findErrorTagFound :: FindErrorTag sym (RLP.Cons sym a tail) a
+else instance findErrorTagRecur ::
+  FindErrorTag sym tail a =>
+  FindErrorTag sym (RLP.Cons k v tail) a
+else instance findErrorTagMissing ::
+  Fail
+    ( Above
+        ( Beside
+            (Beside (Text "RIO.catchTag: the error tag '") (Text sym))
+            (Text "' is not present in the error row.")
+        )
+        ( Text
+            "Check the tag name (case-sensitive) and the program's error type."
+        )
+    ) =>
+  FindErrorTag sym RLP.Nil a
+
+-- | Bridge between `FindErrorTag` (which operates on a `RowList`)
+-- | and the row-shaped constraint we want to expose on `catchTag`.
+-- | The funcdep `sym e -> a` carries the lookup through.
+class FindErrorTagInRow (sym :: Symbol) (e :: Row Type) (a :: Type) | sym e -> a
+
+instance findErrorTagInRow ::
+  ( RL.RowToList e l
+  , FindErrorTag sym l a
+  ) =>
+  FindErrorTagInRow sym e a
+
+-- | A `catchTag`-flavoured constraint that bundles the row-list
+-- | lookup of the tag's payload type. The funcdep `sym e -> a` lets
+-- | the compiler determine the handler's payload type from the
+-- | program's error row, so a wrong-typed handler surfaces a single
+-- | clean "could not match" error rather than a row-mismatch
+-- | message naming the whole row.
+class CatchableErrorTag (sym :: Symbol) (a :: Type) (e :: Row Type) | sym e -> a
+
+instance catchableErrorTag ::
+  FindErrorTagInRow sym e a =>
+  CatchableErrorTag sym a e
 
 -- | Raise a typed failure tagged with the symbol `sym`. The tag and its
 -- | payload type are added to the inferred error row, where they can be
@@ -104,6 +163,7 @@ rethrow v = RIO \_ -> pure (Left v)
 catchTag
   :: forall sym a e' e r b
    . IsSymbol sym
+  => CatchableErrorTag sym a e
   => Row.Cons sym a e' e
   => Proxy sym
   -> (a -> RIO r e' b)

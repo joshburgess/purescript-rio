@@ -11,6 +11,18 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Error`: row-list-keyed payload lookup for `catchTag`. The new
+  `FindErrorTag` / `FindErrorTagInRow` / `CatchableErrorTag` classes
+  walk an error row's `RowList` to determine the handler's payload
+  type from the tag's symbol. A wrong-typed handler now surfaces a
+  clean "Could not match type X with type Y" error pointed at the
+  two payload types directly rather than a `Prim.Row.Cons`
+  row-mismatch over the whole error row. Promotes the `compile-fail`
+  case 03 ("`catchTag` with a wrong payload type") from
+  ACCEPTABLE-NOISY to GOOD; case 04 ("tag not in row") remains
+  ACCEPTABLE-NOISY because the `Prim.Row.Cons` constraint still
+  needed for the residual-row calculation fires first at the use
+  site.
 - `RIO.Stream.Resource`: one additional unit test pinning that
   `bracketStream` releases the acquired resource on the
   fiber-kill termination path. The module docstring promises

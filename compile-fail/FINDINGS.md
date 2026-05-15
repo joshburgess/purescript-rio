@@ -64,43 +64,35 @@ handle it or call `runRIO` instead."
 ## Case 03: `catchTag` with a wrong payload type (Phase 3.1)
 
 A handler that claims the wrong type for the tag's payload. The
-compiler reports:
+compiler reports (after the `FindErrorTag` row-list walk shipped in
+`RIO.Error`):
 
 ```
 Could not match type
-  Int
-with type
   String
-while matching label parse
-while trying to match type
-                             ( parse :: Int
-                             ...
-                             | e0
-                             )
-  with type
-              ( parse :: String
-              ...
-              )
+with type
+  Int
 while solving type class constraint
-  Prim.Row.Cons "parse"
-                Int
-                e0
-                ( parse :: String
-                )
+  RIO.Error.FindErrorTag "parse"
+                         t6
+                         Int
+while applying a function catchTag
+  of type IsSymbol t0 => CatchableErrorTag t0 t1 t2 => Cons … =>
+          Proxy t0 -> (t1 -> RIO t4 t3 t5) -> RIO t4 t2 t5 -> RIO t4 t3 t5
 ```
 
-**Quality: ACCEPTABLE (NOISY).** The first three lines say the right
-thing ("Could not match Int with String while matching label parse").
-The trailing "while solving type class constraint Prim.Row.Cons …"
-block is correct but jargon. A new user who has not internalised
-`Prim.Row` machinery may bounce off it.
+**Quality: GOOD.** The mismatched payload types are named on the
+first two lines (`String` vs `Int`) and the row-list lookup names
+the tag (`"parse"`). A reader skimming the error sees "my handler
+took `Int` but tag `parse` carries `String`" and fixes it.
 
-**Candidate for a custom `Fail` instance in v0.2:** a `Fail` instance
-attached to the `Cons sym a e' e` constraint that says *"the handler
-for tag `parse` expects a `String` payload, but you wrote a handler
-that takes `Int`."* That sentence already lives in the first three
-lines of the current error; the goal is to lead with it and suppress
-the row-machinery context.
+This case used to be ACCEPTABLE (NOISY) because the underlying
+`Prim.Row.Cons` constraint dragged a `( parse :: Int | e0 )` vs
+`( parse :: String )` row mismatch into the top of the error. The
+`FindErrorTagInRow` / `FindErrorTag` row-list walk added in
+`RIO.Error` lifts the payload-type lookup into a single constraint
+keyed by symbol, so the wrong-typed handler now produces a clean
+"Could not match" pointed at the two payload types directly.
 
 ## Case 04: `catchTag` for a tag that isn't in the error row
 
@@ -129,9 +121,19 @@ while solving type class constraint
 **Quality: ACCEPTABLE (NOISY).** The compiler shows the two rows side
 by side and the user can read "I asked to peel `notFound` off a row
 that only contains `parse`." The trailing `Prim.Row.Cons` block is
-correct but more jargon than a new user needs. Same `Fail`-polish
-candidate as case 03: lead with the row mismatch, suppress the
-constraint context.
+correct but more jargon than a new user needs.
+
+The `FindErrorTagInRow` row-list walk in `RIO.Error` defines a Fail
+instance for the "tag missing from row" case (its message reads
+`RIO.catchTag: the error tag '…' is not present in the error row.`),
+but the `Prim.Row.Cons` constraint on `catchTag`'s signature
+(needed for the residual-row calculation and for `Variant.on`
+inside the body) fires its row-mismatch error first at the use
+site and shadows the friendlier Fail. A future restructure that
+hides `Row.Cons` entirely behind a class-method dispatch (with
+careful funcdep coverage so the constraint solver doesn't see
+both failures in parallel) could let the friendly message win.
+For now the residual jargon is acceptable.
 
 ## Case 05: `mapError` followed by `runRIO'` with a non-empty residual row
 
@@ -188,6 +190,10 @@ These remain on the v0.2 `Fail`-polish backlog:
   it isn't a compile-fail target at all; the "you provided twice"
   trap is at most a warning candidate, not an error.
 
-The remaining ones (03, 04) are intelligible after a short induction
-but still candidates for the `Fail` polish: a one-line message
-explaining the actual user mistake before the row-machinery context.
+Case 03 was promoted from ACCEPTABLE to GOOD by the
+`FindErrorTagInRow` / `FindErrorTag` work in `RIO.Error`. Case 04
+remains ACCEPTABLE-NOISY: the row-list walk does carry a
+custom Fail for the missing-tag case, but the parallel
+`Prim.Row.Cons` constraint that `catchTag` still needs (for the
+residual row and for `Variant.on`'s dispatch) fires its
+row-mismatch first at the use site.
