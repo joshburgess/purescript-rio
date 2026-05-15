@@ -41,10 +41,12 @@ module RIO.Cause
   , failCause
   , failures
   , find
+  , foldCause
   , foldCauseRIO
   , hasDefect
   , hasFailure
   , isFailure
+  , linearize
   , prettyCause
   , prettyCauseWithStack
   , fromOutcome
@@ -557,6 +559,48 @@ containsFailure p = case _ of
   Die _ -> false
   Parallel a b -> containsFailure p a || containsFailure p b
   Sequential a b -> containsFailure p a || containsFailure p b
+
+-- | Fold a cause tree into a value. The four arguments handle the
+-- | four constructors: a typed-failure leaf, a defect leaf, a
+-- | parallel composite, and a sequential composite. The recursion
+-- | is bottom-up: composite branches are folded first and the
+-- | combiner is called with their already-folded values.
+-- |
+-- | This is the catamorphism for `Cause`; every other inspection
+-- | helper (`failures`, `defects`, `hasFailure`, etc.) can be
+-- | written in terms of it. Reach for it when you need a custom
+-- | aggregation that does not match the existing helpers, e.g. a
+-- | "first error in a Sequential chain" reducer or a structured
+-- | JSON render.
+foldCause
+  :: forall e b
+   . (Variant e -> b)
+  -> (Error -> b)
+  -> (b -> b -> b)
+  -> (b -> b -> b)
+  -> Cause e
+  -> b
+foldCause onFail onDie onPar onSeq = go
+  where
+  go = case _ of
+    Fail v -> onFail v
+    Die err -> onDie err
+    Parallel a b -> onPar (go a) (go b)
+    Sequential a b -> onSeq (go a) (go b)
+
+-- | Flatten the cause tree into a left-to-right array of leaves,
+-- | discarding the parallel-vs-sequential structure. `Right` carries
+-- | a typed failure, `Left` a defect.
+-- |
+-- | Pair with `prettyCause` when you only need a flat list of
+-- | leaves and not the tree shape (e.g. for a one-line log or a
+-- | metric counter keyed by failure tag).
+linearize :: forall e. Cause e -> Array (Either Error (Variant e))
+linearize = foldCause
+  (\v -> [ Right v ])
+  (\err -> [ Left err ])
+  (\a b -> a <> b)
+  (\a b -> a <> b)
 
 -- | Search the cause tree for the first node where the projection
 -- | returns `Just`. Visits every node (atomic and composite); the

@@ -21,6 +21,7 @@ import Test.RIO.CacheSpec as CacheSpec
 import Test.RIO.CauseSpec as CauseSpec
 import Test.RIO.Cause.CombinatorsSpec as CauseCombinatorsSpec
 import Test.RIO.Cause.CatchSomeSpec as CauseCatchSomeSpec
+import Test.RIO.Cause.FoldLinearizeSpec as CauseFoldLinearizeSpec
 import Test.RIO.Cause.InspectionSpec as CauseInspectionSpec
 import Test.RIO.CoreSpec as CoreSpec
 import Test.RIO.DeferredSpec as DeferredSpec
@@ -121,6 +122,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   CauseSpec.spec
   CauseCombinatorsSpec.spec
   CauseCatchSomeSpec.spec
+  CauseFoldLinearizeSpec.spec
   CauseInspectionSpec.spec
   DeferredSpec.spec
   ClockSpec.spec
