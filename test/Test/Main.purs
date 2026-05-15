@@ -12,6 +12,7 @@ import Test.RIO.Concurrency.ParSpec as ParSpec
 import Test.RIO.Concurrency.PropertiesSpec as ConcurrencyPropertiesSpec
 import Test.RIO.Concurrency.NeverFilterSpec as NeverFilterSpec
 import Test.RIO.Concurrency.ValidatePartitionSpec as ValidatePartitionSpec
+import Test.RIO.ConditionalSpec as ConditionalSpec
 import Test.RIO.ConfigSpec as ConfigSpec
 import Test.RIO.Config.RotatingSpec as RotatingSpec
 import Test.RIO.CacheSpec as CacheSpec
@@ -76,6 +77,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ErrorHandlingSpec.spec
   ErrorCombinatorsSpec.spec
   ErrorOrElseSpec.spec
+  ConditionalSpec.spec
   FailSpec.spec
   FoldForeverSpec.spec
   ResourceSpec.spec

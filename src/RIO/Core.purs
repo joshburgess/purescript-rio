@@ -11,9 +11,12 @@
 -- | the safer runners cannot express what you need.
 module RIO.Core
   ( module Exports
+  , ifM
   , runRIO
   , runRIO'
+  , unlessM
   , unsafeRunRIO
+  , whenM
   ) where
 
 import Prelude
@@ -81,3 +84,38 @@ runRIO' m = do
 -- | ```
 unsafeRunRIO :: forall r e a. RIO r e a -> Record r -> Aff (Either (Variant e) a)
 unsafeRunRIO = unRIO
+
+-- | Run the body when the effectful predicate returns `true`. The
+-- | predicate is `RIO`, not pure `Boolean`, so it can read services,
+-- | check refs, or raise typed failures of its own.
+-- |
+-- | Mirrors ZIO's `ZIO.whenZIO` and Haskell's `Control.Monad.whenM`.
+-- |
+-- | ```purescript
+-- | flushIfDirty :: RIO Env e Unit
+-- | flushIfDirty = whenM isDirty flush
+-- | ```
+whenM :: forall r e. RIO r e Boolean -> RIO r e Unit -> RIO r e Unit
+whenM cond body = do
+  b <- cond
+  when b body
+
+-- | The dual of `whenM`: run the body when the effectful predicate
+-- | returns `false`.
+unlessM :: forall r e. RIO r e Boolean -> RIO r e Unit -> RIO r e Unit
+unlessM cond body = do
+  b <- cond
+  unless b body
+
+-- | Branch on an effectful predicate. Both arms have the same result
+-- | type, so this is the value-returning sibling of `whenM` /
+-- | `unlessM`. Mirrors ZIO's `ZIO.ifZIO`.
+ifM
+  :: forall r e a
+   . RIO r e Boolean
+  -> RIO r e a
+  -> RIO r e a
+  -> RIO r e a
+ifM cond thenBranch elseBranch = do
+  b <- cond
+  if b then thenBranch else elseBranch
