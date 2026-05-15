@@ -35,14 +35,18 @@ module RIO.Stream
   , dropWhile
   , empty
   , filter
+  , find
   , flatMap
   , flatten
+  , forever
   , fromArray
   , fromHub
   , fromQueue
+  , head
   , intersperse
   , iterate
   , iterateM
+  , last
   , map
   , mapM
   , range
@@ -483,6 +487,65 @@ distinct s = Stream do
       Yield a rest ->
         if a == prev then unStream (go prev rest)
         else pure (Yield a (go a rest))
+
+-- | Pull the first element of the stream, or `Nothing` if the
+-- | stream is empty. The rest of the stream is discarded.
+-- |
+-- | ```purescript
+-- | -- check whether the producer has anything to give right now
+-- | maybeFirst <- head (fromQueue q)
+-- | ```
+head :: forall r e a. Stream r e a -> RIO r e (Maybe a)
+head s = do
+  step <- unStream s
+  case step of
+    Done -> pure Nothing
+    Yield a _ -> pure (Just a)
+
+-- | Drain the stream and return the last element, or `Nothing` if
+-- | the stream is empty. Runs the whole stream; do not call on an
+-- | infinite stream.
+last :: forall r e a. Stream r e a -> RIO r e (Maybe a)
+last = go Nothing
+  where
+  go :: Maybe a -> Stream r e a -> RIO r e (Maybe a)
+  go acc s = do
+    step <- unStream s
+    case step of
+      Done -> pure acc
+      Yield a rest -> go (Just a) rest
+
+-- | Pull elements until one matches the predicate, return that
+-- | element, and discard the rest. Returns `Nothing` if the stream
+-- | ends before a match is found.
+-- |
+-- | Short-circuits on first match: when the input is infinite this
+-- | terminates as soon as the predicate fires.
+find
+  :: forall r e a
+   . (a -> Boolean)
+  -> Stream r e a
+  -> RIO r e (Maybe a)
+find p s = do
+  step <- unStream s
+  case step of
+    Done -> pure Nothing
+    Yield a rest ->
+      if p a then pure (Just a)
+      else find p rest
+
+-- | Repeat a stream forever. After the inner stream ends the same
+-- | stream is drained again.
+-- |
+-- | Idempotent on an already-infinite stream. On an empty stream
+-- | this produces an empty stream (the recursion never yields a
+-- | value), not a busy loop.
+forever :: forall r e a. Stream r e a -> Stream r e a
+forever s = Stream do
+  step <- unStream s
+  case step of
+    Done -> pure Done
+    Yield a rest -> pure (Yield a (concat rest (forever s)))
 
 -- | Left fold with an effectful accumulator step.
 runFoldM

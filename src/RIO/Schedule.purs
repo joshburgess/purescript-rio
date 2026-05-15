@@ -32,6 +32,7 @@ module RIO.Schedule
   , Step(..)
   , andThen
   , elapsed
+  , eventually
   , exponential
   , fibonacci
   , fixed
@@ -512,6 +513,38 @@ retry sched action = loop sched
           Right (Continue _ ms next) -> do
             _ <- unRIO (sleepIfPositive ms) env
             unRIO (loop next) env
+
+-- | Retry forever (no delay between attempts) until the action
+-- | succeeds. The caller's error row is discharged because no typed
+-- | failure can ever surface; defects still propagate and abort the
+-- | loop.
+-- |
+-- | Mirrors ZIO `ZIO.eventually` / Effect-TS `Effect.eventually`.
+-- | Use this for "this will succeed eventually if I keep retrying"
+-- | situations: an idempotent network call against a flapping
+-- | dependency, a Ref-CAS loop that must commit at least once.
+-- |
+-- | No clock service is required because there is no inter-attempt
+-- | delay. For backed-off retries with a cap, reach for `retry` or
+-- | `retryOrElse` with an explicit schedule instead.
+-- |
+-- | ```purescript
+-- | -- keep pinging the dependency until it answers; defects abort
+-- | result <- eventually pingDependency
+-- | ```
+eventually
+  :: forall r e e' a
+   . RIO r e a
+  -> RIO r e' a
+eventually action = RIO \r ->
+  let
+    loop = do
+      res <- unRIO action r
+      case res of
+        Right a -> pure (Right a)
+        Left _ -> loop
+  in
+    loop
 
 -- | Like `retry`, but on exhaustion the fallback runs with the
 -- | final failure. The fallback's error row replaces the action's,

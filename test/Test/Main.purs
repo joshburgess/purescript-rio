@@ -52,6 +52,7 @@ import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.Resource.DoSpec as ResourceDoSpec
 import Test.RIO.ScheduleSpec as ScheduleSpec
 import Test.RIO.Schedule.ElapsedSpec as ScheduleElapsedSpec
+import Test.RIO.Schedule.EventuallySpec as ScheduleEventuallySpec
 import Test.RIO.Schedule.FixedSpec as ScheduleFixedSpec
 import Test.RIO.Schedule.PropertiesSpec as SchedulePropertiesSpec
 import Test.RIO.SemaphoreSpec as SemaphoreSpec
@@ -60,6 +61,7 @@ import Test.RIO.Sink.PropertiesSpec as SinkPropertiesSpec
 import Test.RIO.SpecHelpersSpec as SpecHelpersSpec
 import Test.RIO.StreamSpec as StreamSpec
 import Test.RIO.Stream.CombinatorsSpec as StreamCombinatorsSpec
+import Test.RIO.Stream.HeadLastFindSpec as StreamHeadLastFindSpec
 import Test.RIO.Stream.ParSpec as StreamParSpec
 import Test.RIO.Stream.PropertiesSpec as StreamPropertiesSpec
 import Test.RIO.Stream.ResourceSpec as StreamResourceSpec
@@ -118,6 +120,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ScheduleSpec.spec
   ScheduleFixedSpec.spec
   ScheduleElapsedSpec.spec
+  ScheduleEventuallySpec.spec
   SchedulePropertiesSpec.spec
   SemaphoreSpec.spec
   QueueSpec.spec
@@ -128,6 +131,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   HubPropertiesSpec.spec
   StreamSpec.spec
   StreamCombinatorsSpec.spec
+  StreamHeadLastFindSpec.spec
   StreamParSpec.spec
   StreamPropertiesSpec.spec
   StreamResourceSpec.spec
