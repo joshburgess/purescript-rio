@@ -102,6 +102,7 @@ import Test.RIO.STM.TSemaphoreSpec as TSemaphoreSpec
 import Test.RIO.STM.TSemaphore.PropertiesSpec as TSemaphorePropertiesSpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
 import Test.RIO.TracerSpec as TracerSpec
+import Test.RIO.ValidationSpec as ValidationSpec
 
 main :: Effect Unit
 main = runSpecAndExitProcess [ consoleReporter ] do
@@ -193,6 +194,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   THubPropertiesSpec.spec
   TDeferredSpec.spec
   TracerSpec.spec
+  ValidationSpec.spec
   MetricSpec.spec
   MetricsSpec.spec
   LocalSpec.spec
