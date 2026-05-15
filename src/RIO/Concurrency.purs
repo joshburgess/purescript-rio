@@ -19,10 +19,12 @@ module RIO.Concurrency
   , parSequence
   , parTraverse
   , parTraverseN
+  , partitionPar
   , race
   , raceAll
   , timeout
   , uninterruptible
+  , validatePar
   , zipPar
   ) where
 
@@ -33,7 +35,9 @@ import Control.Monad.Error.Class (throwError)
 import Control.Parallel (parOneOfMap, parTraverse) as Parallel
 import Data.Array (concat, drop, length, take) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
+import Data.Array.NonEmpty as NEA
 import Data.Either (Either(..))
+import Data.Foldable (foldr)
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds)
 import Data.Traversable (traverse)
@@ -292,6 +296,75 @@ chunksOf :: forall a. Int -> Array a -> Array (Array a)
 chunksOf n as
   | Array.length as == 0 = []
   | otherwise = [ Array.take n as ] <> chunksOf n (Array.drop n as)
+
+-- | Run every action in an array concurrently and accumulate
+-- | typed failures instead of short-circuiting. Every branch runs
+-- | to completion: if all succeed the result is `Right` with every
+-- | value in input order; otherwise it is `Left` with every typed
+-- | failure observed, also in input order.
+-- |
+-- | The parent's error row `e'` is left free because `validatePar`
+-- | itself never raises a typed failure on the parent: all branch
+-- | errors are reflected into the result's `Either`.
+-- |
+-- | Defects (uncaught `Aff` exceptions) still propagate as defects,
+-- | matching the rest of the module. This is the "accumulate all
+-- | validation errors" counterpart of `parTraverse`, equivalent in
+-- | spirit to ZIO `validatePar` and Effect-TS `Effect.validateAll`.
+-- |
+-- | ```purescript
+-- | -- validate every form field concurrently; report every problem,
+-- | -- not just the first one
+-- | result <- validatePar checkField fields
+-- | case result of
+-- |   Right values -> useAll values
+-- |   Left errors -> reportEvery errors
+-- | ```
+validatePar
+  :: forall r e e' a b
+   . (a -> RIO r e b)
+  -> Array a
+  -> RIO r e' (Either (NonEmptyArray (Variant e)) (Array b))
+validatePar f as = RIO \r -> do
+  results <- Parallel.parTraverse (\a -> unRIO (f a) r) as
+  let Tuple errs succs = partitionEithers results
+  case NEA.fromArray errs of
+    Nothing -> pure (Right (Right succs))
+    Just nea -> pure (Right (Left nea))
+
+-- | Run every action in an array concurrently and split the results
+-- | into typed failures and successes, preserving input order within
+-- | each side. Unlike `parTraverse`, no branch is cancelled when
+-- | another fails: every action runs to completion.
+-- |
+-- | This is the lower-level partner of `validatePar`: callers that
+-- | want to keep partial successes (rather than fail the batch on
+-- | any error) reach for this. It is total - it never raises a
+-- | typed failure on the parent's row.
+-- |
+-- | ```purescript
+-- | -- process every input, then decide what to do with the failures
+-- | Tuple errs okays <- partitionPar handle inputs
+-- | report errs
+-- | continueWith okays
+-- | ```
+partitionPar
+  :: forall r e e' a b
+   . (a -> RIO r e b)
+  -> Array a
+  -> RIO r e' (Tuple (Array (Variant e)) (Array b))
+partitionPar f as = RIO \r -> do
+  results <- Parallel.parTraverse (\a -> unRIO (f a) r) as
+  pure (Right (partitionEithers results))
+
+partitionEithers
+  :: forall a b
+   . Array (Either a b)
+  -> Tuple (Array a) (Array b)
+partitionEithers = foldr step (Tuple [] [])
+  where
+  step (Left a) (Tuple ls rs) = Tuple ([ a ] <> ls) rs
+  step (Right b) (Tuple ls rs) = Tuple ls ([ b ] <> rs)
 
 -- | Run two actions concurrently and pair their results.
 -- |
