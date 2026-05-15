@@ -27,6 +27,7 @@ import Test.RIO.MetricsSpec as MetricsSpec
 import Test.RIO.QueueSpec as QueueSpec
 import Test.RIO.Queue.PropertiesSpec as QueuePropertiesSpec
 import Test.RIO.RandomSpec as RandomSpec
+import Test.RIO.RefSpec as RefSpec
 import Test.RIO.Random.PropertiesSpec as RandomPropertiesSpec
 import Test.RIO.ResourceSpec as ResourceSpec
 import Test.RIO.Resource.DoSpec as ResourceDoSpec
@@ -69,6 +70,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ClockSpec.spec
   RandomSpec.spec
   RandomPropertiesSpec.spec
+  RefSpec.spec
   ConfigSpec.spec
   RotatingSpec.spec
   ScheduleSpec.spec
