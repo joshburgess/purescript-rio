@@ -13,6 +13,7 @@ module RIO.Resource
   ( acquireRelease
   , bracket
   , ensuring
+  , onInterrupt
   , Scope(..)
   , addFinalizer
   , scoped
@@ -24,7 +25,7 @@ import Data.Array (foldr)
 import Data.Either (Either(..))
 import Data.Variant as Variant
 import Effect.Aff (Aff, attempt, finally)
-import Effect.Aff (bracket) as Aff
+import Effect.Aff (bracket, generalBracket) as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Record.Unsafe (unsafeSet)
@@ -147,6 +148,50 @@ ensuring action finalizer = RIO \r ->
         Left v -> Variant.case_ v
   in
     finally finAff (unRIO action r)
+
+-- | Run `finalizer` only when `action` is interrupted (the
+-- | fiber is killed). Normal completion, typed failure, and
+-- | defects all skip the finalizer; this is the
+-- | cancellation-specific counterpart to `ensuring` (which
+-- | fires on every termination path).
+-- |
+-- | Mirrors ZIO `ZIO.onInterrupt` / Effect-TS `Effect.onInterrupt`.
+-- | Use it when the cleanup is *the rollback you owe specifically
+-- | on cancellation*, distinct from cleanup you would run on any
+-- | exit: enqueue a "request was cancelled by the client" entry,
+-- | release a half-claimed lease, mark a half-applied write as
+-- | aborted. For "always-on" cleanup, reach for `ensuring` or
+-- | `acquireRelease` instead.
+-- |
+-- | The finalizer's error row is `()`; it cannot fail with a
+-- | typed error. Defects raised inside the finalizer propagate as
+-- | `Aff` exceptions and are observable via `RIO.Error.sandbox`
+-- | at the call site. The finalizer runs in the underlying `Aff`
+-- | bracket's release phase, which is uninterruptible: a kill
+-- | landing during the finalizer is queued until it completes.
+-- |
+-- | ```purescript
+-- | -- mark a pending write aborted only if the caller cancelled
+-- | applyWrite = onInterrupt
+-- |   (commitTwoPhase writeId)
+-- |   (markAborted writeId)
+-- | ```
+onInterrupt :: forall r e a. RIO r e a -> RIO r () Unit -> RIO r e a
+onInterrupt action finalizer = RIO \r ->
+  let
+    finAff = do
+      res <- unRIO finalizer r
+      case res of
+        Right _ -> pure unit
+        Left v -> Variant.case_ v
+  in
+    Aff.generalBracket
+      (pure unit)
+      { killed: \_ _ -> finAff
+      , failed: \_ _ -> pure unit
+      , completed: \_ _ -> pure unit
+      }
+      (\_ -> unRIO action r)
 
 -- | A scope is a place to register finalizers that will run on exit.
 -- |

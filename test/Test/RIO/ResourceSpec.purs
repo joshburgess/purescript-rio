@@ -22,6 +22,7 @@ import RIO.Core
   , die
   , ensuring
   , fail
+  , onInterrupt
   , runRIO
   , sandbox
   , scoped
@@ -317,6 +318,76 @@ spec = do
 
           program :: RIO () () Unit
           program = ensuring
+            ( liftAff do
+                push "use-start"
+                delay (Milliseconds 1000.0)
+                push "use-end"
+            )
+            (liftAff (push "fin"))
+        fib <- Aff.forkAff (runRIO program)
+        delay (Milliseconds 50.0)
+        killFiber (error "test-kill") fib
+        _ <- attempt (joinFiber fib)
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "use-start", "fin" ]
+
+    describe "onInterrupt" do
+      -- `onInterrupt` is the cancellation-specific counterpart to
+      -- `ensuring`: it fires only when the action is killed by an
+      -- external interrupt, not on success, typed failure, or
+      -- defect. Pin all four paths.
+      it "does not run the finalizer after a successful action" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () Int
+          program = onInterrupt
+            (liftAff (push "use") *> pure 42)
+            (liftAff (push "fin"))
+        result <- runRIO program
+        result `shouldEqual` (Right 42 :: Either _ Int)
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "use" ]
+
+      it "does not run the finalizer after a typed failure" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () (boom :: Unit) Int
+          program = onInterrupt
+            (liftAff (push "use") *> fail (Proxy :: Proxy "boom") unit)
+            (liftAff (push "fin"))
+        result <- runRIO program
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "use" ]
+
+      it "does not run the finalizer after a defect" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () (Either _ Int)
+          program = sandbox
+            ( onInterrupt
+                (liftAff (push "use") *> die (error "kaboom"))
+                (liftAff (push "fin"))
+            )
+        _ <- runRIO program
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "use" ]
+
+      it "runs the finalizer when the surrounding Aff fiber is killed" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () Unit
+          program = onInterrupt
             ( liftAff do
                 push "use-start"
                 delay (Milliseconds 1000.0)

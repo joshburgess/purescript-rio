@@ -36,7 +36,7 @@ import RIO.Concurrency (Fiber, async, asyncInterrupt, filterPar, forever, fork, 
 import RIO.Deferred (Deferred, awaitDeferred, failDeferred, makeDeferred, pollDeferred, succeedDeferred) as Exports
 import RIO.Layer (Layer, andThen, buildLayer, combine, fromRIO, fromRecord, passthrough, provideLayer) as Exports
 import RIO.Memo (memoize) as Exports
-import RIO.Resource (Scope, acquireRelease, addFinalizer, bracket, ensuring, scoped) as Exports
+import RIO.Resource (Scope, acquireRelease, addFinalizer, bracket, ensuring, onInterrupt, scoped) as Exports
 
 -- | Run an `RIO` whose environment row is empty, surfacing the error
 -- | channel as the `Left` branch of an `Either`.
