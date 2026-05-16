@@ -37,7 +37,9 @@ import Benchmarks.Instr
   , bindChainInstr
   , catchLoopInstr
   , failCatchOnceInstr
+  , fanOutFanInInstr
   , instrLocal
+  , instrParTraverse
   , mixedLoopInstr
   , runInstr
   , serviceLoopInstr
@@ -60,7 +62,7 @@ import RIO.Core
   , runRIO
   , runRIO'
   )
-import RIO.Concurrency (parTraverse)
+import RIO.Concurrency (awaitAll, fork, parTraverse)
 import Type.Proxy (Proxy(..))
 
 type Service = { lookup :: Int -> Int }
@@ -328,6 +330,40 @@ runInstrBench = do
   benchAffWith sampleCount
     ("Instr mixed loop (" <> show mixedIters <> " iters, 9 sync + 1 instrAsync)")
     (void (runInstr {} (mixedLoopInstr mixedIters)))
+
+  -- Phase 3: concurrency head-to-head. parTraverse and fan-out/fan-in.
+  let
+    parArr = Array.range 1 32
+    fanArr = Array.range 1 16
+
+  benchAffWith sampleCount
+    "RIO parTraverse (32 elements, pure work)"
+    ( void
+        ( runRIO'
+            (parTraverse (\n -> pure (n + 1) :: RIO () () Int) parArr)
+        )
+    )
+
+  benchAffWith sampleCount
+    "Instr parTraverse (32 elements, pure work)"
+    ( void
+        ( runInstr {}
+            (instrParTraverse (\n -> pure (n + 1) :: Instr () () Int) parArr)
+        )
+    )
+
+  benchAffWith sampleCount
+    "RIO fan-out/fan-in (fork x16 + awaitAll)"
+    ( void
+        ( runRIO' do
+            fibs <- traverse (\n -> fork (pure (n + 1) :: RIO () () Int)) fanArr
+            awaitAll fibs
+        )
+    )
+
+  benchAffWith sampleCount
+    "Instr fan-out/fan-in (instrForkFiber x16 + join)"
+    (void (runInstr {} (fanOutFanInInstr fanArr)))
 
   liftEffect do
     log ""

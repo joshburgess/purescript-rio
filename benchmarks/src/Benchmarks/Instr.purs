@@ -32,16 +32,23 @@ module Benchmarks.Instr
   , asyncSanityInstr
   , asyncLoopInstr
   , mixedLoopInstr
+  , InstrFiber
+  , instrForkFiber
+  , instrJoinFiber
+  , instrParTraverse
+  , fanOutFanInInstr
   ) where
 
 import Prelude
 
 import Data.Either (Either(..))
 import Data.Symbol (class IsSymbol, reflectSymbol)
+import Data.Traversable (sequence, traverse)
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect (Effect)
 import Effect.Aff (Aff)
+import Effect.Aff as Aff
 import Effect.Class (liftEffect)
 import Prim.Row as Row
 import Type.Proxy (Proxy(..))
@@ -278,3 +285,63 @@ mixedLoopInstr n = go 0 n
                     instrFlatMap (instrPure (a8 + 1)) \a9 ->
                       instrFlatMap (instrAsync (pure (a9 + 1))) \a10 ->
                         go a10 (k - 1)
+
+-- | Spike-side fiber handle. Wraps the underlying `Aff` fiber that
+-- | runs `runInstr` to completion. Phase 3 is intentionally
+-- | thin: production RIO's `Fiber` carries an `Exit` Ref and a
+-- | `FiberId`; the spike just needs join semantics, so we keep
+-- | the wrapper minimal until those features are needed.
+newtype InstrFiber e a =
+  InstrFiber (Aff.Fiber (Either (Variant e) a))
+
+-- | Fork an `Instr` into a new `Aff` fiber. The child captures the
+-- | current env via `instrAsk` so it runs in the same environment
+-- | record as the parent. The parent is infallible: the `e'` row
+-- | on the result is polymorphic because no typed failure is
+-- | produced by the act of forking itself.
+instrForkFiber
+  :: forall r e e' a
+   . Instr r e a
+  -> Instr r e' (InstrFiber e a)
+instrForkFiber inner = instrFlatMap instrAsk \env ->
+  instrAsync do
+    fib <- Aff.forkAff (runInstr env inner)
+    pure (InstrFiber fib)
+
+-- | Wait for a forked fiber to complete and unwrap its result.
+-- | A typed failure on the child re-fails on the parent;
+-- | a successful result is the value of `instrJoinFiber`.
+instrJoinFiber :: forall r e a. InstrFiber e a -> Instr r e a
+instrJoinFiber (InstrFiber fib) =
+  instrFlatMap (instrAsync (Aff.joinFiber fib)) case _ of
+    Right a -> instrPure a
+    Left v -> instrFail v
+
+-- | Parallel traversal. Each `f x` is run as an independent
+-- | `Aff` via `Aff.parallel`, all merged with `Aff.sequential`,
+-- | so the scheduler interleaves them. If any sub-computation
+-- | fails, we propagate the first failure; otherwise we return
+-- | the collected results in input order.
+instrParTraverse
+  :: forall r e a b
+   . (a -> Instr r e b)
+  -> Array a
+  -> Instr r e (Array b)
+instrParTraverse f arr = instrFlatMap instrAsk \env ->
+  let
+    runOne x = Aff.parallel (runInstr env (f x))
+  in
+    instrFlatMap
+      (instrAsync (Aff.sequential (traverse runOne arr)))
+      \results -> case sequence results of
+        Right xs -> instrPure xs
+        Left v -> instrFail v
+
+-- | Fan-out / fan-in workload mirroring the production
+-- | `RIO.fork x16 + awaitAll` shape. Forks `n` children, each of
+-- | which does a trivial pure computation, then joins all of them
+-- | in input order.
+fanOutFanInInstr :: forall r e. Array Int -> Instr r e (Array Int)
+fanOutFanInInstr arr =
+  instrFlatMap (traverse (\n -> instrForkFiber (instrPure (n + 1))) arr) \fibs ->
+    traverse instrJoinFiber fibs
