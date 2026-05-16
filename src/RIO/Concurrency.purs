@@ -64,15 +64,16 @@ import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect (Effect)
 import Effect.Aff (Aff)
-import Effect.Aff (Canceler(..), Fiber, attempt, delay, error, forkAff, invincible, joinFiber, killFiber, makeAff, never, nonCanceler, parallel, sequential) as Aff
+import Effect.Aff (Canceler(..), Fiber, attempt, delay, error, forkAff, generalBracket, invincible, joinFiber, killFiber, makeAff, never, nonCanceler, parallel, sequential) as Aff
 import Effect.Class (liftEffect)
+import Effect.Exception (Error)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import Prim.Row (class Cons) as Row
 import Type.Proxy (Proxy)
 
-import RIO.Cause (combineParallel, fromOutcome) as Cause
+import RIO.Cause (Cause(..), combineParallel) as Cause
 import RIO.Exit (Exit(..), die, fromEither) as Exit
 import RIO.Exit (Exit(..))
 import RIO.Internal (RIO(..), unRIO)
@@ -129,18 +130,33 @@ freshFiberId = FiberId <$> Ref.modify (_ + 1) fiberIdCounter
 -- | propagating the result to the underlying `Aff` fiber. Used
 -- | internally by `fork` / `forkScoped` (and by the FiberRef
 -- | forks, which call `mkFiber` directly).
+-- |
+-- | Implemented with `Aff.generalBracket` so the three terminal
+-- | cases (clean completion, defect, kill) write to the state
+-- | Ref directly without the extra `attempt + throwError`
+-- | round-trip the older implementation required.
 trackOutcome
   :: forall e a
    . Ref (Maybe (Exit e a))
   -> Aff (Either (Variant e) a)
   -> Aff (Either (Variant e) a)
-trackOutcome stateRef body = do
-  outcome <- Aff.attempt body
-  liftEffect $
-    Ref.write (Just (Exit.fromEither (Cause.fromOutcome outcome))) stateRef
-  case outcome of
-    Right e -> pure e
-    Left err -> throwError err
+trackOutcome stateRef body =
+  Aff.generalBracket
+    (pure unit)
+    { killed: \err _ -> liftEffect (writeDefect err)
+    , failed: \err _ -> liftEffect (writeDefect err)
+    , completed: \result _ -> liftEffect (writeCompleted result)
+    }
+    (\_ -> body)
+  where
+  writeDefect :: Error -> Effect Unit
+  writeDefect err =
+    Ref.write (Just (Exit.Failure (Cause.Die err))) stateRef
+
+  writeCompleted :: Either (Variant e) a -> Effect Unit
+  writeCompleted = case _ of
+    Right a -> Ref.write (Just (Exit.Success a)) stateRef
+    Left v -> Ref.write (Just (Exit.Failure (Cause.Fail v))) stateRef
 
 -- | Build a `Fiber e a` from a raw `Aff` body. Allocates a fresh
 -- | `FiberId`, sets up the state Ref, wraps the body with
@@ -157,8 +173,10 @@ mkFiber
    . Aff (Either (Variant e) a)
   -> Aff (Fiber e a)
 mkFiber body = do
-  fid <- liftEffect freshFiberId
-  stateRef <- liftEffect (Ref.new Nothing)
+  Tuple fid stateRef <- liftEffect do
+    fid <- freshFiberId
+    stateRef <- Ref.new Nothing
+    pure (Tuple fid stateRef)
   underlying <- Aff.forkAff (trackOutcome stateRef body)
   pure (Fiber { id: fid, underlying, state: stateRef })
 
