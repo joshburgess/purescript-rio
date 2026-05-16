@@ -1,58 +1,68 @@
 package:
-  name: rio
+  name: rio-node
   publish:
     version: 0.1.0
     license: MIT
   dependencies:
     - aff
     - arrays
-    - avar
-    - console
     - control
     - datetime
     - effect
     - either
     - exceptions
     - foldable-traversable
+    - foreign
     - foreign-object
     - integers
     - lists
     - maybe
+    - newtype
+    - node-buffer
+    - node-child-process
+    - node-event-emitter
+    - node-fs
+    - node-http
+    - node-http2
+    - node-net
+    - node-os
+    - node-path
     - node-process
-    - now
+    - node-readline
+    - node-streams
+    - node-url
+    - nullable
     - numbers
     - ordered-collections
     - parallel
+    - posix-types
     - prelude
-    - quickcheck
-    - random
-    - record
     - refs
-    - spec
-    - spec-node
+    - rio
     - strings
-    - transformers
     - tuples
+    - unsafe-coerce
     - variant
   test:
     main: Test.Main
     dependencies:
       - aff
       - arrays
-      - datetime
+      - effect
       - either
-      - integers
-      - newtype
-      - now
       - foldable-traversable
       - maybe
+      - newtype
+      - node-buffer
+      - node-fs
+      - node-os
+      - node-path
+      - node-process
       - prelude
-      - quickcheck
+      - refs
+      - rio
       - spec
       - spec-node
+      - strings
       - tuples
       - variant
-workspace:
-  packageSet:
-    registry: 77.0.0
-  extraPackages: {}

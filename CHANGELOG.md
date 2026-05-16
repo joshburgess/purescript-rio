@@ -11,6 +11,22 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `rio-node`: new sibling package wrapping the Node.js standard
+  library bindings as RIO services. First module shipped is
+  `RIO.Node.FileSystem`, a service exposing the full surface of
+  `Node.FS.Aff` (read / write / append / `stat` / `lstat` /
+  `readdir` / `mkdir` / `mkdir'` / `rm` / `rm'` / `rmdir` /
+  `rmdir'` / `mkdtemp` / `mkdtemp'` / `rename` / `unlink` /
+  `link` / `symlink` / `readlink` / `realpath` / `realpath'` /
+  `chmod` / `chown` / `truncate` / `utimes` / `access` /
+  `access'` / `copyFile` / `copyFile'` / `fdOpen` / `fdRead` /
+  `fdWrite` / `fdNext` / `fdAppend` / `fdClose`) and a
+  `liveFileSystem` implementation backed by `node-fs`. CI
+  builds and tests the new package alongside the existing
+  adapters. The remaining `Node.*` services (Process, Path,
+  ChildProcess, OS, Buffer, Stream bridge, HTTP, Net, URL,
+  ReadLine, EventEmitter, HTTP2) are tracked as follow-up
+  work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined

@@ -40,7 +40,7 @@ jobs:
           npx purs-tidy --version
 
       - name: Format check
-        run: npx purs-tidy check src test spikes examples benchmarks rio-config-file rio-http rio-otel rio-postgres rio-postgres-json rio-postgres-migrate
+        run: npx purs-tidy check src test spikes examples benchmarks rio-config-file rio-http rio-node rio-otel rio-postgres rio-postgres-json rio-postgres-migrate
 
       - name: Build (main package)
         run: npx spago build -p rio
@@ -104,6 +104,12 @@ jobs:
 
       - name: Test rio-http adapter
         run: npx spago test -p rio-http
+
+      - name: Build rio-node adapter
+        run: npx spago build -p rio-node
+
+      - name: Test rio-node adapter
+        run: npx spago test -p rio-node
 
       - name: Build rio-config-file adapter
         run: npx spago build -p rio-config-file
