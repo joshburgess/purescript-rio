@@ -11,6 +11,24 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.HttpServer`: a shape-only HTTP server framework. Defines
+  the surface (`HttpServer` service record carrying `listen` /
+  `shutdown`, `ServerRequest` / `ServerResponse`, `Handler`
+  type alias, `ResponseBody` sum with no-body / text / JSON
+  arms, `Middleware` alias for `Handler -> Handler`) so
+  application code can be written against one API regardless of
+  which driver is wired in. Routing is minimal: `route` declares
+  a method / pattern / handler triple, `router` chains routes
+  with literal-segment-or-`:capture` matching and a `404`
+  fallback, and `captureParam` reads a captured value from
+  `ServerRequest`. Response builders cover the common cases:
+  `ok`, `textResponse`, `jsonResponse`, plus `status` / `withHeader`
+  / `withHeaders` for tweaking. Middleware is plain handler
+  composition, so `Tracer.withSpan`, `Logger.withFields`, and the
+  like layer in by wrapping the inner handler. `mockHttpServer`
+  is a no-op driver for tests; tests typically drive handlers
+  directly through the handler signature (or through
+  `runHandler` for `RIO`-level composition).
 - `RIO.Tracer.Propagation`: W3C Trace Context parser, formatter,
   and ID generator. `parseTraceparent` / `formatTraceparent`
   round-trip the `traceparent` HTTP header (`00-<traceId>-<spanId>-<flags>`)
