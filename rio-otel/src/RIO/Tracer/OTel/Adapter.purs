@@ -7,14 +7,18 @@
 -- |
 -- | The adapter delegates span lifecycle and attribute writes to
 -- | the OTel tracer directly. Parent / child relationships are
--- | preserved by walking the active span stack the same way
--- | `RIO.Test.Tracer` does: the latest open span is the parent
--- | of any new span started while it is active. Closing a span
--- | restores the previous active span. Span status maps to
--- | `SpanStatusCode.OK` for `SpanOk` and `SpanStatusCode.ERROR`
--- | for both `SpanFailed` and `SpanInterrupted`; the interrupted
--- | case additionally sets a `"interrupted"` status message so
--- | the cause survives into the exporter.
+-- | preserved by the `parent` argument that `withSpan` passes
+-- | into `startSpan`: when `parent` is `Just`, the adapter looks
+-- | up the corresponding OTel span and opens a child; when it is
+-- | `Nothing`, the adapter opens a root span. Per-block
+-- | "current span" bookkeeping is owned by `withSpan` itself via
+-- | a private `Ref` swap, so the adapter does not maintain a
+-- | stack and reports `Nothing` from `currentSpan`. Span status
+-- | maps to `SpanStatusCode.OK` for `SpanOk` and
+-- | `SpanStatusCode.ERROR` for both `SpanFailed` and
+-- | `SpanInterrupted`; the interrupted case additionally sets an
+-- | `"interrupted"` status message so the cause survives into
+-- | the exporter.
 -- |
 -- | Production wiring: install `@opentelemetry/sdk-node` (or
 -- | another OTel SDK) and register it at application startup
@@ -23,7 +27,7 @@
 -- | without an SDK the OTel API returns a no-op tracer and this
 -- | adapter is silent (the `Tracer` record still satisfies the
 -- | row, so program structure is unaffected).
-module RIO.Tracer.OTel
+module RIO.Tracer.OTel.Adapter
   ( OTelSpan
   , OTelTracer
   , makeOTelTracer
@@ -31,7 +35,6 @@ module RIO.Tracer.OTel
 
 import Prelude
 
-import Data.Array (cons, filter, head) as Array
 import Data.Map (Map)
 import Data.Map (delete, empty, insert, lookup) as Map
 import Data.Maybe (Maybe(..))
@@ -81,7 +84,6 @@ makeOTelTracer name = do
   otel <- otelGetTracer name
   counterRef <- Ref.new 0
   spansRef <- Ref.new (Map.empty :: Map Int OTelSpan)
-  stackRef <- Ref.new ([] :: Array Int)
 
   let
     nextId :: Effect Int
@@ -91,24 +93,17 @@ makeOTelTracer name = do
       Ref.write n' counterRef
       pure n'
 
-    parentSpan :: Effect (Maybe OTelSpan)
-    parentSpan = do
-      stack <- Ref.read stackRef
-      case Array.head stack of
-        Nothing -> pure Nothing
-        Just parentId -> do
-          spans <- Ref.read spansRef
-          pure (Map.lookup parentId spans)
-
-    startSpan :: String -> Effect SpanId
-    startSpan spanName = do
+    startSpan :: { name :: String, parent :: Maybe SpanId } -> Effect SpanId
+    startSpan { name: spanName, parent } = do
       n <- nextId
-      mp <- parentSpan
-      otelSpan <- case mp of
+      otelSpan <- case parent of
         Nothing -> otelStartRootSpan otel spanName
-        Just p -> otelStartChildSpan otel spanName p
+        Just (SpanId pid) -> do
+          spans <- Ref.read spansRef
+          case Map.lookup pid spans of
+            Just p -> otelStartChildSpan otel spanName p
+            Nothing -> otelStartRootSpan otel spanName
       Ref.modify_ (Map.insert n otelSpan) spansRef
-      Ref.modify_ (Array.cons n) stackRef
       pure (SpanId n)
 
     endSpan :: SpanId -> SpanStatus -> Effect Unit
@@ -122,7 +117,6 @@ makeOTelTracer name = do
             SpanFailed -> otelEndSpanError otelSpan
             SpanInterrupted -> otelEndSpanInterrupted otelSpan
           Ref.modify_ (Map.delete n) spansRef
-          Ref.modify_ (Array.filter (_ /= n)) stackRef
 
     addAttribute :: SpanId -> String -> String -> Effect Unit
     addAttribute (SpanId n) key value = do
@@ -132,9 +126,7 @@ makeOTelTracer name = do
         Just otelSpan -> otelSetAttribute otelSpan key value
 
     currentSpan :: Effect (Maybe SpanId)
-    currentSpan = do
-      stack <- Ref.read stackRef
-      pure (map SpanId (Array.head stack))
+    currentSpan = pure Nothing
 
   pure
     { startSpan
