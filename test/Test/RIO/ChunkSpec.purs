@@ -1,6 +1,6 @@
 module Test.RIO.ChunkSpec (spec) where
 
-import Prelude hiding (map)
+import Prelude hiding (map, append)
 
 import Data.Array as Array
 import Data.Maybe (Maybe(..))

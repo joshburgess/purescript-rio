@@ -23,6 +23,7 @@ import Test.RIO.CacheSpec as CacheSpec
 import Test.RIO.BrandSpec as BrandSpec
 import Test.RIO.CauseSpec as CauseSpec
 import Test.RIO.ChunkSpec as ChunkSpec
+import Test.RIO.CircuitBreakerSpec as CircuitBreakerSpec
 import Test.RIO.ChannelSpec as ChannelSpec
 import Test.RIO.Cause.CombinatorsSpec as CauseCombinatorsSpec
 import Test.RIO.Cause.CatchSomeSpec as CauseCatchSomeSpec
@@ -154,6 +155,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ZipWithParSpec.spec
   BrandSpec.spec
   ChunkSpec.spec
+  CircuitBreakerSpec.spec
   CauseSpec.spec
   ChannelSpec.spec
   CauseCombinatorsSpec.spec

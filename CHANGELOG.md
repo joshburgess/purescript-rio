@@ -11,6 +11,17 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.CircuitBreaker`: a three-state circuit breaker. `make`
+  allocates a `Closed` breaker; `withBreaker` wraps a protected
+  action with fail-fast semantics on `Open` (raising a typed
+  `circuitOpen :: Unit` error) and per-failure book-keeping in
+  `Closed` / `HalfOpen`. After `resetTimeout` elapses, the
+  breaker transitions to `HalfOpen` for one trial; a successful
+  trial closes the breaker, a failing trial re-opens it.
+  `tryWithBreaker` is the non-raising sibling that returns
+  `Nothing` instead of `circuitOpen`. Like `RateLimiter`, the
+  breaker reads time through `RIO.Clock` so tests can drive it
+  deterministically via `RIO.Test.Clock`.
 - `RIO.Chunk`: a catenable, immutable indexed sequence. Three
   constructors (`Empty` / `Singleton (Array a)` / `Concat Int
   (Chunk a) (Chunk a)`) give O(1) concatenation,
