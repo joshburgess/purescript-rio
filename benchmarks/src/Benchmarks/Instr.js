@@ -89,18 +89,12 @@ export const _initInstrState = function (env) {
   };
 };
 
-// Step the interpreter until it suspends on ASYNC, completes
-// with a value, or fails with an unhandled typed failure.
-//
-// Mutates `state` in place. The caller drives the loop:
-//
-//   1. Call _stepInstr.
-//   2. If state.done, read finalRight or finalLeft.
-//   3. Otherwise, state.pendingAff is set; the caller runs it,
-//      passes the result to _resumeInstr, and loops.
-export const _stepInstr = function (state) {
-  return function () {
-    while (true) {
+// Shared inner loop for `_stepInstr` and `_resumeAndStep`. Runs
+// until the interpreter suspends on ASYNC, completes with a
+// value, or fails with an unhandled typed failure. Mutates
+// `state` in place; returns nothing.
+const runLoop = function (state) {
+  while (true) {
       if (state.current === null) {
         if (state.stack.length === 0) {
           state.done = true;
@@ -192,11 +186,41 @@ export const _stepInstr = function (state) {
           throw new Error("Benchmarks.Instr: unknown tag " + state.current.tag);
       }
     }
+};
+
+// Step the interpreter until it suspends on ASYNC, completes
+// with a value, or fails with an unhandled typed failure.
+//
+// Mutates `state` in place. The caller drives the loop:
+//
+//   1. Call _stepInstr (once, to start).
+//   2. If state.done, read finalRight or finalLeft.
+//   3. Otherwise, state.pendingAff is set; the caller runs it,
+//      then passes the result to _resumeAndStep, which installs
+//      the result and immediately continues the loop. Repeat.
+export const _stepInstr = function (state) {
+  return function () {
+    runLoop(state);
   };
 };
 
-// After an Aff completed with `value`, install it as the next
-// result and clear the pending slot so the next step continues.
+// Combined resume + step. Installs `value` as the next result
+// and immediately continues the inner loop. Saves one Aff bind
+// per iteration on the PureScript driver vs. calling
+// _resumeInstr and _stepInstr separately.
+export const _resumeAndStep = function (state) {
+  return function (value) {
+    return function () {
+      state.result = value;
+      state.pendingAff = null;
+      runLoop(state);
+    };
+  };
+};
+
+// Kept for backwards compat / debugging; not used by the
+// current driver, which prefers _resumeAndStep to fold one
+// extra Aff bind out of the hot path.
 export const _resumeInstr = function (state) {
   return function (value) {
     return function () {

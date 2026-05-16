@@ -112,6 +112,14 @@ foreign import _stepInstr
 foreign import _resumeInstr
   :: forall r e a. InstrState r e a -> ForeignValue -> Effect Unit
 
+-- | Combined resume + step. Installs the previous Aff's result
+-- | as the next interpreter result and immediately runs the
+-- | inner loop until the next suspension or completion. Folds
+-- | one Aff bind out of the hot path on every iteration that
+-- | suspends on `ASYNC`.
+foreign import _resumeAndStep
+  :: forall r e a. InstrState r e a -> ForeignValue -> Effect Unit
+
 foreign import _isDone :: forall r e a. InstrState r e a -> Boolean
 foreign import _isRightFinal :: forall r e a. InstrState r e a -> Boolean
 foreign import _finalRight :: forall r e a. InstrState r e a -> a
@@ -131,18 +139,18 @@ runInstr
   -> Aff (Either (Variant e) a)
 runInstr env instr = do
   state <- liftEffect (_initInstrState env instr)
+  liftEffect (_stepInstr state)
   drive state
   where
   drive :: InstrState r e a -> Aff (Either (Variant e) a)
-  drive state = do
-    liftEffect (_stepInstr state)
+  drive state =
     if _isDone state then
       pure
         if _isRightFinal state then Right (_finalRight state)
         else Left (_finalLeft state)
     else do
       v <- _pendingAff state
-      liftEffect (_resumeInstr state v)
+      liftEffect (_resumeAndStep state v)
       drive state
 
 instance functorInstr :: Functor (Instr r e) where

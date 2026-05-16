@@ -317,6 +317,54 @@ deferred.
 
 ---
 
+## Phase 4.5: async driver tightening
+
+Bind cost in the async hot path. The Phase 2 driver did three
+Aff binds per ASYNC suspension: `liftEffect _stepInstr`,
+`v <- _pendingAff`, `liftEffect _resumeInstr`, then recurse. We
+folded the resume + step into one FFI call so the per-iteration
+cost is two Aff binds (`v <- _pendingAff` and
+`liftEffect _resumeAndStep`) plus the recursion, matching RIO's
+bind count.
+
+### Numbers (200 samples each)
+
+| Workload | Before (Phase 2) | After | Delta vs RIO |
+|---|---|---|---|
+| Async-only loop (10k) | 2.03 ms | 1.49 ms | 2.0x slower (was 2.7x) |
+| Mixed loop (1k, 9+1) | 497 us | 431 us | 1.8x faster (was 1.6x) |
+
+### Remaining gap analysis
+
+After Optimization A, the spike's async-only loop is still 2x
+slower than RIO's `liftAff` loop. Bind count matches; the gap
+is JS-side interpreter dispatch. Each ASYNC iteration the
+interpreter processes ~5 instructions per round-trip (pop
+continuation, FLATMAP push, ASYNC suspend, etc.), each going
+through a switch and an object allocation. RIO's `liftAff aff
+= RIO \_ -> aff` skips all of that.
+
+Closing the rest of the gap would require **Optimization C**:
+a `makeAff`-based driver that runs the inner Aff via
+`Aff.runAff_` callbacks instead of bind-chaining. That would
+collapse to one Aff per iteration. Two costs:
+
+  1. Synchronous Aff completions recurse on the JS stack
+     unless the callback explicitly trampolines via a
+     sync-completion flag. The pattern is known
+     (`syncRef <- Ref.new Nothing` + check + while-loop) but
+     adds complexity.
+  2. Cancellation must track the currently-running inner
+     fiber so the canceler can kill it on parent kill.
+
+Phase 7 sets the bar: if the production benchmark suite shows
+an async-heavy hot path still underperforming after Phase 6,
+add Optimization C and re-measure. For realistic workloads
+(mixed sync/async) the current encoding is already comfortably
+ahead.
+
+---
+
 ## Phase 5: public API surgery
 
 This is the riskiest commit. Everything before this has been
@@ -433,3 +481,13 @@ confirm we held the spike's win across the suite.
   `runInstr` invocations. Real-world async-IO brackets will not
   feel this; a dedicated `BRACKET` instruction is the long-term
   fix and is tracked as a known Phase 7-or-later optimisation.
+- 2026-05-16: Phase 4.5 async driver tightening. Folded
+  `_resumeInstr` + `_stepInstr` into a single `_resumeAndStep`
+  FFI call, dropping the per-iteration Aff bind count from
+  three to two (matching RIO). Async-only loop 2.03 ms ->
+  1.49 ms (27% faster), mixed loop 497 us -> 431 us (12%
+  faster). Remaining 2x gap on pure-async-only is JS-side
+  interpreter dispatch (5 instructions per round-trip); closing
+  it would require a `makeAff`-based driver with sync-completion
+  trampolining. Tracked as a Phase 7 escalation if the
+  production suite needs it.
