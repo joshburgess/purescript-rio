@@ -11,6 +11,14 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Resource.bracket` (re-exported from `RIO.Core`): top-level
+  bracket sugar with the same shape as `acquireRelease` but a
+  release row that shares the use error row. Any typed failure
+  raised by the release path is silently swallowed so the use
+  result is the one that surfaces, matching the ergonomics most
+  callers expect when writing quick acquire / use / release
+  wrappers. Reach for `acquireRelease` directly when you need to
+  observe release failures.
 - `RIO.Brand`: a standalone type-level brand combinator. The
   `Brand :: Symbol -> Type -> Type` newtype tags a carrier
   (typically a primitive like `Int` or `String`) with a

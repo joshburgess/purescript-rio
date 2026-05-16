@@ -11,6 +11,7 @@
 -- | the underlying evidence.
 module RIO.Resource
   ( acquireRelease
+  , bracket
   , ensuring
   , Scope(..)
   , addFinalizer
@@ -22,7 +23,8 @@ import Prelude
 import Data.Array (foldr)
 import Data.Either (Either(..))
 import Data.Variant as Variant
-import Effect.Aff (Aff, attempt, bracket, finally)
+import Effect.Aff (Aff, attempt, finally)
+import Effect.Aff (bracket) as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Record.Unsafe (unsafeSet)
@@ -57,7 +59,7 @@ acquireRelease
   -> (a -> RIO r e b)
   -> RIO r e b
 acquireRelease acquire release use = RIO \r ->
-  bracket
+  Aff.bracket
     (unRIO acquire r)
     ( case _ of
         Left _ -> pure unit
@@ -66,6 +68,50 @@ acquireRelease acquire release use = RIO \r ->
           case relRes of
             Right _ -> pure unit
             Left v -> Variant.case_ v
+    )
+    ( case _ of
+        Left v -> pure (Left v)
+        Right a -> unRIO (use a) r
+    )
+
+-- | Top-level bracket sugar: the same shape as `acquireRelease` but
+-- | the release action shares the *use* error row. Any typed failure
+-- | thrown during release is silently swallowed so the `use` result is
+-- | the one that surfaces.
+-- |
+-- | Reach for `bracket` when you want a quick acquire / use / release
+-- | wrapper without having to pre-handle the release path's errors.
+-- | If you need to *observe* release failures, use `acquireRelease`
+-- | (whose release row is `()`) and surface the cleanup result
+-- | explicitly.
+-- |
+-- | Same termination guarantees as `acquireRelease`: release runs on
+-- | success, typed failure, defect, and fiber kill, in the
+-- | uninterruptible release phase of the underlying `Aff` bracket.
+-- |
+-- | ```purescript
+-- | -- open / use / close, ignoring close failures
+-- | withConn :: forall r e a. RIO r e Conn -> (Conn -> RIO r e Unit) -> (Conn -> RIO r e a) -> RIO r e a
+-- | withConn = bracket
+-- | ```
+bracket
+  :: forall r e a b
+   . RIO r e a
+  -> (a -> RIO r e Unit)
+  -> (a -> RIO r e b)
+  -> RIO r e b
+bracket acquire release use = RIO \r ->
+  Aff.bracket
+    (unRIO acquire r)
+    ( case _ of
+        Left _ -> pure unit
+        Right a -> do
+          relRes <- unRIO (release a) r
+          case relRes of
+            Right _ -> pure unit
+            -- Release errors are silently swallowed; use
+            -- `acquireRelease` directly if you need to observe them.
+            Left _ -> pure unit
     )
     ( case _ of
         Left v -> pure (Left v)
@@ -176,7 +222,7 @@ scoped inner = RIO \r -> do
     -- argument shape, which pins it to `(scope :: Scope | r)`. Same
     -- trust pattern as `provide` in `RIO.Env`.
     extended = unsafeSet "scope" scope r
-  bracket
+  Aff.bracket
     (pure unit)
     ( \_ -> do
         fins <- liftEffect (Ref.read ref)

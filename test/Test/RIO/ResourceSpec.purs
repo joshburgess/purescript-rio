@@ -18,6 +18,7 @@ import RIO.Core
   , acquireRelease
   , addFinalizer
   , ask
+  , bracket
   , die
   , ensuring
   , fail
@@ -328,3 +329,105 @@ spec = do
         _ <- attempt (joinFiber fib)
         order <- liftEffect (Ref.read events)
         order `shouldEqual` [ "use-start", "fin" ]
+
+    describe "bracket" do
+      it "runs release after a successful use" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () Int
+          program = bracket
+            (liftAff (push "acquire") *> pure 7)
+            (\_ -> liftAff (push "release"))
+            (\a -> liftAff (push "use") *> pure (a * 6))
+        result <- runRIO program
+        result `shouldEqual` Right 42
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "acquire", "use", "release" ]
+
+      it "runs release after a typed failure in use, and surfaces the use error" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () (boom :: Unit) Int
+          program = bracket
+            (liftAff (push "acquire") *> pure 1)
+            (\_ -> liftAff (push "release"))
+            (\_ -> liftAff (push "use") *> fail (Proxy :: Proxy "boom") unit)
+        result <- runRIO program
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "acquire", "use", "release" ]
+
+      it "swallows a typed failure raised by the release path" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () (boom :: Unit) Int
+          program = bracket
+            (liftAff (push "acquire") *> pure 11)
+            ( \_ -> do
+                liftAff (push "release")
+                fail (Proxy :: Proxy "boom") unit
+            )
+            (\a -> liftAff (push "use") *> pure (a + 1))
+        -- The use value survives even though release "failed"
+        result <- runRIO program
+        result `shouldEqual` Right 12
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "acquire", "use", "release" ]
+
+      it "runs release on defect in use" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () Int
+          program = bracket
+            (liftAff (push "acquire") *> pure 1)
+            (\_ -> liftAff (push "release"))
+            (\_ -> liftAff (push "use") *> die (error "kaboom"))
+        _ <- attempt (runRIO program)
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "acquire", "use", "release" ]
+
+      it "does NOT run release if acquisition fails" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () (acqFail :: Unit) Int
+          program = bracket
+            (fail (Proxy :: Proxy "acqFail") unit)
+            (\_ -> liftAff (push "release"))
+            (\_ -> liftAff (push "use") *> pure 0)
+        _ <- runRIO program
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` []
+
+      it "runs release when the surrounding Aff fiber is killed" do
+        events <- liftEffect (Ref.new [])
+        let
+          push s = liftEffect (Ref.modify_ (\xs -> snoc xs s) events)
+
+          program :: RIO () () Int
+          program = bracket
+            (liftAff (push "acquire") *> pure 1)
+            (\_ -> liftAff (push "release"))
+            ( \_ -> do
+                liftAff (push "use-start")
+                liftAff (delay (Milliseconds 1000.0))
+                liftAff (push "use-end")
+                pure 0
+            )
+        fib <- Aff.forkAff (runRIO program)
+        delay (Milliseconds 50.0)
+        killFiber (error "test-kill") fib
+        _ <- attempt (joinFiber fib)
+        order <- liftEffect (Ref.read events)
+        order `shouldEqual` [ "acquire", "use-start", "release" ]
