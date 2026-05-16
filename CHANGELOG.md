@@ -158,9 +158,45 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `Readable` / `Writable` / `Duplex` / `Read` / `Write` /
     `Chunk` types and `toEventEmitter` are re-exported so
     callers do not need to reach for `Node.Stream` directly.
+  * `RIO.Node.Net` — RIO-flavoured wrappers around `Node.Net`.
+    A `Server`, `Socket`, `SocketAddress`, and `BlockList` are
+    each values (handles on a listening TCP / IPC server, a TCP
+    / IPC connection, an immutable address record, and a list of
+    address rules respectively) rather than capabilities, so the
+    upstream surface is mirrored by lifting each `Effect`-valued
+    primitive into `RIO`. The top-level `RIO.Node.Net` module
+    re-exports the pure `isIP` family and the full `Node.Net.Types`
+    catalogue (`IpFamily`, `IPv4`, `IPv6`, `TCP`, `IPC`,
+    `ConnectionType`, `Server`, `Socket`, `SocketAddress`,
+    `BlockList`, `SocketReadyState`, and every option record).
+    `RIO.Node.Net.SocketAddress` lifts the `newIpv4` / `newIpv6`
+    constructors and re-exports the pure accessors. `RIO.Node.Net.BlockList`
+    lifts the full mutator / query surface (`addAddressAddr` /
+    `addAddressStr` / `addRangeAddrAddr` / `addRangeAddrStr` /
+    `addRangeStrAddr` / `addRangeStrStr` / `addSubnetAddr` /
+    `addSubnetStr` / `checkAddr` / `checkStr` / `rules`).
+    `RIO.Node.Net.Socket` lifts the full socket surface (`newTcp`
+    / `newIpc` / `createConnectionTCP` / `createConnectionIpc` /
+    `connectTcp` / `connectIpc` / `connecting` / `destroySoon` /
+    `address` / `bytesRead` / `bytesWritten` / `localAddress` /
+    `localFamily` / `localPort` / `pending` / `ref` /
+    `remoteAddress` / `remoteFamily` / `remotePort` /
+    `resetAndDestroy` / `setKeepAlive` / `setKeepAliveBoolean` /
+    `setKeepAliveInitialDelay` / `setKeepAliveAll` / `setNoDelay`
+    / `setNoDelay'` / `setTimeout` / `clearTimeout` / `timeout` /
+    `unref` / `readyState`) and re-exports the event handles
+    (`closeH` / `connectH` / `lookupH` / `readyH` / `timeoutH`)
+    plus `toDuplex` and `toEventEmitter`. `RIO.Node.Net.Server`
+    lifts the full server surface (`createTcpServer` /
+    `createTcpServer'` / `createIpcServer` / `createIpcServer'` /
+    `addressTcp` / `addressIpc` / `close` / `getConnections` /
+    `listenTcp` / `listenIpc` / `listening` / `maxConnections` /
+    `ref` / `unref`) and re-exports the event handles (`closeH` /
+    `connectionH` / `errorH` / `listeningH` / `dropHandleTcp` /
+    `dropHandleIpc`) plus `toEventEmitter`.
   CI builds and tests the new package alongside the existing
-  adapters. The remaining `Node.*` services (HTTP, Net, HTTP2)
-  are tracked as follow-up work.
+  adapters. The remaining `Node.*` services (HTTP, HTTP2) are
+  tracked as follow-up work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined
