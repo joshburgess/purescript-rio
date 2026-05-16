@@ -7,18 +7,18 @@
 -- | `addAttribute` attaches a string key/value to the currently
 -- | active span.
 -- |
--- | The Tracer service is responsible for tracking which span is
--- | "current": `startSpan` makes the new span a child of the current
--- | one, then sets the current pointer to the new span; `endSpan`
--- | restores the current pointer to the new span's parent. This works
--- | correctly for sequential code. A `fork`ed fiber inherits whichever
--- | span was current at the point of fork (because the same Tracer is
--- | shared by the underlying `Effect.Ref`s); after the fork, the
--- | parent fiber's subsequent spans land under the same parent until
--- | the parent's `endSpan` runs. This is the standard "implicit
--- | context" model used by OTel-style tracers in single-threaded
--- | runtimes; if you need fully explicit parent context, capture
--- | `currentSpan` at the fork point and reattach manually.
+-- | "Current span" is per-fiber: each `withSpan` block allocates
+-- | a private cell holding the span it opened, swaps the tracer's
+-- | `currentSpan` callback to read from that cell, and runs its
+-- | inner action against the swapped environment record.
+-- | `startSpan` takes the parent span explicitly, so the backend
+-- | never has to track who is the current span for whom.
+-- |
+-- | The consequence: a `fork`ed fiber captures the swapped
+-- | environment at the fork point and keeps seeing its parent's
+-- | span as the active parent for as long as it lives, regardless
+-- | of what subsequent `withSpan`s the parent enters. Concurrent
+-- | parent and child spans cannot clobber each other's view.
 -- |
 -- | Test backend: `RIO.Test.Tracer.newRecordingTracer` returns a
 -- | tracer that captures every span into an in-memory list, plus a
@@ -88,14 +88,22 @@ type Span =
   , attributes :: Array (Tuple String String)
   }
 
--- | The service record. `startSpan` opens a span as a child of the
--- | tracer's currently-active span (if any) and makes the new span
--- | active. `endSpan` closes it and restores the previous active
--- | span. `addAttribute` attaches a string key/value to an open span.
--- | `currentSpan` reports the active span, used by `withSpan`'s
--- | bracket logic and by `addAttribute` to find a target.
+-- | The service record. `startSpan` opens a span as a child of
+-- | the supplied `parent` (or as a root span when `parent` is
+-- | `Nothing`). `endSpan` closes it. `addAttribute` attaches a
+-- | string key/value to an open span. `currentSpan` reports the
+-- | span the *calling fiber* sees as active; `withSpan` swaps in
+-- | a per-block view of this callback so that forked fibers
+-- | inherit the snapshot at fork time rather than racing the
+-- | parent's later span activity.
+-- |
+-- | Backends do not need to track current-span state themselves:
+-- | `withSpan` owns that, threads explicit parents into
+-- | `startSpan`, and overrides `currentSpan` per block via an
+-- | environment-record swap. A bare backend's `currentSpan` may
+-- | safely return `Nothing`.
 type Tracer =
-  { startSpan :: String -> Effect SpanId
+  { startSpan :: { name :: String, parent :: Maybe SpanId } -> Effect SpanId
   , endSpan :: SpanId -> SpanStatus -> Effect Unit
   , addAttribute :: SpanId -> String -> String -> Effect Unit
   , currentSpan :: Effect (Maybe SpanId)
@@ -115,11 +123,22 @@ noopTracer =
 
 -- | Wrap an action in a span.
 -- |
--- | The span opens immediately, the action runs, and the span closes
--- | with `SpanOk` on success, `SpanFailed` on typed failure, or
--- | `SpanInterrupted` if the fiber is killed before the action
--- | completes. The close is guaranteed by `Aff.finally`, so the span
--- | is closed even on a kill that lands inside the action.
+-- | The span opens immediately as a child of whatever
+-- | `currentSpan` reports for the *calling fiber*, the action
+-- | runs, and the span closes with `SpanOk` on success,
+-- | `SpanFailed` on typed failure, or `SpanInterrupted` if the
+-- | fiber is killed before the action completes. The close is
+-- | guaranteed by `Aff.finally`, so the span is closed even on a
+-- | kill that lands inside the action.
+-- |
+-- | Per-fiber "current span" is owned by `withSpan` itself: each
+-- | block allocates a private `Ref`, swaps the tracer's
+-- | `currentSpan` callback to read from that `Ref`, and runs
+-- | `action` against the swapped environment. A fiber forked
+-- | inside the block captures this private cell and keeps seeing
+-- | the snapshot regardless of what the parent's surrounding
+-- | spans do; concurrent `withSpan`s in parent and child cannot
+-- | clobber each other's view.
 -- |
 -- | ```purescript
 -- | handleRequest req = withSpan "handle-request" do
@@ -133,7 +152,14 @@ withSpan
   -> RIO (tracer :: Tracer | r) e a
 withSpan name action = RIO \r -> do
   let tracer = Record.get (Proxy :: Proxy "tracer") r
-  spanId <- liftEffect (tracer.startSpan name)
+  parent <- liftEffect tracer.currentSpan
+  spanId <- liftEffect (tracer.startSpan { name, parent })
+  privateRef <- liftEffect (Ref.new (Just spanId))
+  let
+    scopedTracer = tracer
+      { currentSpan = Ref.read privateRef
+      }
+    r' = r { tracer = scopedTracer }
   endedRef <- liftEffect (Ref.new false)
   let
     finalize :: SpanStatus -> Effect Unit
@@ -141,11 +167,12 @@ withSpan name action = RIO \r -> do
       ended <- Ref.read endedRef
       when (not ended) do
         tracer.endSpan spanId status
+        Ref.write Nothing privateRef
         Ref.write true endedRef
   finally
     (liftEffect (finalize SpanInterrupted))
     do
-      result <- unRIO action r
+      result <- unRIO action r'
       liftEffect case result of
         Right _ -> finalize SpanOk
         Left _ -> finalize SpanFailed

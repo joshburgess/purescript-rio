@@ -42,7 +42,6 @@ type RecordingTracer =
 newRecordingTracer :: Aff RecordingTracer
 newRecordingTracer = liftEffect do
   nextIdRef <- Ref.new 0
-  currentRef <- Ref.new (Nothing :: Maybe SpanId)
   spansRef <- Ref.new (Map.empty :: Map SpanId Span)
   orderRef <- Ref.new ([] :: Array SpanId)
   tickRef <- Ref.new 0.0
@@ -50,11 +49,10 @@ newRecordingTracer = liftEffect do
     nextTick :: Effect Number
     nextTick = Ref.modify (_ + 1.0) tickRef
 
-    startSpan :: String -> Effect SpanId
-    startSpan name = do
+    startSpan :: { name :: String, parent :: Maybe SpanId } -> Effect SpanId
+    startSpan { name, parent } = do
       n <- Ref.modify (_ + 1) nextIdRef
       let sid = SpanId n
-      parent <- Ref.read currentRef
       tick <- nextTick
       let
         span :: Span
@@ -69,7 +67,6 @@ newRecordingTracer = liftEffect do
           }
       Ref.modify_ (Map.insert sid span) spansRef
       Ref.modify_ (\xs -> Array.snoc xs sid) orderRef
-      Ref.write (Just sid) currentRef
       pure sid
 
     endSpan :: SpanId -> SpanStatus -> Effect Unit
@@ -83,8 +80,6 @@ newRecordingTracer = liftEffect do
             tick <- nextTick
             let updated = span { endMs = Just tick, status = status }
             Ref.modify_ (Map.insert sid updated) spansRef
-            cur <- Ref.read currentRef
-            when (cur == Just sid) (Ref.write span.parent currentRef)
 
     addAttribute :: SpanId -> String -> String -> Effect Unit
     addAttribute sid key value = do
@@ -98,8 +93,13 @@ newRecordingTracer = liftEffect do
               }
           Ref.modify_ (Map.insert sid updated) spansRef
 
+    -- The backend does not track current-span state any more.
+    -- `withSpan` overrides this callback per block via an
+    -- environment-record swap, so the only time anyone reads the
+    -- backend's `currentSpan` is outside every `withSpan` block,
+    -- where the answer is `Nothing` by construction.
     currentSpan :: Effect (Maybe SpanId)
-    currentSpan = Ref.read currentRef
+    currentSpan = pure Nothing
 
     snapshot :: Effect (Array Span)
     snapshot = do

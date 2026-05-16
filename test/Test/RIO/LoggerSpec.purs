@@ -2,7 +2,8 @@ module Test.RIO.LoggerSpec (spec) where
 
 import Prelude
 
-import Data.Array (length) as Array
+import Data.Array (find, length) as Array
+import Data.Maybe (Maybe(..))
 import Data.Either (Either(..))
 import Data.Tuple (Tuple(..))
 import Effect.Aff (Milliseconds(..), attempt, delay, error, forkAff, killFiber)
@@ -307,16 +308,16 @@ spec = describe "RIO.Logger" do
         [ r ] -> r.fields `shouldEqual` []
         _ -> 1 `shouldEqual` Array.length records
 
-  describe "fork inheritance (implicit-context semantics)" do
-    -- The "Concurrency and fork inheritance" section of the
-    -- Logger docstring promises two things: (1) "a forked fiber
-    -- that emits a log line reads whatever annotations are
-    -- current at emission time", and (2) "writes from any fiber
-    -- are visible to every fiber". These are the same trade-offs
-    -- `RIO.Local` and `RIO.Tracer` document for their implicit-
-    -- context model. `RIO.Local` already pins this; pin it for
-    -- `Logger` so a future refactor that switches to per-fiber
-    -- isolation can't slip through silently.
+  describe "fork inheritance (per-fiber snapshot semantics)" do
+    -- `withFields` allocates a private annotations cell per block
+    -- and swaps the logger record in the env to point at it; any
+    -- fiber forked inside the block captures the swapped logger
+    -- in its environment. The result is ZIO-style "snapshot on
+    -- fork" semantics for the ambient field set: a child sees
+    -- whatever annotations were in scope at its fork point,
+    -- independently of subsequent activity in the parent. Pin
+    -- both the inheritance (the snapshot reaches the child) and
+    -- the isolation (the parent's later updates do not leak).
     it "a forked fiber inherits the parent's annotations at emit-time" do
       rec <- liftAff newRecordingLogger
       let
@@ -334,12 +335,14 @@ spec = describe "RIO.Logger" do
           r2.fields `shouldEqual` [ Tuple "request.id" "outer" ]
         _ -> 1 `shouldEqual` Array.length records
 
-    it "a child's withFields write is visible to a later parent emission" do
-      -- The docstring is explicit that the underlying `Effect.Ref`
-      -- is shared across fibers, so a write inside the child is
-      -- observable to the parent once `join` returns. Pin that
-      -- shared-state behaviour: it is the trade-off the docstring
-      -- documents, and changing it would be a breaking change.
+    it "a child's withFields write does not leak into the parent" do
+      -- A child fiber that enters its own `withField` block
+      -- writes to a *private* annotations cell (the env-swap
+      -- gives every block its own `Ref`). The parent's later
+      -- emission, running against the parent's original logger,
+      -- sees no fields. This is the per-fiber isolation
+      -- guarantee that distinguishes the new model from the
+      -- shared-`Ref` predecessor.
       rec <- liftAff newRecordingLogger
       let
         program :: RIO (logger :: Logger) () Unit
@@ -355,11 +358,37 @@ spec = describe "RIO.Logger" do
           r1.message `shouldEqual` "from-child"
           r1.fields `shouldEqual` [ Tuple "child.id" "c1" ]
           r2.message `shouldEqual` "from-parent"
-          -- After the child's withFields exits, its `finally`
-          -- restores the previous (empty) annotation set, so the
-          -- parent's later emission sees no fields.
           r2.fields `shouldEqual` []
         _ -> 1 `shouldEqual` Array.length records
+
+    it "a child sees its fork-time snapshot, not the parent's concurrent withFields update" do
+      -- The regression test for the shared-`Ref` bug: the parent
+      -- forks a child that delays before logging, then while
+      -- the child is suspended the parent enters a *new*
+      -- `withField` block that overrides the same key and holds
+      -- it open past the child's wake-up. Under the old model,
+      -- the child's emission would read the parent's currently
+      -- active (overridden) annotations from the shared `Ref`
+      -- and see `request.id == "inner"`. Under the new model,
+      -- the child's env carries the fork-time scoped logger
+      -- whose `Ref` was initialised to `request.id == "outer"`
+      -- and is never touched by the parent's nested block.
+      rec <- liftAff newRecordingLogger
+      let
+        program :: RIO (logger :: Logger) () Unit
+        program = withField "request.id" "outer" do
+          child <- fork do
+            liftAff (delay (Milliseconds 30.0))
+            logInfo "from-child"
+          withField "request.id" "inner" do
+            liftAff (delay (Milliseconds 80.0))
+            pure unit
+          join child
+      _ <- runRIO (provideAll { logger: rec.logger } program)
+      records <- liftEffect rec.snapshot
+      case Array.find (\r -> r.message == "from-child") records of
+        Just r -> r.fields `shouldEqual` [ Tuple "request.id" "outer" ]
+        Nothing -> 1 `shouldEqual` Array.length records
 
   describe "noopLogger" do
     it "runs every emission without crashing and produces no observable output" do

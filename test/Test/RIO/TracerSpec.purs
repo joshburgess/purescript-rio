@@ -2,7 +2,7 @@ module Test.RIO.TracerSpec (spec) where
 
 import Prelude
 
-import Data.Array (length) as Array
+import Data.Array (find, length) as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
@@ -16,7 +16,7 @@ import Type.Proxy (Proxy(..))
 import RIO.Core (RIO, fail, fork, join, provideAll, runRIO, runRIO')
 import RIO.Test.Tracer (newRecordingTracer)
 import RIO.Tracer
-  ( SpanId
+  ( SpanId(..)
   , SpanStatus(..)
   , Tracer
   , addAttribute
@@ -296,13 +296,17 @@ spec = describe "RIO.Tracer" do
         second.name `shouldEqual` "second"
       _ -> 1 `shouldEqual` Array.length spans
 
-  describe "fork inheritance (implicit-context semantics)" do
-    -- The module docstring promises: "A `fork`ed fiber inherits
-    -- whichever span was current at the point of fork (because
-    -- the same Tracer is shared by the underlying `Effect.Ref`s);
-    -- after the fork, the parent fiber's subsequent spans land
-    -- under the same parent until the parent's `endSpan` runs."
-    -- Pin both halves of that contract.
+  describe "fork inheritance (per-fiber snapshot semantics)" do
+    -- `withSpan` allocates a private "current span" cell per
+    -- block and swaps the tracer's `currentSpan` callback to
+    -- read from it. Any fiber forked inside the block captures
+    -- the swapped tracer in its environment, so it keeps seeing
+    -- the fork-time parent regardless of what the parent does
+    -- next. Pin all three pieces of the contract: inheritance
+    -- at fork time, the parent's subsequent siblings sharing the
+    -- same outer parent, and most importantly the isolation
+    -- guarantee that a parent's concurrent nested span cannot
+    -- clobber a still-running child's view.
     it "a forked fiber inherits the parent's current span at fork time" do
       rec <- liftAff newRecordingTracer
       let
@@ -336,6 +340,39 @@ spec = describe "RIO.Tracer" do
           afterFork.parent `shouldEqual` Just outer.id
         _ -> 1 `shouldEqual` Array.length spans
 
+    it "a child's span attaches to the fork-time parent, not the parent's concurrent sibling" do
+      -- The regression test for the shared-`Ref` bug: the parent
+      -- forks a child that delays before opening its own span,
+      -- then while the child is suspended the parent enters a
+      -- sibling `withSpan` block and holds it open past the
+      -- child's wake-up. Under the old model the recording
+      -- tracer's `currentRef` would have been bumped to the
+      -- sibling, so the child's `startSpan` would record
+      -- parent = sibling.id. Under the new model the child's
+      -- env carries the fork-time scoped tracer whose
+      -- `currentSpan` callback reads the cell initialised to
+      -- the outer span; the child correctly records
+      -- parent = outer.id.
+      rec <- liftAff newRecordingTracer
+      let
+        program :: RIO (tracer :: Tracer) () Unit
+        program = withSpan "outer" do
+          child <- fork do
+            liftAff (delay (Milliseconds 30.0))
+            withSpan "child-span" (pure unit)
+          withSpan "sibling" do
+            liftAff (delay (Milliseconds 80.0))
+            pure unit
+          join child
+      _ <- runRIO (provideAll { tracer: rec.tracer } program)
+      spans <- liftEffect rec.snapshot
+      let
+        outerSpan = Array.find (\s -> s.name == "outer") spans
+        childSpan = Array.find (\s -> s.name == "child-span") spans
+      case Tuple outerSpan childSpan of
+        Tuple (Just o) (Just c) -> c.parent `shouldEqual` Just o.id
+        _ -> 1 `shouldEqual` Array.length spans
+
   describe "noopTracer" do
     it "runs every span operation without crashing and records nothing" do
       let
@@ -348,14 +385,29 @@ spec = describe "RIO.Tracer" do
         Right _ -> pure unit
         Left _ -> 1 `shouldEqual` 0
 
-    it "reports currentSpan as Nothing even inside a withSpan block" do
-      -- noopTracer's startSpan returns SpanId 0 and currentSpan
-      -- always returns Nothing, so a program reading currentSpan
-      -- inside a span sees no active span. Pin this so any future
-      -- change to noopTracer's bookkeeping is caught.
+    it "reports the started span id from currentSpan inside a withSpan block" do
+      -- `withSpan` owns the per-fiber "current span" cell: it
+      -- swaps the tracer's `currentSpan` callback to read from a
+      -- private `Ref` initialised to the span it opened. Even
+      -- with `noopTracer` as the backend (whose own
+      -- `currentSpan` is always `Nothing`), the swapped-in view
+      -- reports the span id that `startSpan` returned.
       let
         program :: RIO (tracer :: Tracer) () (Maybe SpanId)
         program = withSpan "outer" currentSpan
+      result <- runRIO (provideAll { tracer: noopTracer } program)
+      case result of
+        Right inner -> inner `shouldEqual` Just (SpanId 0)
+        Left _ -> 1 `shouldEqual` 0
+
+    it "reports Nothing from currentSpan outside any withSpan block" do
+      -- Outside every `withSpan` block, the env-record carries
+      -- the bare backend tracer; `noopTracer.currentSpan`
+      -- returns `Nothing` and so does the user-facing
+      -- `currentSpan` action.
+      let
+        program :: RIO (tracer :: Tracer) () (Maybe SpanId)
+        program = currentSpan
       result <- runRIO (provideAll { tracer: noopTracer } program)
       case result of
         Right inner -> inner `shouldEqual` Nothing

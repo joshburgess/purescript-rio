@@ -77,7 +77,6 @@ import Data.Either (Either(..))
 import Data.Foldable (foldl)
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
-import Effect.Aff (finally)
 import Effect.Class (liftEffect)
 import Effect.Console (log) as Console
 import Effect.Ref as Ref
@@ -318,9 +317,10 @@ emitAt level msg = RIO \r -> do
   pure (Right unit)
 
 -- | Run `action` with a single ambient field temporarily
--- | attached to every log emission. Restoration is guaranteed
--- | by `Aff.finally` on every termination path (success,
--- | typed failure, defect, fiber interruption).
+-- | attached to every log emission. The annotation cell is
+-- | scoped by the dynamic extent of `action`: forked fibers
+-- | inside `action` keep the annotation in their private view
+-- | regardless of when the parent's `withField` exits.
 withField
   :: forall r e a
    . String
@@ -336,6 +336,17 @@ withField key value = withFields [ Tuple key value ]
 -- | of `action`; the outer annotation set is restored on exit.
 -- | Field order is preserved so the rendering backend can
 -- | print them in the order they were attached.
+-- |
+-- | A fiber forked inside `withFields` inherits a *private*
+-- | annotation cell initialised to the merged set: subsequent
+-- | `withFields` activity in the parent (or the parent's exit
+-- | from the surrounding block) does not bleed into the child,
+-- | and the child's own annotation updates do not bleed back
+-- | into the parent. This works because each `withFields` call
+-- | swaps in a fresh logger record (sharing the original
+-- | backend) whose `getAnnotations` / `setAnnotations` point at
+-- | a per-block `Ref`, and that swapped record is what every
+-- | fork inside the block captures in its environment.
 withFields
   :: forall r e a
    . Array (Tuple String String)
@@ -345,10 +356,13 @@ withFields fields action = RIO \r -> do
   let logger = Record.get (Proxy :: Proxy "logger") r
   previous <- liftEffect logger.getAnnotations
   let next = mergeAnnotations previous fields
-  liftEffect (logger.setAnnotations next)
-  finally
-    (liftEffect (logger.setAnnotations previous))
-    (unRIO action r)
+  privateRef <- liftEffect (Ref.new next)
+  let
+    scopedLogger = logger
+      { getAnnotations = Ref.read privateRef
+      , setAnnotations = \as -> Ref.write as privateRef
+      }
+  unRIO action (r { logger = scopedLogger })
 
 -- | Merge a new field batch into an existing annotation list.
 -- | Any keys present in `incoming` replace their counterparts
