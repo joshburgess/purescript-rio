@@ -4,7 +4,7 @@ import Prelude
 
 import Data.Array (elem, range, snoc) as Array
 import Data.Array (range, snoc)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), isJust, isNothing)
 import Data.Array.NonEmpty as NEArray
 import Data.Either (Either(..))
 import Data.Tuple (Tuple(..))
@@ -25,15 +25,19 @@ import RIO.Core
   ( RIO
   , addFinalizer
   , ask
+  , await
   , die
   , fail
+  , fiberId
   , fork
   , forkScoped
   , interrupt
   , join
+  , joinAllPar
   , parSequence
   , parTraverse
   , parTraverseN
+  , poll
   , race
   , raceAll
   , runRIO
@@ -44,6 +48,8 @@ import RIO.Core
   , uninterruptible
   , zipPar
   )
+import RIO.Cause (Cause(..))
+import RIO.Exit (Exit(..))
 
 spec :: Spec Unit
 spec = do
@@ -992,6 +998,139 @@ spec = do
         Array.elem "worker:start" order `shouldEqual` true
         Array.elem "worker:should-not-fire" order `shouldEqual` false
         Array.elem "outer:should-not-fire" order `shouldEqual` false
+
+    describe "Fiber introspection (id / poll / await)" do
+      it "fiberId returns a fresh id for each fork" do
+        idsRef <- liftEffect (Ref.new (Tuple Nothing Nothing))
+        let
+          program :: RIO () () Unit
+          program = do
+            a <- fork (pure 1 :: RIO () () Int)
+            b <- fork (pure 2 :: RIO () () Int)
+            _ <- join a
+            _ <- join b
+            liftEffect (Ref.write (Tuple (Just (fiberId a)) (Just (fiberId b))) idsRef)
+        _ <- runRIO program
+        Tuple ma mb <- liftEffect (Ref.read idsRef)
+        isJust ma `shouldEqual` true
+        isJust mb `shouldEqual` true
+        (ma == mb) `shouldEqual` false
+
+      it "poll returns Nothing while the fiber is still running" do
+        let
+          program :: RIO () () Boolean
+          program = do
+            fib <- fork do
+              liftAff (delay (Milliseconds 200.0))
+              pure 42
+            -- Yield once so the child has a chance to start
+            -- without giving it time to finish.
+            liftAff (delay (Milliseconds 0.0))
+            mExit <- poll fib
+            interrupt fib
+            pure (isNothing mExit)
+        result <- runRIO program
+        result `shouldEqual` (Right true :: Either _ Boolean)
+
+      it "poll returns Just (Success a) once a successful fiber has completed" do
+        let
+          program :: RIO () () (Maybe (Exit () Int))
+          program = do
+            fib <- fork (pure 7 :: RIO () () Int)
+            _ <- join fib
+            poll fib
+        result <- runRIO program
+        case result of
+          Right (Just (Success n)) -> n `shouldEqual` 7
+          _ -> 1 `shouldEqual` 0
+
+      it "await on a successful fiber returns Success a" do
+        let
+          program :: RIO () () (Exit () Int)
+          program = do
+            fib <- fork (pure 99 :: RIO () () Int)
+            await fib
+        result <- runRIO program
+        case result of
+          Right (Success n) -> n `shouldEqual` 99
+          _ -> 1 `shouldEqual` 0
+
+      it "await surfaces a defect as Failure (Die _) without propagating" do
+        let
+          program :: RIO () () (Exit () Int)
+          program = do
+            fib <- fork (die (error "boom") :: RIO () () Int)
+            await fib
+        result <- runRIO program
+        case result of
+          Right (Failure _) -> pure unit
+          _ -> 1 `shouldEqual` 0
+
+      it "poll after await returns the same Exit" do
+        let
+          program :: RIO () () (Tuple (Exit () Int) (Maybe (Exit () Int)))
+          program = do
+            fib <- fork (pure 5 :: RIO () () Int)
+            exit <- await fib
+            mExit <- poll fib
+            pure (Tuple exit mExit)
+        result <- runRIO program
+        case result of
+          Right (Tuple (Success a) (Just (Success b))) -> a `shouldEqual` b
+          _ -> 1 `shouldEqual` 0
+
+    describe "joinAllPar (Cause-aware fan-in)" do
+      it "returns Success of the value array in input order when all fibers succeed" do
+        let
+          program :: RIO () () (Exit () (Array Int))
+          program = do
+            a <- fork (pure 1 :: RIO () () Int)
+            b <- fork (pure 2 :: RIO () () Int)
+            c <- fork (pure 3 :: RIO () () Int)
+            joinAllPar [ a, b, c ]
+        result <- runRIO program
+        case result of
+          Right (Success xs) -> xs `shouldEqual` [ 1, 2, 3 ]
+          _ -> 1 `shouldEqual` 0
+
+      it "returns Failure with a single cause when exactly one fiber dies" do
+        let
+          program :: RIO () () (Exit () (Array Int))
+          program = do
+            a <- fork (pure 1 :: RIO () () Int)
+            b <- fork (die (error "kaboom") :: RIO () () Int)
+            c <- fork (pure 3 :: RIO () () Int)
+            joinAllPar [ a, b, c ]
+        result <- runRIO program
+        case result of
+          Right (Failure (Die _)) -> pure unit
+          _ -> 1 `shouldEqual` 0
+
+      it "combines multiple failures into a left-leaning Parallel cause" do
+        -- Three fibers; two die, one succeeds. The combined cause
+        -- should be a Parallel of the two Dies (left-leaning),
+        -- with the survivor's success silently dropped from the
+        -- value array since the overall result is Failure.
+        let
+          program :: RIO () () (Exit () (Array Int))
+          program = do
+            a <- fork (die (error "a") :: RIO () () Int)
+            b <- fork (pure 2 :: RIO () () Int)
+            c <- fork (die (error "c") :: RIO () () Int)
+            joinAllPar [ a, b, c ]
+        result <- runRIO program
+        case result of
+          Right (Failure (Parallel _ _)) -> pure unit
+          _ -> 1 `shouldEqual` 0
+
+      it "returns Success [] for an empty fiber array" do
+        let
+          program :: RIO () () (Exit () (Array Int))
+          program = joinAllPar []
+        result <- runRIO program
+        case result of
+          Right (Success xs) -> xs `shouldEqual` []
+          _ -> 1 `shouldEqual` 0
   where
   nowMs = do
     instant <- Now.now

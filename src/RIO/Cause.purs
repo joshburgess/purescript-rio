@@ -49,6 +49,7 @@ module RIO.Cause
   , linearize
   , prettyCause
   , prettyCauseWithStack
+  , combineParallel
   , fromOutcome
   , concatParallel
   , concatSequential

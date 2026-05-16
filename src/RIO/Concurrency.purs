@@ -12,20 +12,27 @@
 -- | guarantees come from the Phase 0.5 spike (scenarios S1, S3).
 module RIO.Concurrency
   ( Fiber(..)
+  , FiberId(..)
+  , await
+  , awaitAll
   , async
   , asyncInterrupt
+  , fiberId
   , filterPar
   , forever
   , fork
   , forkScoped
   , interrupt
   , join
+  , joinAllPar
+  , mkFiber
   , never
   , parSequence
   , parTraverse
   , parTraverseN
   , partition
   , partitionPar
+  , poll
   , race
   , raceAll
   , raceEither
@@ -43,7 +50,7 @@ import Prelude
 import Control.Alt ((<|>))
 import Control.Monad.Error.Class (throwError)
 import Control.Parallel (parOneOfMap, parTraverse) as Parallel
-import Data.Array (concat, drop, length, take) as Array
+import Data.Array (concat, drop, length, mapMaybe, take) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty as NEA
 import Data.Either (Either(..))
@@ -56,23 +63,104 @@ import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect (Effect)
+import Effect.Aff (Aff)
 import Effect.Aff (Canceler(..), Fiber, attempt, delay, error, forkAff, invincible, joinFiber, killFiber, makeAff, never, nonCanceler, parallel, sequential) as Aff
 import Effect.Class (liftEffect)
+import Effect.Ref (Ref)
 import Effect.Ref as Ref
+import Effect.Unsafe (unsafePerformEffect)
 import Prim.Row (class Cons) as Row
 import Type.Proxy (Proxy)
 
+import RIO.Cause (combineParallel, fromOutcome) as Cause
+import RIO.Exit (Exit(..), die, fromEither) as Exit
+import RIO.Exit (Exit(..))
 import RIO.Internal (RIO(..), unRIO)
 import RIO.Resource (Scope, addFinalizer)
 
+-- | A stable identity for a forked fiber.
+-- |
+-- | Fresh ids are minted from a single module-level counter at
+-- | every successful `fork` / `forkScoped` (and the FiberRef
+-- | variants). Ids are dense `Int`s starting at 1, useful for log
+-- | correlation and for asserting "this is the same fiber I saw
+-- | earlier" in tests.
+newtype FiberId = FiberId Int
+
+derive newtype instance eqFiberId :: Eq FiberId
+derive newtype instance ordFiberId :: Ord FiberId
+
+instance showFiberId :: Show FiberId where
+  show (FiberId n) = "FiberId " <> show n
+
 -- | An in-flight `RIO` computation forked into its own fiber.
 -- |
--- | The wrapped `Aff.Fiber` produces the same `Either (Variant e) a`
--- | shape `unRIO` does, so a typed failure inside the forked
--- | computation surfaces on `join` as `Left v` and a defect surfaces
--- | as an `Aff` exception during the join.
+-- | A `Fiber e a` bundles three things: a stable `FiberId`, the
+-- | underlying `Aff.Fiber` that produces the same
+-- | `Either (Variant e) a` shape `unRIO` does, and an `Effect.Ref`
+-- | that records the fiber's terminal `Exit e a` once it completes.
+-- | The state Ref is what makes the non-blocking `poll` and the
+-- | non-unwinding `await` possible; `join` and `interrupt` ignore
+-- | it and go straight to the underlying fiber.
+-- |
+-- | A typed failure inside the forked computation surfaces on
+-- | `join` as `Left v`. A defect (uncaught `Aff` exception, or
+-- | the kill exception from `interrupt`) propagates through `Aff`
+-- | as a defect and reaches the joiner outside the typed-error
+-- | row; `await` surfaces it as `Failure (Die err)` instead.
 newtype Fiber :: Row Type -> Type -> Type
-newtype Fiber e a = Fiber (Aff.Fiber (Either (Variant e) a))
+newtype Fiber e a = Fiber
+  { id :: FiberId
+  , underlying :: Aff.Fiber (Either (Variant e) a)
+  , state :: Ref (Maybe (Exit e a))
+  }
+
+-- | Module-level counter for fresh fiber ids. Hidden behind
+-- | `mkFiber`; intentionally global because a fiber's identity
+-- | needs to be unique across the whole process.
+fiberIdCounter :: Ref Int
+fiberIdCounter = unsafePerformEffect (Ref.new 0)
+
+freshFiberId :: Effect FiberId
+freshFiberId = FiberId <$> Ref.modify (_ + 1) fiberIdCounter
+
+-- | Wrap an `Aff (Either (Variant e) a)` body so that it records
+-- | its terminal outcome into the supplied `state` Ref before
+-- | propagating the result to the underlying `Aff` fiber. Used
+-- | internally by `fork` / `forkScoped` (and by the FiberRef
+-- | forks, which call `mkFiber` directly).
+trackOutcome
+  :: forall e a
+   . Ref (Maybe (Exit e a))
+  -> Aff (Either (Variant e) a)
+  -> Aff (Either (Variant e) a)
+trackOutcome stateRef body = do
+  outcome <- Aff.attempt body
+  liftEffect $
+    Ref.write (Just (Exit.fromEither (Cause.fromOutcome outcome))) stateRef
+  case outcome of
+    Right e -> pure e
+    Left err -> throwError err
+
+-- | Build a `Fiber e a` from a raw `Aff` body. Allocates a fresh
+-- | `FiberId`, sets up the state Ref, wraps the body with
+-- | `trackOutcome` so the terminal `Exit` is observable via
+-- | `poll` / `await`, and forks the resulting Aff.
+-- |
+-- | Exposed because `RIO.FiberRef.forkFiber` needs to build a
+-- | `Fiber` with a different inner body (the child's environment
+-- | record is mutated to point at a per-fiber `FiberRefs`
+-- | snapshot). External use is rare; prefer `fork` /
+-- | `forkScoped`.
+mkFiber
+  :: forall e a
+   . Aff (Either (Variant e) a)
+  -> Aff (Fiber e a)
+mkFiber body = do
+  fid <- liftEffect freshFiberId
+  stateRef <- liftEffect (Ref.new Nothing)
+  underlying <- Aff.forkAff (trackOutcome stateRef body)
+  pure (Fiber { id: fid, underlying, state: stateRef })
 
 -- | Fork an `RIO` computation into a new fiber.
 -- |
@@ -100,8 +188,8 @@ newtype Fiber e a = Fiber (Aff.Fiber (Either (Variant e) a))
 -- | ```
 fork :: forall r e e' a. RIO r e a -> RIO r e' (Fiber e a)
 fork inner = RIO \r -> do
-  fib <- Aff.forkAff (unRIO inner r)
-  pure (Right (Fiber fib))
+  fib <- mkFiber (unRIO inner r)
+  pure (Right fib)
 
 -- | Fork an `RIO` computation into a new fiber whose lifetime is
 -- | bounded by the given `Scope`. When the scope exits (success,
@@ -122,10 +210,10 @@ fork inner = RIO \r -> do
 -- | ```
 forkScoped :: forall r e e' a. Scope -> RIO r e a -> RIO r e' (Fiber e a)
 forkScoped scope inner = RIO \r -> do
-  fib <- Aff.forkAff (unRIO inner r)
-  let cleanup = Aff.killFiber (Aff.error "RIO.forkScoped: scope exit") fib
+  fib@(Fiber f) <- mkFiber (unRIO inner r)
+  let cleanup = Aff.killFiber (Aff.error "RIO.forkScoped: scope exit") f.underlying
   _ <- unRIO (addFinalizer scope cleanup) r
-  pure (Right (Fiber fib))
+  pure (Right fib)
 
 -- | Wait for a forked fiber to finish and surface its result.
 -- |
@@ -147,7 +235,7 @@ forkScoped scope inner = RIO \r -> do
 -- |   pure (ra + rb)
 -- | ```
 join :: forall r e a. Fiber e a -> RIO r e a
-join (Fiber fib) = RIO \_ -> Aff.joinFiber fib
+join (Fiber f) = RIO \_ -> Aff.joinFiber f.underlying
 
 -- | Interrupt a running fiber.
 -- |
@@ -174,9 +262,146 @@ join (Fiber fib) = RIO \_ -> Aff.joinFiber fib
 -- |   interrupt fib
 -- | ```
 interrupt :: forall r e e' a. Fiber e a -> RIO r e' Unit
-interrupt (Fiber fib) = RIO \_ -> do
-  Aff.killFiber (Aff.error "RIO.interrupt") fib
+interrupt (Fiber f) = RIO \_ -> do
+  Aff.killFiber (Aff.error "RIO.interrupt") f.underlying
   pure (Right unit)
+
+-- | The stable identity of a forked fiber. The id is allocated
+-- | at `fork` / `forkScoped` time and is unique across the host
+-- | process.
+-- |
+-- | Useful for log correlation ("which worker emitted this?"),
+-- | for tests that need to assert a particular fiber was reused,
+-- | and as a key in user-built supervisor maps.
+fiberId :: forall e a. Fiber e a -> FiberId
+fiberId (Fiber f) = f.id
+
+-- | Non-blocking check on a fiber's terminal outcome. Returns
+-- | `Nothing` while the fiber is still running, and `Just exit`
+-- | once it has completed (either successfully or with a
+-- | `Cause`-tracked failure).
+-- |
+-- | Polling does not consume the result: subsequent polls on the
+-- | same fiber return the same `Just exit`. Calling `join` on a
+-- | fiber whose `poll` is `Just _` is safe and returns
+-- | immediately; calling `await` returns the same `Exit`.
+-- |
+-- | ```purescript
+-- | program = do
+-- |   fib <- fork worker
+-- |   ready <- poll fib
+-- |   case ready of
+-- |     Nothing -> liftAff (delay (Milliseconds 10.0)) *> poll fib
+-- |     Just exit -> handleExit exit
+-- | ```
+poll :: forall r e e' a. Fiber e a -> RIO r e' (Maybe (Exit e a))
+poll (Fiber f) = RIO \_ -> do
+  s <- liftEffect (Ref.read f.state)
+  pure (Right s)
+
+-- | Wait for a fiber to finish and surface its terminal `Exit`,
+-- | including the `Cause` tree for any failure. Unlike `join`,
+-- | `await` does not unwind the typed error into the caller's
+-- | error row: success and failure both reach the caller as a
+-- | plain value. Defects (uncaught `Aff` exceptions, the kill
+-- | exception from `interrupt`) are reported as `Failure (Die
+-- | err)` rather than propagating through `Aff`.
+-- |
+-- | Reach for `await` when you need to inspect a fiber's failure
+-- | shape (typed failure vs defect, the rendered cause tree, the
+-- | parallel-cause information from a `bothPar`-style join)
+-- | without `sandbox`'s ergonomics.
+-- |
+-- | The caller's error row is left free for the same reason as
+-- | `interrupt`: `await` never raises a typed failure of its
+-- | own.
+-- |
+-- | ```purescript
+-- | program = do
+-- |   fib <- fork worker
+-- |   exit <- await fib
+-- |   case exit of
+-- |     Success a -> handleResult a
+-- |     Failure c -> logCause c
+-- | ```
+await :: forall r e e' a. Fiber e a -> RIO r e' (Exit e a)
+await (Fiber f) = RIO \_ -> do
+  -- attempt swallows any defect so we can read the state Ref
+  -- regardless of how the fiber ended. trackOutcome wrote to
+  -- the Ref before propagating the result, so the Just branch
+  -- is reached for every legitimate completion. The Nothing
+  -- fallback shouldn't happen in practice but is reported as a
+  -- Die rather than a hang.
+  _ <- Aff.attempt (Aff.joinFiber f.underlying)
+  s <- liftEffect (Ref.read f.state)
+  case s of
+    Just exit -> pure (Right exit)
+    Nothing -> pure (Right (Exit.die (Aff.error "RIO.await: fiber state missing")))
+
+-- | Await every fiber in the array and return their `Exit`s in
+-- | input order. None of the awaits unwind the caller's typed
+-- | error row: failures (typed or defect) are reported as
+-- | `Failure (Cause e)` slots within the returned array.
+-- |
+-- | Sequential in the joiner: each fiber is awaited in turn. The
+-- | fibers themselves still run concurrently because they were
+-- | already in flight before `awaitAll` was called.
+-- |
+-- | ```purescript
+-- | exits <- awaitAll [fa, fb, fc]
+-- | for_ exits (foldExit logCause logResult)
+-- | ```
+awaitAll
+  :: forall r e e' a
+   . Array (Fiber e a)
+  -> RIO r e' (Array (Exit e a))
+awaitAll = traverse await
+
+-- | Wait for every fiber in the array and combine their outcomes
+-- | into a single `Exit`. If every fiber succeeded, the result is
+-- | `Success` of the value array in input order. If any failed
+-- | (typed or defect), the result is `Failure c` where `c` is the
+-- | left-leaning `Parallel` cause built from every failure
+-- | observed: no failure is lost, even when several siblings fail
+-- | concurrently.
+-- |
+-- | Mirrors ZIO's `Fiber.joinAll` with cause-aware fold and is the
+-- | natural companion to `parTraverseCause` for the case where the
+-- | caller already holds the fibers (because they were forked
+-- | individually, or stored in a registry) instead of an array of
+-- | actions.
+-- |
+-- | ```purescript
+-- | a <- fork workerA
+-- | b <- fork workerB
+-- | c <- fork workerC
+-- | exit <- joinAllPar [a, b, c]
+-- | case exit of
+-- |   Success results -> useAll results
+-- |   Failure cause   -> Console.log (prettyCause showError cause)
+-- | ```
+joinAllPar
+  :: forall r e e' a
+   . Array (Fiber e a)
+  -> RIO r e' (Exit e (Array a))
+joinAllPar fibs = do
+  exits <- awaitAll fibs
+  let
+    failed = Array.mapMaybe
+      ( case _ of
+          Failure c -> Just c
+          Success _ -> Nothing
+      )
+      exits
+    successes = Array.mapMaybe
+      ( case _ of
+          Success a -> Just a
+          Failure _ -> Nothing
+      )
+      exits
+  pure $ case Cause.combineParallel failed of
+    Nothing -> Success successes
+    Just c -> Failure c
 
 -- | Run an `RIO` action in an uninterruptible region. While the
 -- | inner action is running, any `interrupt` sent to the enclosing
