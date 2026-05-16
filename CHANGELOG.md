@@ -194,9 +194,69 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `ref` / `unref`) and re-exports the event handles (`closeH` /
     `connectionH` / `errorH` / `listeningH` / `dropHandleTcp` /
     `dropHandleIpc`) plus `toEventEmitter`.
+  * `RIO.Node.HTTP` — RIO-flavoured wrappers around `Node.HTTP`.
+    An `HttpServer` and `ClientRequest` are each values (handles
+    on an HTTP server and an in-flight HTTP request respectively)
+    rather than capabilities, so the upstream surface is mirrored
+    across six modules by lifting each `Effect`-valued primitive
+    into `RIO`. The top-level `RIO.Node.HTTP` module lifts
+    `createServer` / `createServer'` / `request` / `requestUrl` /
+    `request'` / `requestURL'` / `requestOpts` / `get` / `getUrl`
+    / `get'` / `getUrl'` / `getOpts` / `setMaxIdleHttpParsers`
+    and re-exports the `CreateServerOptions` / `RequestOptions`
+    rows, `maxHeaderSize`, and the full `Node.HTTP.Types`
+    catalogue (`HttpServer'`, `HttpServer`, `HttpsServer`,
+    `Encrypted`, `PlainText`, `TransmissionType`, `ClientRequest`,
+    `ServerResponse`, `OutgoingMessage`, `IncomingMessage`,
+    `IncomingMessageType`, `IMServer`, `IMClientRequest`).
+    `RIO.Node.HTTP.Server` lifts the server's introspection and
+    timeout primitives (`closeAllConnections` /
+    `closeIdleConnections` / `headersTimeout` /
+    `setHeadersTimeout` / `maxHeadersCount` /
+    `setMaxHeadersCount` / `setUnlimitedHeadersCount` /
+    `requestTimeout` / `setRequestTimeout` /
+    `maxRequestsPerSocket` / `setMaxRequestsPerSocket` /
+    `setUnlimitedRequestsPerSocket` / `timeout` / `setTimeout` /
+    `clearTimeout` / `keepAliveTimeout` / `setKeepAliveTimeout` /
+    `clearKeepAliveTimeout`) and re-exports the event-handle
+    catalogue (`checkContinueH` / `checkExpectationH` /
+    `clientErrorH` / `closeH` / `connectH` / `connectionH` /
+    `dropRequestH` / `requestH` / `upgradeH`), `toNetServer`,
+    and the `ClientErrorException` / `bytesParsed` / `rawPacket`
+    / `toError` triple. `RIO.Node.HTTP.IncomingMessage` lifts
+    `complete` / `socket` / `trailers` / `trailersDistinct` and
+    re-exports the pure accessors (`headers` / `headersDistinct`
+    / `cookies` / `httpVersion` / `method` / `rawHeaders` /
+    `rawTrailers` / `statusCode` / `statusMessage` / `url`) and
+    `toReadable` / `closeH`. `RIO.Node.HTTP.OutgoingMessage`
+    lifts the full header-manipulation surface (`addTrailers` /
+    `appendHeader` / `appendHeaders` / `flushHeaders` /
+    `getHeader` / `getHeaderNames` / `getHeaders` / `hasHeader`
+    / `headersSent` / `removeHeader` / `setHeader` /
+    `setHeader'` / `setTimeout` / `socket`) and re-exports
+    `toWriteable` plus the `drainH` / `finishH` / `prefinishH`
+    event handles. `RIO.Node.HTTP.ClientRequest` lifts
+    `setNoDelay` / `setSocketKeepAlive` / `setTimeout` and
+    re-exports the pure accessors (`host` / `method` / `path` /
+    `protocol` / `reusedSocket`) plus the event-handle
+    catalogue (`closeH` / `connectH` / `continueH` / `finishH`
+    / `informationH` / `responseH` / `socketH` / `timeoutH` /
+    `upgradeH`) and `toOutgoingMessage`. `RIO.Node.HTTP.ServerResponse`
+    lifts the head-and-status primitives (`sendDate` /
+    `setSendDate` / `statusCode` / `setStatusCode` /
+    `statusMessage` / `setStatusMessage` / `strictContentLength`
+    / `setStrictContentLength` / `writeEarlyHints` /
+    `writeEarlyHints'` / `writeHead` / `writeHead'` /
+    `writeHeadHeaders` / `writeHeadMsgHeaders` /
+    `writeProcessing`) and re-exports `req` / `toOutgoingMessage`
+    plus the `closeH` / `finishH` event handles. The
+    `toTlsServer` conversion is intentionally omitted (it would
+    pull in a direct dependency on `node-tls`; callers who need
+    it can still reach for `Node.HTTP.Server.toTlsServer`
+    directly).
   CI builds and tests the new package alongside the existing
-  adapters. The remaining `Node.*` services (HTTP, HTTP2) are
-  tracked as follow-up work.
+  adapters. The remaining `Node.*` service (HTTP2) is tracked
+  as follow-up work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined

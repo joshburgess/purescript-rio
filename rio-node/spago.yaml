@@ -54,10 +54,14 @@ package:
       - maybe
       - newtype
       - node-buffer
+      - node-event-emitter
       - node-fs
+      - node-http
+      - node-net
       - node-os
       - node-path
       - node-process
+      - node-streams
       - prelude
       - refs
       - rio

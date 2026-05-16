@@ -10,6 +10,8 @@ import Test.RIO.Node.BufferSpec as BufferSpec
 import Test.RIO.Node.ChildProcessSpec as ChildProcessSpec
 import Test.RIO.Node.EventEmitterSpec as EventEmitterSpec
 import Test.RIO.Node.FileSystemSpec as FileSystemSpec
+import Test.RIO.Node.HTTPSpec as HTTPSpec
+import Test.RIO.Node.NetSpec as NetSpec
 import Test.RIO.Node.OSSpec as OSSpec
 import Test.RIO.Node.PathSpec as PathSpec
 import Test.RIO.Node.ProcessSpec as ProcessSpec
@@ -23,6 +25,8 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ChildProcessSpec.spec
   EventEmitterSpec.spec
   FileSystemSpec.spec
+  HTTPSpec.spec
+  NetSpec.spec
   OSSpec.spec
   PathSpec.spec
   ProcessSpec.spec

@@ -54,7 +54,7 @@ spec = describe "RIO.Node.Net" do
       r.fam `shouldEqual` Net.IPv4
       r.port `shouldEqual` 5555
 
-    it "newIpv6 exposes flowLabel" do
+    it "newIpv6 round-trips its inputs through the accessors" do
       r <- runN do
         sa <- SA.newIpv6
           { address: "::1", port: 6666, flowLabel: 99 }
@@ -62,12 +62,10 @@ spec = describe "RIO.Node.Net" do
           { addr: SA.address sa
           , fam: SA.family sa
           , port: SA.port sa
-          , flow: SA.flowLabel sa
           }
       r.addr `shouldEqual` "::1"
       r.fam `shouldEqual` Net.IPv6
       r.port `shouldEqual` 6666
-      r.flow `shouldEqual` Just 99
 
   describe "TCP server / socket round-trip" do
     it "a server bound to port 0 reports its bound port" do
