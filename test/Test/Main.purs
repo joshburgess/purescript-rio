@@ -114,6 +114,8 @@ import Test.RIO.Test.PropertySpec as TestPropertySpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
 import Test.RIO.TimeSpec as TimeSpec
 import Test.RIO.TracerSpec as TracerSpec
+import Test.RIO.Tracer.OTelSpec as TracerOTelSpec
+import Test.RIO.Tracer.PropagationSpec as TracerPropagationSpec
 import Test.RIO.ValidationSpec as ValidationSpec
 
 main :: Effect Unit
@@ -217,6 +219,8 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   SchemaSpec.spec
   SqlSpec.spec
   TracerSpec.spec
+  TracerPropagationSpec.spec
+  TracerOTelSpec.spec
   ValidationSpec.spec
   MetricSpec.spec
   MetricsSpec.spec

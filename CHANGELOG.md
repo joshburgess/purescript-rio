@@ -11,6 +11,30 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Tracer.Propagation`: W3C Trace Context parser, formatter,
+  and ID generator. `parseTraceparent` / `formatTraceparent`
+  round-trip the `traceparent` HTTP header (`00-<traceId>-<spanId>-<flags>`)
+  with the spec's validation rules baked in (rejects unknown
+  versions, malformed lengths, non-hex characters, and the
+  reserved all-zero IDs); `parseTracestate` / `formatTracestate`
+  cover the comma-separated `tracestate` header and truncate to
+  the 32-entry maximum. `newTraceId` / `newSpanId` emit fresh
+  16-byte / 8-byte IDs as lowercase hex strings; the generator is
+  backed by `Effect.Random` and is *not* cryptographically
+  secure, so production services that need that should swap in a
+  crypto-backed generator through a dedicated service.
+- `RIO.Tracer.OTel`: an OTLP/JSON exporter for spans recorded by
+  `RIO.Tracer`. `exportSpans` takes static metadata
+  (`serviceName` / `serviceVersion`, instrumentation scope name
+  / version, and a W3C `traceId`), a `SpanIdMap` keyed by the
+  in-process `SpanId` with values of 16-hex external span IDs,
+  and an `Array Span`; it returns a `Json` document shaped like
+  `{ resourceSpans: [{ resource, scopeSpans: [{ scope, spans }] }] }`
+  with start/end times as stringified Unix nanoseconds, string
+  attributes in the OTLP `keyValue` shape, and span status (`1 =
+  Ok`, `2 = Error` with a short message). Pair the output with
+  `RIO.HttpClient.post` + `withJsonBody` to POST to an OTel
+  collector's `/v1/traces` endpoint.
 - `RIO.Sql`: a shape-only SQL service interface. Defines a small
   backend-agnostic surface (`Sql` service record carrying
   `execute` and `query`, `Statement`, `SqlValue` union for the
