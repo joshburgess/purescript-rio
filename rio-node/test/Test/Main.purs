@@ -17,6 +17,7 @@ import Test.RIO.Node.OSSpec as OSSpec
 import Test.RIO.Node.PathSpec as PathSpec
 import Test.RIO.Node.ProcessSpec as ProcessSpec
 import Test.RIO.Node.ReadLineSpec as ReadLineSpec
+import Test.RIO.Node.ShutdownSpec as ShutdownSpec
 import Test.RIO.Node.StreamSpec as StreamSpec
 import Test.RIO.Node.URLSpec as URLSpec
 
@@ -33,5 +34,6 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   PathSpec.spec
   ProcessSpec.spec
   ReadLineSpec.spec
+  ShutdownSpec.spec
   StreamSpec.spec
   URLSpec.spec
