@@ -44,10 +44,11 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
   structured logs without the client itself having to bake any
   of those in.
 - `RIO.Schema`: a small runtime schema library built on top of
-  `argonaut-core`. A `Schema a` carries both a decoder
-  (`Json -> Either DecodeError a`) and an encoder (`a -> Json`),
-  so the same value defines the wire format in both directions.
-  Primitive schemas (`string`, `int`, `number`, `boolean`,
+  `argonaut-core`. A `Schema a` carries a decoder
+  (`Json -> Either DecodeError a`), an encoder (`a -> Json`), and
+  a JSON Schema fragment describing the wire shape, so the same
+  value defines validation, rendering, and documentation in one
+  place. Primitive schemas (`string`, `int`, `number`, `boolean`,
   `null_`) describe individual JSON kinds; combinators (`array`,
   `nullable`, `transform`, `refine`, `union`, `enum`) compose
   them. Records are described through an `Applicative` builder
@@ -59,6 +60,14 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
   invalid JSON); `DecodeError` accumulates a `$.field[0]`-style
   path that `renderError` turns into a short human-readable
   trail (`expected string at $.user[2], got number`).
+  `toJsonSchema` extracts the JSON Schema fragment (draft
+  2020-12 shape, minus features the library does not model) for
+  OpenAPI generation or external validators. `brand` /
+  `Branded :: Symbol -> Type -> Type` wraps a schema in a
+  type-level tag so different brands of the same underlying type
+  cannot be mixed; the brand name is surfaced through `title` in
+  the JSON Schema output, and `unbrand` recovers the underlying
+  value.
 - `RIO.RateLimiter`: a token-bucket rate limiter built on top of
   `RIO.Clock`. `make` allocates a bucket configured by
   `{ permitsPerSecond, burst }`; `acquire` / `acquireN` block

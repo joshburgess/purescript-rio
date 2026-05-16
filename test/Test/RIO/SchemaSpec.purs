@@ -9,6 +9,7 @@ import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual, shouldSatisfy)
+import Type.Proxy (Proxy(..))
 
 import RIO.Schema (DecodeError(..))
 import RIO.Schema as S
@@ -184,3 +185,77 @@ spec = describe "RIO.Schema" do
             )
         )
         `shouldEqual` "expected string at $.user[2], got number"
+
+  describe "toJsonSchema" do
+    it "describes primitives" do
+      Json.stringify (S.toJsonSchema S.string)
+        `shouldEqual` "{\"type\":\"string\"}"
+      Json.stringify (S.toJsonSchema S.int)
+        `shouldEqual` "{\"type\":\"integer\"}"
+      Json.stringify (S.toJsonSchema S.number)
+        `shouldEqual` "{\"type\":\"number\"}"
+      Json.stringify (S.toJsonSchema S.boolean)
+        `shouldEqual` "{\"type\":\"boolean\"}"
+      Json.stringify (S.toJsonSchema S.null_)
+        `shouldEqual` "{\"type\":\"null\"}"
+
+    it "describes arrays with items" do
+      Json.stringify (S.toJsonSchema (S.array S.int))
+        `shouldEqual` "{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}"
+
+    it "describes nullable as anyOf" do
+      Json.stringify (S.toJsonSchema (S.nullable S.string))
+        `shouldEqual`
+          "{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"null\"}]}"
+
+    it "describes enums with string + enum array" do
+      Json.stringify (S.toJsonSchema statusSchema)
+        `shouldEqual`
+          "{\"type\":\"string\",\"enum\":[\"active\",\"inactive\"]}"
+
+    it "describes records with properties and required keys" do
+      Json.stringify (S.toJsonSchema userSchema)
+        `shouldEqual`
+          ( "{\"type\":\"object\","
+              <> "\"properties\":{"
+              <> "\"name\":{\"type\":\"string\"},"
+              <> "\"age\":{\"type\":\"integer\"},"
+              <> "\"email\":{\"type\":\"string\"},"
+              <> "\"status\":{\"type\":\"string\","
+              <> "\"enum\":[\"active\",\"inactive\"]}},"
+              <> "\"required\":[\"name\",\"age\"]}"
+          )
+
+    it "refine inherits the inner describe" do
+      let
+        positive = S.refine
+          (\n -> if n > 0 then Nothing else Just "must be positive")
+          S.int
+      Json.stringify (S.toJsonSchema positive)
+        `shouldEqual` "{\"type\":\"integer\"}"
+
+  describe "brand" do
+    it "decodes and unbrands cleanly" do
+      let
+        userIdSchema :: S.Schema (S.Branded "UserId" Int)
+        userIdSchema = S.brand (Proxy :: Proxy "UserId") S.int
+      case S.parseJson userIdSchema "42" of
+        Right b -> S.unbrand b `shouldEqual` 42
+        other -> fail ("expected Right, got: " <> show other)
+
+    it "encodes the branded value transparently" do
+      let
+        userIdSchema :: S.Schema (S.Branded "UserId" Int)
+        userIdSchema = S.brand (Proxy :: Proxy "UserId") S.int
+      case S.parseJson userIdSchema "99" of
+        Right b ->
+          Json.stringify (S.encode userIdSchema b) `shouldEqual` "99"
+        other -> fail ("expected Right, got: " <> show other)
+
+    it "adds title to the JSON Schema fragment" do
+      let
+        userIdSchema :: S.Schema (S.Branded "UserId" Int)
+        userIdSchema = S.brand (Proxy :: Proxy "UserId") S.int
+      Json.stringify (S.toJsonSchema userIdSchema)
+        `shouldEqual`
+          "{\"type\":\"integer\",\"title\":\"UserId\"}"

@@ -1,12 +1,13 @@
 -- | A small runtime schema library: bidirectional decoders /
 -- | encoders for JSON, built as ordinary PureScript values.
 -- |
--- | A `Schema a` carries both a `Json -> Either DecodeError a`
--- | decoder and an `a -> Json` encoder, so the same value defines
--- | the wire format in both directions. Primitive schemas
--- | (`string`, `int`, `number`, `boolean`, `null_`) describe
--- | individual JSON kinds; combinators (`array`, `nullable`,
--- | `transform`, `refine`, `union`, `enum`) compose them.
+-- | A `Schema a` carries a `Json -> Either DecodeError a` decoder,
+-- | an `a -> Json` encoder, and a JSON Schema fragment describing
+-- | the wire shape. The same value defines validation, rendering,
+-- | and documentation in one place. Primitive schemas (`string`,
+-- | `int`, `number`, `boolean`, `null_`) describe individual JSON
+-- | kinds; combinators (`array`, `nullable`, `transform`, `refine`,
+-- | `union`, `enum`) compose them.
 -- |
 -- | Records are described through an `Applicative` builder
 -- | (`RecordSchema r a`). Each `field` declares how to pull a
@@ -28,13 +29,23 @@
 -- | carry a path (field names, array indices) which `renderError`
 -- | turns into a human-readable trail; treat the trail as
 -- | advisory output rather than a stable API.
+-- |
+-- | `toJsonSchema` extracts the JSON Schema fragment as a `Json`
+-- | value. The output follows draft 2020-12 (minus features the
+-- | library does not model) and is intended for documentation,
+-- | OpenAPI generation, and external validators; it is not used
+-- | by `decode` itself. `brand` wraps a schema in a phantom
+-- | `Symbol` tag and surfaces that tag through the `title` field
+-- | of the JSON Schema fragment.
 module RIO.Schema
   ( Schema
   , DecodeError(..)
   , RecordSchema
+  , Branded
   , decode
   , encode
   , parseJson
+  , toJsonSchema
   -- Primitive schemas
   , json
   , string
@@ -50,6 +61,8 @@ module RIO.Schema
   , transform
   , union
   , enum
+  , brand
+  , unbrand
   -- Record builder
   , field
   , fieldOpt
@@ -65,15 +78,18 @@ import Data.Argonaut.Core (Json)
 import Data.Argonaut.Core as Json
 import Data.Argonaut.Parser as Parser
 import Data.Array (head, intercalate, mapWithIndex)
+import Data.Array as Array
 import Data.Bifunctor (lmap)
 import Data.Either (Either(..), note)
 import Data.Foldable (foldr, find) as Foldable
 import Data.Int as Int
 import Data.Maybe (Maybe(..), maybe)
+import Data.Symbol (class IsSymbol, reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Foreign.Object (Object)
 import Foreign.Object as Object
+import Type.Proxy (Proxy)
 
 -- | A reason a `Json` value failed to decode against a `Schema`.
 -- | Paths build up as you descend through fields (`InvalidField`)
@@ -106,11 +122,28 @@ instance showDecodeError :: Show DecodeError where
 
 -- | A bidirectional schema for a value of type `a`. Allocate one
 -- | with the primitive constructors and the combinators in this
--- | module; consume it with `decode`, `encode`, or `parseJson`.
+-- | module; consume it with `decode`, `encode`, `parseJson`, or
+-- | `toJsonSchema`.
 newtype Schema a = Schema
   { decoder :: Json -> Either DecodeError a
   , encoder :: a -> Json
+  , describe :: Json
   }
+
+-- | A value of type `a` tagged at the type level with a `Symbol`.
+-- | Carries no runtime structure beyond `a`; the tag is used to
+-- | distinguish otherwise-identical schemas and to surface a
+-- | human-readable name in JSON Schema output.
+newtype Branded :: Symbol -> Type -> Type
+newtype Branded tag a = Branded a
+
+derive newtype instance eqBranded :: Eq a => Eq (Branded tag a)
+derive newtype instance ordBranded :: Ord a => Ord (Branded tag a)
+derive newtype instance showBranded :: Show a => Show (Branded tag a)
+
+-- | Unwrap a branded value.
+unbrand :: forall tag a. Branded tag a -> a
+unbrand (Branded a) = a
 
 -- | Apply a schema's decoder.
 decode :: forall a. Schema a -> Json -> Either DecodeError a
@@ -119,6 +152,12 @@ decode (Schema s) = s.decoder
 -- | Apply a schema's encoder.
 encode :: forall a. Schema a -> a -> Json
 encode (Schema s) = s.encoder
+
+-- | Return the JSON Schema fragment describing the wire shape.
+-- | The output is suitable for documentation or OpenAPI export
+-- | and is not consumed by `decode`.
+toJsonSchema :: forall a. Schema a -> Json
+toJsonSchema (Schema s) = s.describe
 
 -- | Parse a JSON string and then decode it. Returns `ParseError`
 -- | if the string is not syntactically valid JSON.
@@ -136,10 +175,19 @@ tag = Json.caseJson
   (\_ -> "array")
   (\_ -> "object")
 
+-- | Build a JSON Schema fragment of shape `{"type": <typeName>}`.
+typeFragment :: String -> Json
+typeFragment t = Json.fromObject
+  (Object.singleton "type" (Json.fromString t))
+
 -- | The identity schema. Decoding always succeeds and yields the
--- | raw `Json` value unchanged.
+-- | raw `Json` value unchanged. Describes as `{}` (any JSON value).
 json :: Schema Json
-json = Schema { decoder: Right, encoder: identity }
+json = Schema
+  { decoder: Right
+  , encoder: identity
+  , describe: Json.fromObject Object.empty
+  }
 
 -- | A schema for JSON strings.
 string :: Schema String
@@ -147,6 +195,7 @@ string = Schema
   { decoder: \j ->
       note (TypeMismatch { expected: "string", got: tag j }) (Json.toString j)
   , encoder: Json.fromString
+  , describe: typeFragment "string"
   }
 
 -- | A schema for JSON numbers (decoded as `Number`, i.e. an IEEE
@@ -156,6 +205,7 @@ number = Schema
   { decoder: \j ->
       note (TypeMismatch { expected: "number", got: tag j }) (Json.toNumber j)
   , encoder: Json.fromNumber
+  , describe: typeFragment "number"
   }
 
 -- | A schema for JSON numbers constrained to fit in `Int`.
@@ -169,6 +219,7 @@ int = Schema
         Nothing -> Left (RefinementFailed "not a finite 32-bit integer")
         Just i -> Right i
   , encoder: \i -> Json.fromNumber (Int.toNumber i)
+  , describe: typeFragment "integer"
   }
 
 -- | A schema for JSON booleans.
@@ -177,6 +228,7 @@ boolean = Schema
   { decoder: \j ->
       note (TypeMismatch { expected: "boolean", got: tag j }) (Json.toBoolean j)
   , encoder: Json.fromBoolean
+  , describe: typeFragment "boolean"
   }
 
 -- | A schema that accepts (and produces) JSON `null`, materialised
@@ -186,6 +238,7 @@ null_ = Schema
   { decoder: \j ->
       note (TypeMismatch { expected: "null", got: tag j }) (Json.toNull j)
   , encoder: \_ -> Json.jsonNull
+  , describe: typeFragment "null"
   }
 
 -- | Synonym for `null_`, for readers who prefer the unit-shaped
@@ -201,6 +254,12 @@ array (Schema s) = Schema
       Nothing -> Left (TypeMismatch { expected: "array", got: tag j })
       Just arr -> traverse identity (mapWithIndex (\i x -> lmap (InvalidIndex i) (s.decoder x)) arr)
   , encoder: \xs -> Json.fromArray (map s.encoder xs)
+  , describe: Json.fromObject
+      ( Object.fromFoldable
+          [ Tuple "type" (Json.fromString "array")
+          , Tuple "items" s.describe
+          ]
+      )
   }
 
 -- | Allow JSON `null` in addition to whatever `inner` accepts.
@@ -211,10 +270,18 @@ nullable (Schema s) = Schema
       if Json.isNull j then Right Nothing
       else map Just (s.decoder j)
   , encoder: maybe Json.jsonNull s.encoder
+  , describe: Json.fromObject
+      ( Object.singleton "anyOf"
+          ( Json.fromArray
+              [ s.describe, typeFragment "null" ]
+          )
+      )
   }
 
 -- | Attach a refinement to an existing schema. The predicate
--- | returns `Nothing` on success or `Just reason` on failure.
+-- | returns `Nothing` on success or `Just reason` on failure. The
+-- | JSON Schema fragment is inherited unchanged from the inner
+-- | schema; refinements are runtime-only.
 refine :: forall a. (a -> Maybe String) -> Schema a -> Schema a
 refine check (Schema s) = Schema
   { decoder: \j -> case s.decoder j of
@@ -223,15 +290,17 @@ refine check (Schema s) = Schema
         Nothing -> Right a
         Just msg -> Left (RefinementFailed msg)
   , encoder: s.encoder
+  , describe: s.describe
   }
 
 -- | Map a schema through an isomorphism (or a lossy pair of
 -- | conversions). `from` runs after decode, `to` runs before
--- | encode.
+-- | encode. The JSON Schema fragment is inherited unchanged.
 transform :: forall a b. (a -> b) -> (b -> a) -> Schema a -> Schema b
 transform from to (Schema s) = Schema
   { decoder: map from <<< s.decoder
   , encoder: s.encoder <<< to
+  , describe: s.describe
   }
 
 -- | Try a list of schemas in order, succeeding with the first
@@ -255,6 +324,12 @@ union schemas = Schema
   , encoder: \a -> case head schemas of
       Just (Schema s) -> s.encoder a
       Nothing -> Json.jsonNull
+  , describe: Json.fromObject
+      ( Object.singleton "anyOf"
+          ( Json.fromArray
+              (map (\(Schema s) -> s.describe) schemas)
+          )
+      )
   }
 
 -- | A schema for a closed set of string-tagged values. Encoding
@@ -268,6 +343,36 @@ enum table toTag = Schema
         Nothing -> Left (RefinementFailed ("unknown tag: " <> show s))
         Just (Tuple _ a) -> Right a
   , encoder: \a -> Json.fromString (toTag a)
+  , describe: Json.fromObject
+      ( Object.fromFoldable
+          [ Tuple "type" (Json.fromString "string")
+          , Tuple "enum"
+              ( Json.fromArray
+                  (map (\(Tuple k _) -> Json.fromString k) table)
+              )
+          ]
+      )
+  }
+
+-- | Tag a schema with a type-level `Symbol` and add that name to
+-- | the JSON Schema fragment as a `title`. The runtime decoder and
+-- | encoder pass through; `Branded` only wraps the result type so
+-- | the brand can flow with the value.
+brand
+  :: forall tag a
+   . IsSymbol tag
+  => Proxy tag
+  -> Schema a
+  -> Schema (Branded tag a)
+brand p (Schema s) = Schema
+  { decoder: map Branded <<< s.decoder
+  , encoder: \(Branded a) -> s.encoder a
+  , describe:
+      let
+        name = reflectSymbol p
+        existing = Json.caseJsonObject Object.empty identity s.describe
+      in
+        Json.fromObject (Object.insert "title" (Json.fromString name) existing)
   }
 
 -- | An applicative builder for record schemas. Type parameters:
@@ -280,24 +385,28 @@ enum table toTag = Schema
 newtype RecordSchema r a = RecordSchema
   { decoder :: Object Json -> Either DecodeError a
   , encoder :: r -> Array (Tuple String Json)
+  , properties :: Array { name :: String, describe :: Json, required :: Boolean }
   }
 
 instance functorRecordSchema :: Functor (RecordSchema r) where
   map f (RecordSchema rs) = RecordSchema
     { decoder: map f <<< rs.decoder
     , encoder: rs.encoder
+    , properties: rs.properties
     }
 
 instance applyRecordSchema :: Apply (RecordSchema r) where
   apply (RecordSchema rf) (RecordSchema ra) = RecordSchema
     { decoder: \o -> rf.decoder o <*> ra.decoder o
     , encoder: \r -> rf.encoder r <> ra.encoder r
+    , properties: rf.properties <> ra.properties
     }
 
 instance applicativeRecordSchema :: Applicative (RecordSchema r) where
   pure a = RecordSchema
     { decoder: \_ -> Right a
     , encoder: \_ -> []
+    , properties: []
     }
 
 -- | Declare a required field. Errors decoding the field are
@@ -314,6 +423,7 @@ field key getter (Schema s) = RecordSchema
       Nothing -> Left (MissingField key)
       Just j -> lmap (InvalidField key) (s.decoder j)
   , encoder: \r -> [ Tuple key (s.encoder (getter r)) ]
+  , properties: [ { name: key, describe: s.describe, required: true } ]
   }
 
 -- | Declare an optional field. A missing key decodes to
@@ -333,6 +443,7 @@ fieldOpt key getter (Schema s) = RecordSchema
   , encoder: \r -> case getter r of
       Nothing -> []
       Just a -> [ Tuple key (s.encoder a) ]
+  , properties: [ { name: key, describe: s.describe, required: false } ]
   }
 
 -- | Like `field`, but supplies a fallback when the key is
@@ -350,18 +461,39 @@ fieldDefault key getter def (Schema s) = RecordSchema
       Nothing -> Right def
       Just j -> lmap (InvalidField key) (s.decoder j)
   , encoder: \r -> [ Tuple key (s.encoder (getter r)) ]
+  , properties: [ { name: key, describe: s.describe, required: false } ]
   }
 
 -- | Seal a record builder into a `Schema`. The result decodes
 -- | objects (failing with `TypeMismatch` on any other JSON kind)
 -- | and encodes records as the concatenation of all declared
--- | field encoders.
+-- | field encoders. The JSON Schema fragment is
+-- | `{"type": "object", "properties": ..., "required": ...}`
+-- | with the required list ordered by field declaration.
 recordOf :: forall a. RecordSchema a a -> Schema a
 recordOf (RecordSchema rs) = Schema
   { decoder: \j -> case Json.toObject j of
       Nothing -> Left (TypeMismatch { expected: "object", got: tag j })
       Just o -> rs.decoder o
   , encoder: \a -> Json.fromObject (Object.fromFoldable (rs.encoder a))
+  , describe:
+      let
+        props = Json.fromObject
+          ( Object.fromFoldable
+              (map (\p -> Tuple p.name p.describe) rs.properties)
+          )
+        required = Json.fromArray
+          ( map (\p -> Json.fromString p.name)
+              (Array.filter _.required rs.properties)
+          )
+      in
+        Json.fromObject
+          ( Object.fromFoldable
+              [ Tuple "type" (Json.fromString "object")
+              , Tuple "properties" props
+              , Tuple "required" required
+              ]
+          )
   }
 
 -- | Render a `DecodeError` as a short human-readable path-and-
