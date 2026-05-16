@@ -107,6 +107,7 @@ import Test.RIO.STM.TSemaphore.PropertiesSpec as TSemaphorePropertiesSpec
 import Test.RIO.TagSpec as TagSpec
 import Test.RIO.Test.PropertySpec as TestPropertySpec
 import Test.RIO.TestHelpersSpec as TestHelpersSpec
+import Test.RIO.TimeSpec as TimeSpec
 import Test.RIO.TracerSpec as TracerSpec
 import Test.RIO.ValidationSpec as ValidationSpec
 
@@ -204,6 +205,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   THubSpec.spec
   THubPropertiesSpec.spec
   TDeferredSpec.spec
+  TimeSpec.spec
   TracerSpec.spec
   ValidationSpec.spec
   MetricSpec.spec

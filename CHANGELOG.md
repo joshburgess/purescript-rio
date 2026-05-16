@@ -11,6 +11,20 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Time`: small ergonomics layer over `RIO.Clock` and
+  `Data.Time.Duration`. Adds an `Instant` newtype around
+  `Milliseconds` (epoch-anchored timestamps, distinguished from
+  the `Milliseconds`-shaped `Duration` so a "moment in time" and
+  a "length of time" can no longer be silently confused),
+  `Duration` smart constructors (`milliseconds`, `seconds`,
+  `minutes`, `hours`, `days`), instant arithmetic
+  (`addDuration`, `subDuration`, `between`, `diffMs`),
+  millisecond-precision ISO 8601 round-trip (`formatISO8601`,
+  `parseISO8601`) that goes through the host `Date` constructor,
+  and a `humanize` renderer for `Duration` values
+  (`"1d 2h 3m 4s"`, `"500ms"`, `"-1s"`). `nowInstant` reads the
+  current `Instant` off the existing `Clock` service so it works
+  unchanged with `RIO.Test.Clock` for deterministic tests.
 - `rio-node`: new sibling package wrapping the Node.js standard
   library bindings as RIO services. First three modules shipped:
   * `RIO.Node.FileSystem` — service exposing the full surface
