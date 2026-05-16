@@ -95,10 +95,37 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `InterfaceOptions` constructors, and `AbortController` are
     re-exported so callers do not need to reach for
     `Node.ReadLine.*` directly.
+  * `RIO.Node.ChildProcess` — RIO-flavoured wrappers around
+    `Node.ChildProcess` and `Node.ChildProcess.Aff`. The full
+    process-launching surface is lifted into `RIO`: `spawn` /
+    `spawn'`, `spawnSync` / `spawnSync'`, `exec` / `exec'`,
+    `execSync` / `execSync'`, `execFile` / `execFile'`,
+    `execFileSync` / `execFileSync'`, `fork` / `fork'`,
+    `send` / `send'`, plus the lifecycle / introspection
+    primitives (`pid`, `pidExists`, `connected`, `exitCode`,
+    `signalCode`, `disconnect`, `kill` / `kill'`, `killSignal`,
+    `killed`, `ref`, `unref`). The `Aff`-blocking
+    `waitSpawned` is re-exposed as a `RIO` action. The
+    `ForkOptions`, `SendOptions`, and `SpawnSyncResult` record
+    aliases (which `Node.ChildProcess` keeps internal) are
+    re-declared locally so callers can name them without
+    reaching into the upstream module. The event handles
+    (`closeH` / `disconnectH` / `errorH` / `exitH` /
+    `messageH` / `spawnH`), the stream accessors (`stdin` /
+    `stdout` / `stderr` / `stdio`), the `Exit` ADT and its
+    constructors, and the assorted `Node.ChildProcess.Types`
+    helpers (`Handle`, `KillSignal`, `Shell`, `StdIO`,
+    `StringOrBuffer`, `UnsafeChildProcess`, plus the `pipe` /
+    `inherit` / `ipc` / `ignore` / `overlapped` /
+    `fileDescriptor` / `shareStream` / `customShell` /
+    `enableShell` / `defaultStdIO` / `intSignal` /
+    `stringSignal` / `fromKillSignal` / `fromKillSignal'`
+    constructors) are re-exported so callers do not need to
+    reach for `Node.ChildProcess.*` or `Node.ChildProcess.Types`
+    directly.
   CI builds and tests the new package alongside the existing
-  adapters. The remaining `Node.*` services (ChildProcess,
-  Stream bridge, HTTP, Net, HTTP2) are tracked as follow-up
-  work.
+  adapters. The remaining `Node.*` services (Stream bridge,
+  HTTP, Net, HTTP2) are tracked as follow-up work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined
