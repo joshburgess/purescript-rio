@@ -12,6 +12,7 @@ import Test.RIO.Node.FileSystemSpec as FileSystemSpec
 import Test.RIO.Node.OSSpec as OSSpec
 import Test.RIO.Node.PathSpec as PathSpec
 import Test.RIO.Node.ProcessSpec as ProcessSpec
+import Test.RIO.Node.ReadLineSpec as ReadLineSpec
 import Test.RIO.Node.URLSpec as URLSpec
 
 main :: Effect Unit
@@ -22,4 +23,5 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   OSSpec.spec
   PathSpec.spec
   ProcessSpec.spec
+  ReadLineSpec.spec
   URLSpec.spec

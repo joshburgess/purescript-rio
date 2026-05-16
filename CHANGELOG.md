@@ -76,10 +76,29 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     the `EventHandle0`..`EventHandle7` arity helpers are
     re-exported so callers do not need to import
     `Node.EventEmitter.*` directly.
+  * `RIO.Node.ReadLine` — RIO-flavoured wrappers around
+    `Node.ReadLine` and `Node.ReadLine.Aff`. `createInterface`,
+    `createConsoleInterface`, `close`, `pause`, `resume`,
+    `prompt` / `prompt'`, `setPrompt` / `getPrompt`,
+    `writeData`, `writeKey`, `line`, `cursor`, `getCursorPos`,
+    and the cursor / line / screen-control writers
+    (`cursorToX[Y]` / `moveCursorXY` / `clearLineLeft` /
+    `clearLineRight` / `clearEntireLine` / `clearScreenDown` /
+    `emitKeyPressEvents`) all lift into `RIO`. `question` and
+    `question'` are surfaced in their `Aff`-blocking form
+    because the callback-style binding cannot run arbitrary
+    `RIO r e` continuations from inside `Effect`. The
+    `blockUntilClosed` and `countLines` `Aff` helpers are
+    re-exposed as `RIO` actions, and all of the readline event
+    handles (`closeH` / `lineH` / `historyH` / `pauseH` /
+    `resumeH` / `sigContH` / `sigIntH` / `sigStpH`), the
+    `InterfaceOptions` constructors, and `AbortController` are
+    re-exported so callers do not need to reach for
+    `Node.ReadLine.*` directly.
   CI builds and tests the new package alongside the existing
   adapters. The remaining `Node.*` services (ChildProcess,
-  Stream bridge, HTTP, Net, ReadLine, HTTP2) are tracked as
-  follow-up work.
+  Stream bridge, HTTP, Net, HTTP2) are tracked as follow-up
+  work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined
