@@ -54,6 +54,7 @@ import Test.RIO.QueueSpec as QueueSpec
 import Test.RIO.Queue.BulkSpec as QueueBulkSpec
 import Test.RIO.Queue.PropertiesSpec as QueuePropertiesSpec
 import Test.RIO.RandomSpec as RandomSpec
+import Test.RIO.RateLimiterSpec as RateLimiterSpec
 import Test.RIO.RefSpec as RefSpec
 import Test.RIO.Ref.SynchronizedSpec as SynchronizedRefSpec
 import Test.RIO.Random.PropertiesSpec as RandomPropertiesSpec
@@ -149,6 +150,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ClockSpec.spec
   ClockPartsSpec.spec
   RandomSpec.spec
+  RateLimiterSpec.spec
   RandomPropertiesSpec.spec
   RandomShufflePickSpec.spec
   RandomWeightedSpec.spec

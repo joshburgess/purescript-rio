@@ -11,6 +11,19 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.RateLimiter`: a token-bucket rate limiter built on top of
+  `RIO.Clock`. `make` allocates a bucket configured by
+  `{ permitsPerSecond, burst }`; `acquire` / `acquireN` block
+  until enough tokens have refilled and `sleep` for the
+  computed wait through the Clock service; `tryAcquire` /
+  `tryAcquireN` return immediately with a `Boolean` indicating
+  whether the deduction succeeded; `withPermit` / `withPermits`
+  bracket an action with an acquire (no release because tokens
+  are spent, not borrowed); `available` exposes the
+  approximate current token count. The limiter is fully driven
+  by `RIO.Test.Clock` for deterministic tests; under contention
+  ordering is approximate (no FIFO wait queue), and callers who
+  need strict fairness should layer a `Semaphore` on top.
 - `RIO.Time`: small ergonomics layer over `RIO.Clock` and
   `Data.Time.Duration`. Adds an `Instant` newtype around
   `Milliseconds` (epoch-anchored timestamps, distinguished from
