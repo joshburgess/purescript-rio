@@ -22,6 +22,7 @@ import Test.RIO.Config.RotatingSpec as RotatingSpec
 import Test.RIO.CacheSpec as CacheSpec
 import Test.RIO.BrandSpec as BrandSpec
 import Test.RIO.CauseSpec as CauseSpec
+import Test.RIO.ChunkSpec as ChunkSpec
 import Test.RIO.ChannelSpec as ChannelSpec
 import Test.RIO.Cause.CombinatorsSpec as CauseCombinatorsSpec
 import Test.RIO.Cause.CatchSomeSpec as CauseCatchSomeSpec
@@ -152,6 +153,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   TimeoutRaceValidateSpec.spec
   ZipWithParSpec.spec
   BrandSpec.spec
+  ChunkSpec.spec
   CauseSpec.spec
   ChannelSpec.spec
   CauseCombinatorsSpec.spec
