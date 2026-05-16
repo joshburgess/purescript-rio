@@ -30,7 +30,14 @@ module Benchmarks.Main
 import Prelude
 
 import Benchmarks.Harness (benchAff, benchAffWith)
-import Benchmarks.Instr (bindChainInstr, runInstr, serviceLoopInstr)
+import Benchmarks.Instr
+  ( bindChainInstr
+  , catchLoopInstr
+  , failCatchOnceInstr
+  , runInstr
+  , serviceLoopInstr
+  )
+import Data.Either (Either(..))
 import Benchmarks.VsAff (runVsAff)
 import Data.Array (range) as Array
 import Data.Traversable (traverse)
@@ -77,6 +84,16 @@ failCatchOnce :: forall r. RIO r () Int
 failCatchOnce =
   catchTag (Proxy :: Proxy "oops") (\n -> pure (n + 1))
     (fail (Proxy :: Proxy "oops") (1 :: Int))
+
+catchLoop :: forall r. Int -> RIO r () Int
+catchLoop n = go 0 n
+  where
+  go :: Int -> Int -> RIO r () Int
+  go acc 0 = pure acc
+  go acc k =
+    catchTag (Proxy :: Proxy "oops")
+      (\(x :: Int) -> go (acc + x) (k - 1))
+      (fail (Proxy :: Proxy "oops") (1 :: Int))
 
 main :: Effect Unit
 main = launchAff_ do
@@ -169,7 +186,14 @@ runInstrBench = do
   let
     bindIters = 10000
     serviceIters = 10000
+    catchIters = 10000
     sampleCount = 200
+
+  -- Sanity assertion: catch round-trip returns Right 2.
+  sanity <- runInstr {} failCatchOnceInstr
+  liftEffect case sanity of
+    Right 2 -> log "  catchTag sanity OK: Right 2"
+    other -> log ("  catchTag SANITY FAILED: " <> show other)
 
   benchAffWith sampleCount
     "RIO bind chain (10000 binds)"
@@ -190,6 +214,22 @@ runInstrBench = do
   benchAffWith sampleCount
     "Instr service loop (10000 ask + lookup)"
     (void (runInstr { svc: stubService } (serviceLoopInstr serviceIters)))
+
+  benchAffWith sampleCount
+    "RIO fail + catchTag (1 round-trip)"
+    (void (runRIO' failCatchOnce))
+
+  benchAffWith sampleCount
+    "Instr fail + catchTag (1 round-trip)"
+    (void (runInstr {} failCatchOnceInstr))
+
+  benchAffWith sampleCount
+    "RIO catch loop (10000 round-trips)"
+    (void (runRIO' (catchLoop catchIters)))
+
+  benchAffWith sampleCount
+    "Instr catch loop (10000 round-trips)"
+    (void (runInstr {} (catchLoopInstr catchIters)))
 
   liftEffect do
     log ""
