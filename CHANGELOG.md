@@ -11,6 +11,18 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Runtime`: a reusable runtime that bundles an env
+  record with a runner. `Runtime.make { ... }` packages the
+  environment record; `Runtime.run rt program` executes a
+  program against it (with the typed-error channel on
+  `Left`); `Runtime.runOrThrow rt program` is the
+  empty-error-row variant that returns the success value
+  directly. The shape pairs well with embedding RIO in a
+  larger `Aff` codebase, in long-lived processes that
+  service many requests against a stable service graph, and
+  in test suites that want a fixture-style "give me a
+  runtime" hook instead of re-`provide`ing every service per
+  assertion. `unitRuntime` is the empty-env convenience.
 - `RIO.WebSocket`: the WebSocket service shape. A client-style
   service for opening a connection to a URL and exchanging
   `Message`s with the remote peer. The service record exposes

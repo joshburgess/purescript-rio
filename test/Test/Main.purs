@@ -54,6 +54,7 @@ import Test.RIO.Hub.PropertiesSpec as HubPropertiesSpec
 import Test.RIO.LayerSpec as LayerSpec
 import Test.RIO.FiberRefSpec as FiberRefSpec
 import Test.RIO.LocalSpec as LocalSpec
+import Test.RIO.RuntimeSpec as RuntimeSpec
 import Test.RIO.WorkerPoolSpec as WorkerPoolSpec
 import Test.RIO.LoggerSpec as LoggerSpec
 import Test.RIO.Logger.CompositionSpec as LoggerCompositionSpec
@@ -250,6 +251,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   MetricsSpec.spec
   FiberRefSpec.spec
   WorkerPoolSpec.spec
+  RuntimeSpec.spec
   LocalSpec.spec
   LoggerSpec.spec
   LoggerCompositionSpec.spec
