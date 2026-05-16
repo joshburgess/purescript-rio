@@ -245,6 +245,20 @@ runInstrBench = do
     "Instr catch loop (10000 round-trips)"
     (void (runInstr {} (catchLoopInstr catchIters)))
 
+  -- Stack-safety smoke check: 1M binds in the interpreter loop
+  -- must not blow the JS call stack and must complete in a
+  -- reasonable budget. 10 samples is plenty; we just want to
+  -- confirm the design is sound at scale.
+  let stackIters = 1000000
+
+  benchAffWith 10
+    "Instr bind chain (1M binds, stack safety)"
+    (void (runInstr {} (bindChainInstr stackIters)))
+
+  benchAffWith 10
+    "RIO bind chain (1M binds, stack safety)"
+    (void (runRIO' (bindChain stackIters)))
+
   liftEffect do
     log ""
     log "Reading the table: the Instr rows are the spike interpreter"
