@@ -74,7 +74,7 @@ import Unsafe.Coerce (unsafeCoerce)
 
 import RIO.Concurrency (Fiber(..), mkFiber)
 import RIO.Env (ask) as Env
-import RIO.Internal (RIO(..), mkRIO, unRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkEffectRIO, mkRIO, unRIO, unsafeUnRIO)
 import RIO.Resource (Scope, addFinalizer)
 
 -- | A type-erased `Ref` cell, recovered by the carrying
@@ -96,9 +96,7 @@ newtype FiberRefs = FiberRefs (Ref (Map Int AnyRef))
 -- | top-level `RIO` program (typically in `main`) before
 -- | `provide`ing it as the `fiberRefs` service.
 newFiberRefs :: forall r e. RIO r e FiberRefs
-newFiberRefs = mkRIO \_ -> do
-  ref <- liftEffect (Ref.new (Map.empty :: Map Int AnyRef))
-  pure (FiberRefs ref)
+newFiberRefs = mkEffectRIO \_ -> FiberRefs <$> Ref.new (Map.empty :: Map Int AnyRef)
 
 -- | `Effect`-typed variant for callers building the environment
 -- | outside an `RIO` action (e.g. at the top of `main`).
@@ -129,10 +127,10 @@ make
   -> RIO (fiberRefs :: FiberRefs | r) e (FiberRef a)
 make initial = do
   FiberRefs storage <- Env.ask (Proxy :: Proxy "fiberRefs")
-  mkRIO \_ -> do
-    key <- liftEffect nextKey
-    ref <- liftEffect (Ref.new initial)
-    liftEffect (Ref.modify_ (Map.insert key (eraseRef ref)) storage)
+  mkEffectRIO \_ -> do
+    key <- nextKey
+    ref <- Ref.new initial
+    Ref.modify_ (Map.insert key (eraseRef ref)) storage
     pure (FiberRef { key, default: initial })
 
 -- | Read the calling fiber's value of the cell.
@@ -142,12 +140,10 @@ get
   -> RIO (fiberRefs :: FiberRefs | r) e a
 get (FiberRef { key, default }) = do
   FiberRefs storage <- Env.ask (Proxy :: Proxy "fiberRefs")
-  mkRIO \_ -> do
-    m <- liftEffect (Ref.read storage)
+  mkEffectRIO \_ -> do
+    m <- Ref.read storage
     case Map.lookup key m of
-      Just anyRef -> do
-        v <- liftEffect (Ref.read (reifyRef anyRef))
-        pure v
+      Just anyRef -> Ref.read (reifyRef anyRef)
       Nothing -> pure default
 
 -- | Overwrite the calling fiber's value of the cell. If the cell
@@ -162,14 +158,14 @@ set
   -> RIO (fiberRefs :: FiberRefs | r) e Unit
 set (FiberRef { key }) value = do
   FiberRefs storage <- Env.ask (Proxy :: Proxy "fiberRefs")
-  mkRIO \_ -> do
-    m <- liftEffect (Ref.read storage)
+  mkEffectRIO \_ -> do
+    m <- Ref.read storage
     case Map.lookup key m of
       Just anyRef ->
-        liftEffect (Ref.write value (reifyRef anyRef))
+        Ref.write value (reifyRef anyRef)
       Nothing -> do
-        ref <- liftEffect (Ref.new value)
-        liftEffect (Ref.modify_ (Map.insert key (eraseRef ref)) storage)
+        ref <- Ref.new value
+        Ref.modify_ (Map.insert key (eraseRef ref)) storage
 
 -- | Apply a pure function to the calling fiber's value and store
 -- | the result. Equivalent to `get` followed by `set`.

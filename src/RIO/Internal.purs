@@ -24,6 +24,7 @@ module RIO.Internal
   ( RIO(..)
   , Instr
   , mkRIO
+  , mkEffectRIO
   , unRIO
   , unsafeUnRIO
   , rioFail
@@ -34,6 +35,7 @@ module RIO.Internal
   , instrLiftEffect
   , instrLiftAff
   , instrLift
+  , instrSyncLift
   , instrAsk
   , instrFail
   , instrCatchTag
@@ -98,6 +100,13 @@ foreign import instrLocal
 foreign import instrLift
   :: forall r e a. (Record r -> Aff a) -> Instr r e a
 
+-- | SYNC_LIFT: env-aware `Record r -> Effect a` bridge. Unlike
+-- | LIFT, the interpreter runs the resulting `Effect` synchronously
+-- | inside the inner loop, never suspending. Use when the work is
+-- | genuinely synchronous and just needs the env.
+foreign import instrSyncLift
+  :: forall r e a. (Record r -> Effect a) -> Instr r e a
+
 foreign import _initInstrState
   :: forall r e a. Record r -> Instr r e a -> Effect (InstrState r e a)
 
@@ -134,6 +143,14 @@ newtype RIO r e a = RIO (Instr r e a)
 -- | it to the current env and suspends on the resulting `Aff`.
 mkRIO :: forall r e a. (Record r -> Aff a) -> RIO r e a
 mkRIO f = RIO (instrLift f)
+
+-- | Bridge for call sites that need the env but do only synchronous
+-- | Effect work. Wraps the closure as a SYNC_LIFT instruction; the
+-- | interpreter runs the resulting Effect inside its inner loop and
+-- | never suspends through Aff. Strictly faster than `mkRIO \r ->
+-- | liftEffect ...` on hot paths.
+mkEffectRIO :: forall r e a. (Record r -> Effect a) -> RIO r e a
+mkEffectRIO f = RIO (instrSyncLift f)
 
 -- | Run an `Instr` against an environment record. The interpreter
 -- | dispatches synchronously until it either completes or suspends

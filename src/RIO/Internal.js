@@ -41,6 +41,7 @@ const CATCH = 5;
 const LOCAL = 6;
 const ASYNC = 7;
 const LIFT = 8;
+const SYNC_LIFT = 9;
 
 // Singleton ASK node: there's only ever one shape and no payload,
 // so we can reuse the same object instead of allocating per call.
@@ -88,6 +89,14 @@ export const instrLiftAff = function (aff) {
 // evaluates `fn(env)` to obtain the Aff at suspension time.
 export const instrLift = function (fn) {
   return { tag: LIFT, fn: fn };
+};
+
+// SYNC_LIFT: env-aware Effect bridge. Like LIFT but the closure
+// produces an Effect; the interpreter runs it synchronously inside
+// the inner loop, no Aff suspension. The dominant `mkRIO \r ->
+// liftEffect (...)` shape compiles to one of these.
+export const instrSyncLift = function (fn) {
+  return { tag: SYNC_LIFT, fn: fn };
 };
 
 export const _initInstrState = function (env) {
@@ -202,6 +211,10 @@ const runLoop = function (state) {
         state.pendingAff = state.current.fn(state.env);
         state.current = null;
         return;
+      case 9: // SYNC_LIFT
+        state.result = state.current.fn(state.env)();
+        state.current = null;
+        break;
       default:
         throw new Error("RIO.Internal: unknown instruction tag " + state.current.tag);
     }

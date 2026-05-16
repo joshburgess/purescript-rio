@@ -17,7 +17,7 @@ import Record as Record
 import Record.Unsafe (unsafeSet)
 import Type.Proxy (Proxy)
 
-import RIO.Internal (RIO(..), mkRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkEffectRIO, mkRIO, unsafeUnRIO)
 
 -- | Read a single service out of the environment by name.
 -- |
@@ -37,7 +37,7 @@ ask
   => Row.Cons sym a r' r
   => Proxy sym
   -> RIO r e a
-ask sym = mkRIO \r -> pure (Record.get sym r)
+ask sym = mkEffectRIO \r -> pure (Record.get sym r)
 
 -- | Read a single service and project a value out of it in one step.
 -- | Equivalent to `map f (ask sym)`, but the named version is easier on

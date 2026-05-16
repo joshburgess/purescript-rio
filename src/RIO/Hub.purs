@@ -38,7 +38,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..), mkRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkEffectRIO, mkRIO, unsafeUnRIO)
 import RIO.Queue (Queue)
 import RIO.Queue as Queue
 
@@ -98,7 +98,7 @@ subscribe (Hub ref) = mkRIO \r -> do
     pure unit
   let
     unsub :: forall r' e'. RIO r' e' Unit
-    unsub = mkRIO \_ -> liftEffect do
+    unsub = mkEffectRIO \_ -> do
       s' <- Ref.read ref
       Ref.write
         ( s'

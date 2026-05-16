@@ -43,10 +43,9 @@ module RIO.Ref.Synchronized
 import Prelude
 
 import Effect (Effect)
-import Effect.Class (liftEffect)
 import Effect.Ref as ERef
 
-import RIO.Internal (RIO(..), mkRIO)
+import RIO.Internal (RIO(..), mkEffectRIO)
 import RIO.Semaphore (Semaphore)
 import RIO.Semaphore as Semaphore
 
@@ -59,9 +58,9 @@ newtype SynchronizedRef a = SynchronizedRef
 
 -- | Create a fresh `SynchronizedRef` initialised to `value`.
 new :: forall r e a. a -> RIO r e (SynchronizedRef a)
-new value = mkRIO \_ -> do
-  ref <- liftEffect (ERef.new value)
-  sem <- liftEffect (Semaphore.make 1)
+new value = mkEffectRIO \_ -> do
+  ref <- ERef.new value
+  sem <- Semaphore.make 1
   pure (SynchronizedRef { ref, sem })
 
 -- | `Effect`-typed variant for callers that allocate at the top
@@ -77,12 +76,12 @@ newEffect value = do
 -- | update to complete.
 read :: forall r e a. SynchronizedRef a -> RIO r e a
 read (SynchronizedRef s) = Semaphore.withPermit s.sem do
-  mkRIO \_ -> liftEffect (ERef.read s.ref)
+  mkEffectRIO \_ -> ERef.read s.ref
 
 -- | Overwrite the value. Waits for any running effectful update.
 write :: forall r e a. SynchronizedRef a -> a -> RIO r e Unit
 write (SynchronizedRef s) value = Semaphore.withPermit s.sem do
-  mkRIO \_ -> liftEffect (ERef.write value s.ref)
+  mkEffectRIO \_ -> ERef.write value s.ref
 
 -- | Apply a pure function under the lock. Returns the new value.
 -- | Equivalent to `modifyM ref (pure <<< f)` but avoids the extra
@@ -93,7 +92,7 @@ modify
   -> (a -> a)
   -> RIO r e a
 modify (SynchronizedRef s) f = Semaphore.withPermit s.sem do
-  mkRIO \_ -> liftEffect (ERef.modify f s.ref)
+  mkEffectRIO \_ -> ERef.modify f s.ref
 
 -- | Apply an effectful function to the current value under the
 -- | lock and store the result. Returns the new value. While the
@@ -104,10 +103,10 @@ modifyM
   -> (a -> RIO r e a)
   -> RIO r e a
 modifyM (SynchronizedRef s) f = Semaphore.withPermit s.sem do
-  current <- mkRIO \_ -> liftEffect (ERef.read s.ref)
+  current <- mkEffectRIO \_ -> ERef.read s.ref
   next <- f current
-  mkRIO \_ -> do
-    liftEffect (ERef.write next s.ref)
+  mkEffectRIO \_ -> do
+    ERef.write next s.ref
     pure next
 
 -- | `modifyM` that discards the new value.

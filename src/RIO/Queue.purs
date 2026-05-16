@@ -41,7 +41,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..), mkRIO)
+import RIO.Internal (RIO(..), mkEffectRIO, mkRIO)
 
 -- | A blocked taker.
 type Taker a =
@@ -104,7 +104,7 @@ size (Queue ref) = Array.length <<< _.items <$> Ref.read ref
 
 -- | Non-blocking dequeue. `Nothing` when the queue is empty.
 poll :: forall r e a. Queue a -> RIO r e (Maybe a)
-poll (Queue ref) = mkRIO \_ -> liftEffect do
+poll (Queue ref) = mkEffectRIO \_ -> do
   state <- Ref.read ref
   case Array.uncons state.items of
     Nothing -> pure Nothing
@@ -257,7 +257,7 @@ takeUpTo q n
 -- | return `false` immediately; subsequent `take`s return `Nothing`
 -- | once the existing buffer is drained.
 shutdown :: forall r e a. Queue a -> RIO r e Unit
-shutdown (Queue ref) = mkRIO \_ -> liftEffect do
+shutdown (Queue ref) = mkEffectRIO \_ -> do
   state <- Ref.read ref
   Ref.write
     ( state

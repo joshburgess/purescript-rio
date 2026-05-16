@@ -76,7 +76,7 @@ import Type.Proxy (Proxy)
 import RIO.Cause (Cause(..), combineParallel) as Cause
 import RIO.Exit (Exit(..), die, fromEither) as Exit
 import RIO.Exit (Exit(..))
-import RIO.Internal (RIO(..), mkRIO, mkTypedFailureError, rioFail, unRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkEffectRIO, mkRIO, mkTypedFailureError, rioFail, unRIO, unsafeUnRIO)
 import RIO.Resource (Scope, addFinalizer)
 
 -- | A stable identity for a forked fiber.
@@ -325,9 +325,7 @@ fiberId (Fiber f) = f.id
 -- |     Just exit -> handleExit exit
 -- | ```
 poll :: forall r e e' a. Fiber e a -> RIO r e' (Maybe (Exit e a))
-poll (Fiber f) = mkRIO \_ -> do
-  s <- liftEffect (Ref.read f.state)
-  pure s
+poll (Fiber f) = mkEffectRIO \_ -> Ref.read f.state
 
 -- | Wait for a fiber to finish and surface its terminal `Exit`,
 -- | including the `Cause` tree for any failure. Unlike `join`,

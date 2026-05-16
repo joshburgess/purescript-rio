@@ -88,7 +88,7 @@ import Effect.Random as Random
 import Unsafe.Coerce (unsafeCoerce)
 
 import RIO.Clock (Clock, now, partsFromMs, sleep)
-import RIO.Internal (RIO(..), mkRIO, rioFail, unRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkEffectRIO, mkRIO, rioFail, unRIO, unsafeUnRIO)
 
 -- | A scheduling policy: given an input `i`, fire `Step r i o`.
 -- |
@@ -423,7 +423,7 @@ jittered lo hi (Schedule s) = Schedule \i -> mkRIO \env -> do
       pure (Continue o (Milliseconds (ms * factor)) (jittered lo hi next))
   where
   randomNumber :: RIO r () Number
-  randomNumber = mkRIO \_ -> liftEffect Random.random
+  randomNumber = mkEffectRIO \_ -> Random.random
 
 -- | Transform a schedule's output. The cadence (number of steps and
 -- | per-step delay) is preserved; only the output side changes.
