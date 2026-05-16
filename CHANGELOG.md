@@ -11,6 +11,18 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Brand`: a standalone type-level brand combinator. The
+  `Brand :: Symbol -> Type -> Type` newtype tags a carrier
+  (typically a primitive like `Int` or `String`) with a
+  `Symbol` so the type checker can distinguish otherwise-
+  identical carriers. `mkBrand` / `unbrand` mint and read,
+  `reflectBrand` returns the tag itself as a `String`, and
+  `retagBrand` renames a brand without touching the runtime
+  representation. Newtype-derived `Eq` / `Ord` / `Show` /
+  `Semigroup` / `Monoid` pass through to the carrier. The
+  shape mirrors `RIO.Schema.Branded`; this module lets
+  application code adopt brands without depending on
+  `RIO.Schema`.
 - `RIO.System`: a service for the bits of the host process
   environment application code reads at runtime. The record
   exposes `lookupEnv :: String -> Aff (Maybe String)`,
