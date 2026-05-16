@@ -48,10 +48,23 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `debugPort`, the TTY-detection booleans) are re-exported
     as ordinary values. Event-handler bindings and the IPC
     `send` primitives are out of scope here.
+  * `RIO.Node.Buffer` — RIO-flavoured wrappers around
+    `Node.Buffer`. A `Buffer` is a mutable value rather than a
+    capability, so every `Effect`-valued operation is lifted
+    directly into `RIO` (`alloc` / `allocUnsafe` / `create` /
+    `fromArray` / `fromString` / `fromArrayBuffer` /
+    `toArrayBuffer` / `read` / `readString` / `toString` /
+    `toString'` / `write` / `writeString` / `toArray` /
+    `getAtOffset` / `setAtOffset` / `size` / `concat` /
+    `concat'` / `copy` / `fill` / `freeze` / `unsafeFreeze` /
+    `thaw` / `unsafeThaw` / `compareParts` / `poolSize` /
+    `setPoolSize` / `swap16` / `swap32` / `swap64` /
+    `transcode`). `slice` stays pure because it is a view, not
+    an allocation.
   CI builds and tests the new package alongside the existing
   adapters. The remaining `Node.*` services (ChildProcess,
-  Buffer, Stream bridge, HTTP, Net, ReadLine, EventEmitter,
-  HTTP2) are tracked as follow-up work.
+  Stream bridge, HTTP, Net, ReadLine, EventEmitter, HTTP2) are
+  tracked as follow-up work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined
