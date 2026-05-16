@@ -11,6 +11,20 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `examples/typed-error-workflow`: a worked, in-process example
+  of the RIO typed-error workflow. A flaky `userApi` mock is
+  called through a policy stack of `withFields` + `withSpan` +
+  `CircuitBreaker.withBreaker` + `Schedule.retry`; three nested
+  `catchTag` handlers route the surviving failure tags
+  (`transient`, `circuitOpen`, `permanent`) to deterministic
+  outcomes (fall back to a cached user, log and escalate).
+  Recording mocks (`RIO.Test.Logger.newRecordingLogger`,
+  `RIO.Test.Tracer.newRecordingTracer`) capture every log line
+  and span; after the workflow runs, the example replays a
+  battery of checks against the recorded data and exits
+  non-zero if any check fails, so it doubles as a regression
+  test for the integration. Run with
+  `npx spago run -p rio-example-typed-error-workflow`.
 - `RIO.Metrics.OTel`: a pure OTLP/JSON metrics exporter, the
   companion of `RIO.Tracer.OTel`. `exportMetrics cfg records`
   takes an `ExportConfig` (service resource attributes, scope,
