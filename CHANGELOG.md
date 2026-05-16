@@ -61,10 +61,25 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `setPoolSize` / `swap16` / `swap32` / `swap64` /
     `transcode`). `slice` stays pure because it is a view, not
     an allocation.
+  * `RIO.Node.EventEmitter` — RIO-flavoured wrappers around
+    `Node.EventEmitter`. `new`, `getMaxListeners`,
+    `listenerCount`, `setMaxListeners`,
+    `setUnlimitedListeners`, and all four listener-add
+    primitives (`on` / `once` / `prependListener` /
+    `prependOnceListener` plus their `_`-suffix variants) are
+    lifted into `RIO`. The removal callbacks returned by `on`,
+    `once`, `prependListener`, and `prependOnceListener` come
+    back as `RIO r e Unit` so they compose with the rest of an
+    RIO program. `eventNames` and the built-in `newListenerH`
+    and `removeListenerH` event handles are re-exported as
+    pure values. `EventHandle`, `SymbolOrStr`, `JsSymbol`, and
+    the `EventHandle0`..`EventHandle7` arity helpers are
+    re-exported so callers do not need to import
+    `Node.EventEmitter.*` directly.
   CI builds and tests the new package alongside the existing
   adapters. The remaining `Node.*` services (ChildProcess,
-  Stream bridge, HTTP, Net, ReadLine, EventEmitter, HTTP2) are
-  tracked as follow-up work.
+  Stream bridge, HTTP, Net, ReadLine, HTTP2) are tracked as
+  follow-up work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined
