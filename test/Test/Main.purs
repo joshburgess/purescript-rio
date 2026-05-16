@@ -51,6 +51,7 @@ import Test.RIO.HubSpec as HubSpec
 import Test.RIO.IterateReplicateSpec as IterateReplicateSpec
 import Test.RIO.Hub.PropertiesSpec as HubPropertiesSpec
 import Test.RIO.LayerSpec as LayerSpec
+import Test.RIO.FiberRefSpec as FiberRefSpec
 import Test.RIO.LocalSpec as LocalSpec
 import Test.RIO.LoggerSpec as LoggerSpec
 import Test.RIO.Logger.CompositionSpec as LoggerCompositionSpec
@@ -242,6 +243,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ValidationSpec.spec
   MetricSpec.spec
   MetricsSpec.spec
+  FiberRefSpec.spec
   LocalSpec.spec
   LoggerSpec.spec
   LoggerCompositionSpec.spec

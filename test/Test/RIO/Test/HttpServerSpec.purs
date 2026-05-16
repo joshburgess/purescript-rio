@@ -3,7 +3,6 @@ module Test.RIO.Test.HttpServerSpec (spec) where
 import Prelude
 
 import Data.Array (length) as Array
-import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Test.Spec (Spec, describe, it)

@@ -11,7 +11,7 @@
 -- | `killFiber` / `joinFiber`; the underlying cancellation
 -- | guarantees come from the Phase 0.5 spike (scenarios S1, S3).
 module RIO.Concurrency
-  ( Fiber
+  ( Fiber(..)
   , async
   , asyncInterrupt
   , filterPar
