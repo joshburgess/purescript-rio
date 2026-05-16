@@ -9,6 +9,7 @@ const ASK = 3;
 const FAIL = 4;
 const CATCH = 5;
 const LOCAL = 6;
+const ASYNC = 7;
 
 // Singleton ASK node: there's only ever one shape and no payload,
 // so we can reuse the same object instead of allocating per call.
@@ -35,10 +36,8 @@ export const instrFail = function (v) {
 };
 
 // catchTag: wrap `m` in a catch frame. The interpreter records
-// the current bind-stack depth at entry and snapshots the
-// current env; if a FAIL surfaces inside `m` whose Variant
-// `type` field matches `label`, the interpreter truncates the
-// bind stack back to that depth, restores env to the snapshot,
+// the current bind-stack depth at entry and snapshots the env;
+// on a matching FAIL it truncates the bind stack, restores env,
 // and invokes `handler` with the unwrapped value.
 //
 // Depends on Data.Variant's runtime shape: VariantRep is
@@ -53,140 +52,177 @@ export const _instrCatchTag = function (label) {
 };
 
 // instrLocal: run `inner` with the env transformed by `modify`.
-// The interpreter pushes the current env onto the `envs` stack
-// (with the current bind-stack depth), sets env to `modify(env)`,
-// then steps into `inner`. When the scope exits, the env is
-// restored. provide / provideAll are built on top of this.
 export const _instrLocal = function (modify) {
   return function (inner) {
     return { tag: LOCAL, modify: modify, inner: inner };
   };
 };
 
-// The interpreter.
+// instrAsync: suspend the interpreter to run an Aff. The Aff's
+// value becomes the result of this instruction. Aff exceptions
+// propagate up through the driving loop in PureScript.
 //
-// Three parallel stacks:
-//   - `stack`  : bind continuations (functions `a -> Instr`).
-//   - `catches`: catch frames {depth, label, handler, envSnapshot}.
-//   - `envs`   : env-restore frames {depth, env}.
-//
-// `depth` records the bind-stack length at frame entry. On
-// normal value propagation, frames whose protected scope has
-// exited (bind stack dropped below their depth) are popped. For
-// `envs` frames the env is also restored on pop.
-//
-// On FAIL we walk `catches` from the top looking for a matching
-// label. We truncate the bind stack to the matched frame's
-// depth, restore env from the frame's snapshot, drop any envs
-// strictly past the frame's depth, and resume by stepping into
-// `handler(value)`. No match terminates the computation with
-// `Left variant`.
-//
-// Hot path (bind / sync / pure / ask / local) stays cheap:
-// catches and envs are only consulted on continuation pop and
-// on FAIL.
-export const _runInstr = function (left) {
-  return function (right) {
-    return function (initialEnv) {
-      return function (initial) {
-        return function () {
-          const stack = [];
-          const catches = [];
-          const envs = [];
-          let env = initialEnv;
-          let current = initial;
-          let result = undefined;
+// Note: this is the bridge that makes the spike useful for real
+// programs. liftAff / liftEffect on top of Aff and async work
+// (fork, timeouts, network IO) all flow through here.
+export const instrAsync = function (aff) {
+  return { tag: ASYNC, aff: aff };
+};
 
-          while (true) {
-            if (current === null) {
-              if (stack.length === 0) {
-                return right(result);
-              }
-              const k = stack.pop();
-              // Drop env frames whose scope is exited, restoring env.
-              while (
-                envs.length > 0 &&
-                envs[envs.length - 1].depth > stack.length
-              ) {
-                env = envs.pop().env;
-              }
-              // Drop catch frames whose scope is exited.
-              while (
-                catches.length > 0 &&
-                catches[catches.length - 1].depth > stack.length
-              ) {
-                catches.pop();
-              }
-              current = k(result);
-              continue;
-            }
-
-            switch (current.tag) {
-              case 0: // PURE
-                result = current.value;
-                current = null;
-                break;
-              case 1: // SYNC (liftEffect)
-                result = current.eff();
-                current = null;
-                break;
-              case 2: // FLATMAP
-                stack.push(current.k);
-                current = current.m;
-                break;
-              case 3: // ASK
-                result = env;
-                current = null;
-                break;
-              case 4: { // FAIL
-                const variant = current.value;
-                const label = variant.type;
-                let matched = -1;
-                for (let i = catches.length - 1; i >= 0; i--) {
-                  if (catches[i].label === label) {
-                    matched = i;
-                    break;
-                  }
-                }
-                if (matched === -1) {
-                  return left(variant);
-                }
-                const frame = catches[matched];
-                stack.length = frame.depth;
-                catches.length = matched;
-                // Drop env frames strictly past the catch's depth;
-                // env is restored from the catch's snapshot.
-                while (
-                  envs.length > 0 &&
-                  envs[envs.length - 1].depth > frame.depth
-                ) {
-                  envs.pop();
-                }
-                env = frame.envSnapshot;
-                current = frame.handler(variant.value);
-                result = undefined;
-                break;
-              }
-              case 5: // CATCH
-                catches.push({
-                  depth: stack.length,
-                  label: current.label,
-                  handler: current.handler,
-                  envSnapshot: env,
-                });
-                current = current.m;
-                break;
-              case 6: // LOCAL
-                envs.push({ depth: stack.length, env: env });
-                env = current.modify(env);
-                current = current.inner;
-                break;
-              default:
-                throw new Error("Benchmarks.Instr: unknown tag " + current.tag);
-            }
-          }
-        };
+// Fresh mutable interpreter state.
+export const _initInstrState = function (env) {
+  return function (initial) {
+    return function () {
+      return {
+        stack: [],
+        catches: [],
+        envs: [],
+        env: env,
+        current: initial,
+        result: undefined,
+        pendingAff: null,
+        done: false,
+        finalRight: null, // { value: a } when success
+        finalLeft: null, // { variant: V } when typed failure
       };
     };
   };
+};
+
+// Step the interpreter until it suspends on ASYNC, completes
+// with a value, or fails with an unhandled typed failure.
+//
+// Mutates `state` in place. The caller drives the loop:
+//
+//   1. Call _stepInstr.
+//   2. If state.done, read finalRight or finalLeft.
+//   3. Otherwise, state.pendingAff is set; the caller runs it,
+//      passes the result to _resumeInstr, and loops.
+export const _stepInstr = function (state) {
+  return function () {
+    while (true) {
+      if (state.current === null) {
+        if (state.stack.length === 0) {
+          state.done = true;
+          state.finalRight = { value: state.result };
+          return;
+        }
+        const k = state.stack.pop();
+        while (
+          state.envs.length > 0 &&
+          state.envs[state.envs.length - 1].depth > state.stack.length
+        ) {
+          state.env = state.envs.pop().env;
+        }
+        while (
+          state.catches.length > 0 &&
+          state.catches[state.catches.length - 1].depth > state.stack.length
+        ) {
+          state.catches.pop();
+        }
+        state.current = k(state.result);
+        continue;
+      }
+
+      switch (state.current.tag) {
+        case 0: // PURE
+          state.result = state.current.value;
+          state.current = null;
+          break;
+        case 1: // SYNC
+          state.result = state.current.eff();
+          state.current = null;
+          break;
+        case 2: // FLATMAP
+          state.stack.push(state.current.k);
+          state.current = state.current.m;
+          break;
+        case 3: // ASK
+          state.result = state.env;
+          state.current = null;
+          break;
+        case 4: { // FAIL
+          const variant = state.current.value;
+          const label = variant.type;
+          let matched = -1;
+          for (let i = state.catches.length - 1; i >= 0; i--) {
+            if (state.catches[i].label === label) {
+              matched = i;
+              break;
+            }
+          }
+          if (matched === -1) {
+            state.done = true;
+            state.finalLeft = { variant: variant };
+            return;
+          }
+          const frame = state.catches[matched];
+          state.stack.length = frame.depth;
+          state.catches.length = matched;
+          while (
+            state.envs.length > 0 &&
+            state.envs[state.envs.length - 1].depth > frame.depth
+          ) {
+            state.envs.pop();
+          }
+          state.env = frame.envSnapshot;
+          state.current = frame.handler(variant.value);
+          state.result = undefined;
+          break;
+        }
+        case 5: // CATCH
+          state.catches.push({
+            depth: state.stack.length,
+            label: state.current.label,
+            handler: state.current.handler,
+            envSnapshot: state.env,
+          });
+          state.current = state.current.m;
+          break;
+        case 6: // LOCAL
+          state.envs.push({ depth: state.stack.length, env: state.env });
+          state.env = state.current.modify(state.env);
+          state.current = state.current.inner;
+          break;
+        case 7: // ASYNC
+          state.pendingAff = state.current.aff;
+          state.current = null;
+          return;
+        default:
+          throw new Error("Benchmarks.Instr: unknown tag " + state.current.tag);
+      }
+    }
+  };
+};
+
+// After an Aff completed with `value`, install it as the next
+// result and clear the pending slot so the next step continues.
+export const _resumeInstr = function (state) {
+  return function (value) {
+    return function () {
+      state.result = value;
+      state.pendingAff = null;
+    };
+  };
+};
+
+// Accessors used by the PureScript driver.
+export const _isDone = function (state) {
+  return state.done;
+};
+
+export const _isRightFinal = function (state) {
+  return state.finalRight !== null;
+};
+
+export const _finalRight = function (state) {
+  return state.finalRight.value;
+};
+
+export const _finalLeft = function (state) {
+  return state.finalLeft.variant;
+};
+
+export const _pendingAff = function (state) {
+  return state.pendingAff;
 };
