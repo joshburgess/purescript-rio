@@ -13,6 +13,7 @@ import Test.Spec.Assertions (shouldEqual)
 import Data.Tuple (Tuple(..))
 
 import RIO.Clock (Clock, now, sleep, timed)
+import RIO.Concurrency (fork, join) as Concurrency
 import RIO.Core (RIO, provideAll, runRIO')
 import RIO.Test.Clock (newTestClock)
 
@@ -156,3 +157,60 @@ spec = do
         Tuple _ value <- runRIO'
           (provideAll { clock: tc.clock } program)
         value `shouldEqual` "result"
+
+    describe "under fork (virtual time crosses fiber boundaries)" do
+      it "sleepers in forked fibers fire in deadline order across multiple advances" do
+        -- Three RIO-level forked fibers each call `sleep` with
+        -- different deadlines. The parent yields to let the forks
+        -- park their sleepers on the test clock, then advances
+        -- virtual time in three steps. Each advance should fire
+        -- exactly the sleepers whose deadlines fall within it, in
+        -- deadline order. Joining all three at the end pins that
+        -- the test clock drove every forked fiber to completion
+        -- without real wall-clock waiting.
+        tc <- newTestClock
+        events <- liftEffect (Ref.new [])
+        let
+          push :: forall r. String -> RIO r () Unit
+          push s = liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) events)
+
+          sleeper :: String -> Milliseconds -> RIO (clock :: Clock) () Unit
+          sleeper label d = sleep d *> push label
+
+          program :: RIO (clock :: Clock) () Unit
+          program = do
+            a <- Concurrency.fork (sleeper "a@100" (Milliseconds 100.0))
+            b <- Concurrency.fork (sleeper "b@300" (Milliseconds 300.0))
+            c <- Concurrency.fork (sleeper "c@200" (Milliseconds 200.0))
+            -- yield so each child has parked its sleeper
+            _ <- Concurrency.join a
+            _ <- Concurrency.join b
+            _ <- Concurrency.join c
+            pure unit
+
+        fib <- Aff.forkAff
+          (runRIO' (provideAll { clock: tc.clock } program))
+
+        Aff.delay (Milliseconds 0.0)
+        Aff.delay (Milliseconds 0.0)
+
+        tc.advance (Milliseconds 150.0)
+        Aff.delay (Milliseconds 0.0)
+        Aff.delay (Milliseconds 0.0)
+        afterFirst <- liftEffect (Ref.read events)
+        afterFirst `shouldEqual` [ "a@100" ]
+
+        tc.advance (Milliseconds 100.0)
+        Aff.delay (Milliseconds 0.0)
+        Aff.delay (Milliseconds 0.0)
+        afterSecond <- liftEffect (Ref.read events)
+        afterSecond `shouldEqual` [ "a@100", "c@200" ]
+
+        tc.advance (Milliseconds 100.0)
+        Aff.delay (Milliseconds 0.0)
+        Aff.delay (Milliseconds 0.0)
+        afterThird <- liftEffect (Ref.read events)
+        afterThird `shouldEqual` [ "a@100", "c@200", "b@300" ]
+
+        _ <- Aff.forkAff (Aff.killFiber (Aff.error "test-done") fib)
+        pure unit
