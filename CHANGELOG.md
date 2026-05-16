@@ -11,6 +11,18 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.FiberRef`: true per-fiber reference cells with ZIO /
+  Effect-TS fork-snapshot semantics. `FiberRef a` is a typed
+  cell whose value is private to the reading fiber; storage
+  lives in the env row as `FiberRefs` (a per-fiber `Map`
+  keyed by `Int`). `make` / `get` / `set` / `update` consult
+  the calling fiber's map; `forkFiber` snapshots every entry
+  at fork time, so subsequent writes on either side stay
+  local to their fiber. `forkFiberScoped` bounds the child's
+  lifetime by a `Scope`, mirroring `RIO.Concurrency.forkScoped`.
+  Use this when a child fiber must mutate its own copy
+  without affecting the parent; reach for `RIO.Local` when
+  you only want the shared-ref-with-scoped-overrides shape.
 - `RIO.Test.HttpClient`: a recording `HttpClient` for tests.
   `newRecordingHttpClient` takes a script of canned
   `Either HttpError Response` outcomes and returns
