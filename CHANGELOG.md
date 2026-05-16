@@ -11,6 +11,24 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Test.HttpClient`: a recording `HttpClient` for tests.
+  `newRecordingHttpClient` takes a script of canned
+  `Either HttpError Response` outcomes and returns
+  `{ httpClient, snapshot }`: an `HttpClient` service that
+  serves the script in send order and captures every request,
+  plus a `snapshot` action that reads back the captured request
+  array. When the script is exhausted the mock surfaces an
+  `HttpTransport` error so tests fail loudly instead of
+  silently replaying the last response.
+- `RIO.Test.HttpServer`: a recording dispatcher for testing
+  HTTP handlers without binding a port.
+  `newRecordingHttpServer` returns
+  `{ httpServer, dispatch, snapshot }`: a no-op
+  `listen` / `shutdown` pair so service-record-shaped wiring
+  still type-checks, a `dispatch` helper that runs a `Handler`
+  against a synthetic `ServerRequest`, and a `snapshot` that
+  reads back every `(request, response)` pair in call order.
+  Mirrors `RIO.Test.Tracer`'s `{ tracer, snapshot }` shape.
 - `RIO.CircuitBreaker`: a three-state circuit breaker. `make`
   allocates a `Closed` breaker; `withBreaker` wraps a protected
   action with fail-fast semantics on `Open` (raising a typed
