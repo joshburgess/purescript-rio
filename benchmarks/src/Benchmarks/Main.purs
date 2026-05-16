@@ -30,6 +30,7 @@ module Benchmarks.Main
 import Prelude
 
 import Benchmarks.Harness (benchAff)
+import Benchmarks.VsAff (runVsAff)
 import Data.Array (range) as Array
 import Data.Traversable (traverse)
 import Effect (Effect)
@@ -143,6 +144,8 @@ main = launchAff_ do
   benchAff
     ("pure-only loop (" <> show bindIterations <> " iterations, no service)")
     (void (runRIO' (loopPure bindIterations)))
+
+  runVsAff
 
   liftEffect (log "")
   liftEffect (log "rio-benchmarks: done.")
