@@ -123,9 +123,44 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     constructors) are re-exported so callers do not need to
     reach for `Node.ChildProcess.*` or `Node.ChildProcess.Types`
     directly.
+  * `RIO.Node.Stream` — RIO-flavoured wrappers around
+    `Node.Stream` and `Node.Stream.Aff`. A `Stream rw` is a value
+    (a readable / writable / duplex handle) rather than a
+    capability, so every `Effect`-valued primitive is lifted
+    directly into `RIO`: `readable` / `readableEnded` /
+    `readableFlowing` / `readableHighWaterMark` /
+    `readableLength` / `resume` / `pause` / `isPaused` / `pipe` /
+    `pipe'` / `unpipe` / `unpipeAll` / `read` / `read'` /
+    `readString` / `readString'` / `readEither` / `readEither'` /
+    `setEncoding`, the writable predicates (`writeable` /
+    `writeableEnded` / `writeableCorked` / `errored` /
+    `writeableFinished` / `writeableHighWaterMark` /
+    `writeableLength` / `writeableNeedDrain`), the writers
+    (`write` / `write'` / `writeString` / `writeString'`), the
+    flush controls (`cork` / `uncork` / `setDefaultEncoding`),
+    the termination primitives (`end` / `end'` / `destroy` /
+    `destroy'` / `closed` / `destroyed`), `allowHalfOpen`,
+    `pipeline`, and the constructors (`readableFromString` /
+    `readableFromBuffer` / `newPassThrough`). The
+    backpressure-aware `Aff`-blocking variants from
+    `Node.Stream.Aff` are also re-exposed: `readableToStringUtf8`
+    / `readableToString` / `readableToBuffers` / `readSome` /
+    `readAll` / `readN` plus `toStringUTF8` / `fromStringUTF8`
+    keep their original names, while the writer pair is
+    surfaced as `writeAll` (`Array Buffer -> RIO Unit`, awaiting
+    `drainH` between chunks) and `endAwait` (resolves once
+    `finishH` has fired) so callers can opt into backpressure
+    handling without colliding with the synchronous Effect-style
+    `write` / `end`. The full event-handle catalogue
+    (`closeH` / `errorH` / `drainH` / `finishH` / `pipeH` /
+    `unpipeH` / `pauseH` / `readableH` / `resumeH` / `endH` /
+    `dataH` / `dataHStr` / `dataHEither`) plus the `Stream` /
+    `Readable` / `Writable` / `Duplex` / `Read` / `Write` /
+    `Chunk` types and `toEventEmitter` are re-exported so
+    callers do not need to reach for `Node.Stream` directly.
   CI builds and tests the new package alongside the existing
-  adapters. The remaining `Node.*` services (Stream bridge,
-  HTTP, Net, HTTP2) are tracked as follow-up work.
+  adapters. The remaining `Node.*` services (HTTP, Net, HTTP2)
+  are tracked as follow-up work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined
