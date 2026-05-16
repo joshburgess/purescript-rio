@@ -1,0 +1,17 @@
+package:
+  name: rio-example-production-app
+  dependencies:
+    - aff
+    - console
+    - effect
+    - either
+    - foldable-traversable
+    - maybe
+    - prelude
+    - refs
+    - rio
+    - rio-node
+    - tuples
+    - variant
+  run:
+    main: Example.ProductionApp.Main
