@@ -11,6 +11,16 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Chunk`: a catenable, immutable indexed sequence. Three
+  constructors (`Empty` / `Singleton (Array a)` / `Concat Int
+  (Chunk a) (Chunk a)`) give O(1) concatenation,
+  `prepend`/`append`, and constant-time `length` after the first
+  walk; the catenated shape stays as a small tree until the
+  caller asks for an `Array` via `toArray`. `materialize`
+  flattens the tree to a single `Singleton` node when depth
+  starts to matter. This is the structure ZIO and Effect-TS use
+  to back `Stream`; landing it standalone lets `Stream` adopt it
+  incrementally without churn.
 - `RIO.Predicate`: a tiny standalone predicate combinator
   library. `Predicate a` wraps `a -> Boolean` together with
   `and` / `or` / `not`, the constants `always` / `never`, the
