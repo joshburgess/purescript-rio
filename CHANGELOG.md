@@ -11,6 +11,19 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `examples/showcase`: a worked example app that wires every
+  major service introduced by the strategic-gap work
+  (`HttpServer` + routing, `HttpStream` for SSE, `Sql` with
+  `withTransaction`, `Schema` with `brand`, `Logger.withFields`,
+  `Tracer.withSpan`, `Tracer.Propagation.parseTraceparent`,
+  `Tracer.OTel.exportSpans` + `renderOTLP`) into a single
+  in-process HTTP application. The example builds five routes
+  (`/health`, `/schema`, `/widgets` POST, `/widgets` GET,
+  `/events`) against `mockSql` and the in-memory recording
+  tracer, dispatches five synthetic requests through the
+  router, and dumps the resulting OTLP/JSON span document at
+  the end. Run with
+  `npx spago run -p rio-example-showcase`.
 - `RIO.HttpStream`: a pull-based chunk stream type for streaming
   HTTP request and response bodies. `BodyStream` is an alias for
   `Aff (Maybe String)`: each pull returns the next chunk or

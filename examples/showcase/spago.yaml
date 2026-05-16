@@ -1,0 +1,23 @@
+package:
+  name: rio-example-showcase
+  dependencies:
+    - aff
+    - argonaut-core
+    - arrays
+    - console
+    - effect
+    - either
+    - foldable-traversable
+    - foreign-object
+    - integers
+    - maybe
+    - newtype
+    - prelude
+    - refs
+    - rio
+    - strings
+    - tuples
+    - typelevel-prelude
+    - variant
+  run:
+    main: Example.Showcase.Main
