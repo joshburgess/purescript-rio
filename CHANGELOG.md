@@ -35,11 +35,23 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `release`, `tmpdir`, `totalmem`, `uptime`, `userInfo`,
     `version`) with a `liveOS` implementation. `eol`,
     `devNull`, and `constants` are re-exported as pure values.
+  * `RIO.Node.URL` — RIO-flavoured wrappers around `Node.URL`.
+    `Node.URL.URL` is a mutable handle whose accessors are
+    `Effect`-valued, so every operation is lifted into `RIO`;
+    `canParse` and `origin` (the only genuinely pure ones)
+    stay pure.
+  * `RIO.Node.Process` — service over the practical subset of
+    `Node.Process` (argv / cwd / chdir / env / pid / ppid /
+    uptime / exit / `setExitCode` / signal kill / `nextTick` /
+    resource and memory usage / process title). Pure fields
+    (`pid`, `ppid`, `platform`, `platformStr`, `version`,
+    `debugPort`, the TTY-detection booleans) are re-exported
+    as ordinary values. Event-handler bindings and the IPC
+    `send` primitives are out of scope here.
   CI builds and tests the new package alongside the existing
-  adapters. The remaining `Node.*` services (Process,
-  ChildProcess, Buffer, Stream bridge, HTTP, Net, URL,
-  ReadLine, EventEmitter, HTTP2) are tracked as follow-up
-  work.
+  adapters. The remaining `Node.*` services (ChildProcess,
+  Buffer, Stream bridge, HTTP, Net, ReadLine, EventEmitter,
+  HTTP2) are tracked as follow-up work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined
