@@ -30,6 +30,7 @@ package:
     - node-process
     - node-readline
     - node-streams
+    - node-tls
     - node-url
     - nullable
     - numbers
@@ -57,6 +58,7 @@ package:
       - node-event-emitter
       - node-fs
       - node-http
+      - node-http2
       - node-net
       - node-os
       - node-path

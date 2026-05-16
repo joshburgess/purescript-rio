@@ -254,9 +254,83 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     pull in a direct dependency on `node-tls`; callers who need
     it can still reach for `Node.HTTP.Server.toTlsServer`
     directly).
+  * `RIO.Node.HTTP2` — RIO-flavoured wrappers around `Node.Http2`.
+    An `Http2SecureServer`, `Http2Session endpoint`, and
+    `Http2Stream endpoint` are each values (handles on the
+    underlying TLS / session / stream resources) rather than
+    capabilities, so the upstream surface is mirrored across
+    seven modules by lifting each `Effect`-valued primitive into
+    `RIO`. The top-level `RIO.Node.HTTP2` module re-exports the
+    most commonly used pure values from `Node.Http2.ErrorCode`
+    (`ErrorCode` plus `cancel` / `compressionError` /
+    `connectError` / `enhanceYourCalm` / `flowControlError` /
+    `frameSizeError` / `http1_1Required` / `inadequateSecurity` /
+    `internalError` / `noError` / `protocolError` /
+    `refusedStream` / `settingsTimeout` / `streamClosed`),
+    `Node.Http2.Flags` (`BitwiseFlag`, the per-frame `*Flags`
+    bundles, the `ack` / `endHeaders` / `endStream` / `padded` /
+    `priority` / `enable` flag values, `isEnabled` / `isDisabled`
+    / `unFlag` / `printFlags` / `printFlags'`),
+    `Node.Http2.FrameType` (`FrameType` plus the `frameData` /
+    `frameHeaders` / `framePriority` / `frameRstStream` /
+    `frameSettings` / `framePushPromise` / `framePing` /
+    `frameGoAway` / `frameWindowUpdate` / `frameContinuation`
+    constructors), `Node.Http2.PaddingStrategy` (the
+    `PaddingStrategy` ADT only; the upstream
+    `paddingStrategyMax` / `paddingStrategyNone` value bindings
+    are not re-exported because they reference an unimported
+    `constants` symbol in the upstream FFI and throw on module
+    load), and the full `Node.Http2.Types` catalogue (`Headers`,
+    `Http2ClientConnectOptions`,
+    `Http2CreateSecureServerOptions`, `Http2SecureServer`,
+    `Http2ServerRequest`, `Http2ServerResponse`, `Http2Session`,
+    `Http2Stream`, `Settings`, `StreamId`, `connectionId`).
+    `RIO.Node.HTTP2.Headers` re-exposes the pure helpers
+    (`mkHeadersI` / `mkHeaders` / `method` / `path` / `scheme` /
+    `authority` / `lookup` / `status` / `printHeaders` /
+    `printHeaders'` / `unsafeToObject`).
+    `RIO.Node.HTTP2.Settings` lifts `getDefaultSettings` /
+    `getPackedSettings` / `getUnpackedSettings` into `RIO` and
+    re-exports the pure `defaultSettings` record. (The upstream
+    `getDefaultSettings` / `getPackedSettings` /
+    `getUnpackedSettings` FFI bindings throw at call time because
+    the upstream `Node.Http2.Settings.js` references an
+    unimported `http2` symbol; the wrappers are still surfaced so
+    callers can drive them once the upstream package is fixed.)
+    `RIO.Node.HTTP2.Session` lifts the full session surface
+    (`alpnProtocol` / `close` / `closed` / `connecting` /
+    `destroy` / `destroyWithError` / `destroyWithCode` /
+    `destroyWithErrorCode` / `destroyed` / `encrypted` / `goAway`
+    / `goAwayCode` / `goAwayCodeLastStreamId` /
+    `goAwayCodeLastStreamIdData` / `localSettings` /
+    `pendingSettingsAck` / `ping` / `pingPayload` / `ref` /
+    `remoteSettings` / `setLocalWindowSize` / `setTimeout` /
+    `settings` / `socket` / `state` / `unref` / `altsvcStreamId`
+    / `altsvcOrigin` / `origin` / `request` / `request'`) and
+    re-exports the pure `originSet` / `type_` accessors, the
+    `Http2SessionState` / `RequestOptions` row aliases, and the
+    full event-handle catalogue. `RIO.Node.HTTP2.Stream` lifts
+    the full stream surface (`bufferSize` / `close` / `closed` /
+    `destroyed` / `endAfterHeaders` / `id` / `pending` /
+    `priority` / `rstCode` / `sentHeaders` / `sentInfoHeaders` /
+    `sentTrailers` / `session` / `setTimeout` / `state` /
+    `sendTrailers` / `additionalHeaders` / `headersSent` /
+    `pushAllowed` / `pushStream` / `pushStream'` / `respond` /
+    `respondWithFd` / `respondWithFile`) and re-exports
+    `toDuplex` plus the event-handle catalogue.
+    `RIO.Node.HTTP2.Server` lifts `createSecureServer` (carrying
+    the stacked TLS `Row.Union` constraint from
+    `Http2CreateSecureServerOptions`), `setTimeout`, `timeout`,
+    and `updateSettings`, and re-exports the server-level event
+    handles (`checkContinueH` / `requestH` / `sessionErrorH` /
+    `sessionH` / `streamH` / `timeoutH` / `unknownProtocolH`).
+    `RIO.Node.HTTP2.Client` lifts `connect` / `connect'` (the
+    latter carrying the stacked TLS + TCP `Row.Union` constraint
+    from `Http2ClientConnectOptions`). `node-tls` is added to the
+    package's main dependencies for the TLS option rows that
+    feed `createSecureServer` and `connect'`.
   CI builds and tests the new package alongside the existing
-  adapters. The remaining `Node.*` service (HTTP2) is tracked
-  as follow-up work.
+  adapters.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
   `forAllRIO`, `forAllRION`, `defaultSampleCount`, and
   `generateSamples`. Property specs in this repo had each redefined
