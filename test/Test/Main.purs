@@ -68,6 +68,7 @@ import Test.RIO.QuerySpec as QuerySpec
 import Test.RIO.RandomSpec as RandomSpec
 import Test.RIO.RateLimiterSpec as RateLimiterSpec
 import Test.RIO.RefSpec as RefSpec
+import Test.RIO.OpenApiSpec as OpenApiSpec
 import Test.RIO.SchemaSpec as SchemaSpec
 import Test.RIO.SqlSpec as SqlSpec
 import Test.RIO.SystemSpec as SystemSpec
@@ -236,6 +237,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   TDeferredSpec.spec
   TimeSpec.spec
   SchemaSpec.spec
+  OpenApiSpec.spec
   SqlSpec.spec
   SystemSpec.spec
   TracerSpec.spec

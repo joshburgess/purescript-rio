@@ -11,6 +11,19 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.OpenApi`: emit OpenAPI 3.1 documents from in-repo
+  route declarations. A small set of record types
+  (`OpenApiDoc`, `Info`, `Operation`, `Parameter`, ...),
+  builders for the common case (`operation`, `pathParam`,
+  `queryParam`, `headerParam`, `jsonContent`, `response`),
+  and `emit :: OpenApiDoc -> Json` which renders the document
+  exactly as an OpenAPI consumer expects. Reuses
+  `RIO.Schema.toJsonSchema` for body / parameter shapes so a
+  single `Schema a` value drives both wire decoding and the
+  OpenAPI fragment. One-way emit: no consumer of OpenAPI
+  JSON, no validation, no runtime cross-check that handlers
+  match the spec. Pair it with a contract test if both ends
+  need to stay in lock-step.
 - `RIO.WorkerPool`: a fixed-size pool of long-lived worker
   fibers that pull jobs off a shared `Queue` and resolve a
   `Deferred` per submission. `make` forks `workers` worker
