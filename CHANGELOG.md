@@ -11,6 +11,20 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.WorkerPool`: a fixed-size pool of long-lived worker
+  fibers that pull jobs off a shared `Queue` and resolve a
+  `Deferred` per submission. `make` forks `workers` worker
+  fibers inside a `Scope` (so scope exit shuts them down);
+  `submit` enqueues an input and returns the `Deferred e b`
+  for that submission; `submitAndAwait` is the blocking
+  convenience. Compared to `parTraverseN`, which forks a
+  fresh fiber per element, `WorkerPool` reuses a fixed fleet
+  across many submissions: useful for long-running services
+  that take work off a stream or external queue and want
+  bounded concurrency without per-call fork overhead. Typed
+  failures from the handler are caught and forwarded through
+  the job's `Deferred`; the worker keeps processing
+  subsequent jobs. Bounded queues give backpressure for free.
 - `RIO.FiberRef`: true per-fiber reference cells with ZIO /
   Effect-TS fork-snapshot semantics. `FiberRef a` is a typed
   cell whose value is private to the reading fiber; storage
