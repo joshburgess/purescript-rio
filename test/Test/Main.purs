@@ -46,6 +46,7 @@ import Test.RIO.HttpClientSpec as HttpClientSpec
 import Test.RIO.HttpServerSpec as HttpServerSpec
 import Test.RIO.Test.HttpClientSpec as TestHttpClientSpec
 import Test.RIO.Test.HttpServerSpec as TestHttpServerSpec
+import Test.RIO.Test.WebSocketSpec as TestWebSocketSpec
 import Test.RIO.HttpStreamSpec as HttpStreamSpec
 import Test.RIO.HubSpec as HubSpec
 import Test.RIO.IterateReplicateSpec as IterateReplicateSpec
@@ -205,6 +206,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   HttpStreamSpec.spec
   TestHttpClientSpec.spec
   TestHttpServerSpec.spec
+  TestWebSocketSpec.spec
   StreamSpec.spec
   StreamCombinatorsSpec.spec
   StreamFilterMapCollectSpec.spec

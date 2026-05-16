@@ -11,6 +11,24 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.WebSocket`: the WebSocket service shape. A client-style
+  service for opening a connection to a URL and exchanging
+  `Message`s with the remote peer. The service record exposes
+  `connect :: String -> Aff WebSocketConnection`; per-connection
+  operations are `send`, `receive` (blocks until a message or
+  close), and `close`. `receive` returns `Nothing` after the
+  peer or local `close` ends the channel, so drain loops
+  terminate cleanly. `mockWebSocket` lifts an arbitrary
+  connect function into a `WebSocket` service.
+- `RIO.Test.WebSocket`: a recording `WebSocket` for tests.
+  `newRecordingWebSocket` takes a scripted array of inbound
+  `Message`s and returns `{ webSocket, snapshot }`: a
+  `WebSocket` service whose `connect` returns connections
+  that share the script (each `receive` consumes the next
+  scripted message), and a snapshot exposing every URL
+  connected to, every (url, message) `send` pair in call
+  order, and a `closes` counter. Mirrors the shape of
+  `RIO.Test.HttpClient` / `RIO.Test.HttpServer`.
 - `RIO.OpenApi`: emit OpenAPI 3.1 documents from in-repo
   route declarations. A small set of record types
   (`OpenApiDoc`, `Info`, `Operation`, `Parameter`, ...),
