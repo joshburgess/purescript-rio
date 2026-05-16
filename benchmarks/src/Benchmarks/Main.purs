@@ -35,12 +35,15 @@ import Benchmarks.Instr
   , asyncLoopInstr
   , asyncSanityInstr
   , bindChainInstr
+  , bracketLoopInstr
+  , bracketSanityInstr
   , catchLoopInstr
   , failCatchOnceInstr
   , fanOutFanInInstr
   , instrLocal
   , instrParTraverse
   , mixedLoopInstr
+  , refCounterLoopInstr
   , runInstr
   , serviceLoopInstr
   )
@@ -53,6 +56,7 @@ import Effect.Aff (Aff, launchAff_)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
+import Effect.Ref as Ref
 import RIO.Core
   ( RIO
   , ask
@@ -63,6 +67,7 @@ import RIO.Core
   , runRIO'
   )
 import RIO.Concurrency (awaitAll, fork, parTraverse)
+import RIO.Resource (bracket)
 import Type.Proxy (Proxy(..))
 
 type Service = { lookup :: Int -> Int }
@@ -115,6 +120,28 @@ asyncLoop n = go 0 n
   go acc k = do
     x <- liftAff (pure (acc + 1))
     go x (k - 1)
+
+-- | RIO counterpart of `bracketLoopInstr`: each iteration runs a
+-- | full `bracket` round-trip with trivial acquire / use / release.
+bracketLoop :: forall r e. Int -> RIO r e Int
+bracketLoop n = go 0 n
+  where
+  go :: Int -> Int -> RIO r e Int
+  go acc 0 = pure acc
+  go acc k = do
+    x <- bracket (pure (acc + 1)) (\_ -> pure unit) (\v -> pure v)
+    go x (k - 1)
+
+-- | RIO counterpart of `refCounterLoopInstr`: increment a shared
+-- | `Effect.Ref` via `liftEffect` once per iteration.
+refCounterLoop :: forall r e. Ref.Ref Int -> Int -> RIO r e Int
+refCounterLoop ref n = go n
+  where
+  go :: Int -> RIO r e Int
+  go 0 = liftEffect (Ref.read ref)
+  go k = do
+    _ <- liftEffect (Ref.modify (_ + 1) ref)
+    go (k - 1)
 
 -- | RIO counterpart of `mixedLoopInstr`: 9 synchronous binds for
 -- | every `liftAff` to model a realistic ratio between in-process
@@ -364,6 +391,55 @@ runInstrBench = do
   benchAffWith sampleCount
     "Instr fan-out/fan-in (instrForkFiber x16 + join)"
     (void (runInstr {} (fanOutFanInInstr fanArr)))
+
+  -- Phase 4: bracket and Ref head-to-head.
+  --
+  -- Sanity: bracket must run release after use. Counter starts at
+  -- 0; use bumps it to 1 (its read returns 1); release bumps it
+  -- to 2. Bracket returns the use's result (1). Final counter
+  -- read is 2.
+  bracketCounter <- liftEffect (Ref.new 0)
+  bracketResult <- runInstr {}
+    (bracketSanityInstr bracketCounter :: Instr () () Int)
+  finalCounter <- liftEffect (Ref.read bracketCounter)
+  liftEffect case bracketResult, finalCounter of
+    Right 1, 2 -> log "  bracket sanity OK: result=1, counter=2"
+    Right r, c -> log
+      ( "  bracket SANITY FAILED: result=Right "
+          <> show r
+          <> ", counter="
+          <> show c
+      )
+    Left _, c -> log
+      ("  bracket SANITY FAILED: typed failure, counter=" <> show c)
+
+  let bracketIters = 10000
+
+  benchAffWith sampleCount
+    ("RIO bracket loop (" <> show bracketIters <> " round-trips)")
+    (void (runRIO' (bracketLoop bracketIters)))
+
+  benchAffWith sampleCount
+    ("Instr bracket loop (" <> show bracketIters <> " round-trips)")
+    (void (runInstr {} (bracketLoopInstr bracketIters)))
+
+  -- Ref counter loop: mutable state via liftEffect, no new
+  -- spike machinery (just SYNC under the hood).
+  let refIters = 10000
+
+  benchAffWith sampleCount
+    ("RIO Ref counter loop (" <> show refIters <> " modifies)")
+    ( void do
+        ref <- liftEffect (Ref.new 0)
+        runRIO' (refCounterLoop ref refIters)
+    )
+
+  benchAffWith sampleCount
+    ("Instr Ref counter loop (" <> show refIters <> " modifies)")
+    ( void do
+        ref <- liftEffect (Ref.new 0)
+        runInstr {} (refCounterLoopInstr ref refIters)
+    )
 
   liftEffect do
     log ""

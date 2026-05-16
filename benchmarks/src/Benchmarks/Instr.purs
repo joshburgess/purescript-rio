@@ -36,6 +36,10 @@ module Benchmarks.Instr
   , instrForkFiber
   , instrJoinFiber
   , instrParTraverse
+  , instrBracket
+  , bracketSanityInstr
+  , bracketLoopInstr
+  , refCounterLoopInstr
   , fanOutFanInInstr
   ) where
 
@@ -50,6 +54,8 @@ import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Aff as Aff
 import Effect.Class (liftEffect)
+import Effect.Ref (Ref)
+import Effect.Ref as Ref
 import Prim.Row as Row
 import Type.Proxy (Proxy(..))
 
@@ -345,3 +351,93 @@ fanOutFanInInstr :: forall r e. Array Int -> Instr r e (Array Int)
 fanOutFanInInstr arr =
   instrFlatMap (traverse (\n -> instrForkFiber (instrPure (n + 1))) arr) \fibs ->
     traverse instrJoinFiber fibs
+
+-- | Acquire / use / release with guaranteed cleanup. Mirrors
+-- | production `RIO.Resource.bracket`:
+-- |
+-- |   * `release` runs on every termination of `use` (success,
+-- |     typed failure, defect, or external fiber kill).
+-- |   * Typed failures from `release` itself are silently
+-- |     swallowed - the spike does not surface a separate
+-- |     `acquireRelease` for now.
+-- |   * Defects from `release` propagate (Aff exceptions
+-- |     observable via `sandbox`).
+-- |
+-- | Implementation delegates to `Aff.bracket`, with `runInstr`
+-- | running each of the three sub-`Instr`s against the captured
+-- | env. Typed failures are threaded through the bracket via the
+-- | `Either (Variant e) _` carrier.
+instrBracket
+  :: forall r e a b
+   . Instr r e a
+  -> (a -> Instr r e Unit)
+  -> (a -> Instr r e b)
+  -> Instr r e b
+instrBracket acquire release use = instrFlatMap instrAsk \env ->
+  let
+    runOne :: forall x. Instr r e x -> Aff (Either (Variant e) x)
+    runOne = runInstr env
+
+    body :: Aff (Either (Variant e) b)
+    body = Aff.bracket
+      (runOne acquire)
+      ( \aE -> case aE of
+          Right a -> void (runOne (release a))
+          Left _ -> pure unit
+      )
+      ( \aE -> case aE of
+          Right a -> runOne (use a)
+          Left v -> pure (Left v)
+      )
+  in
+    instrFlatMap (instrAsync body) case _ of
+      Right b -> instrPure b
+      Left v -> instrFail v
+
+-- | Sanity workload for `instrBracket`: acquire a Ref counter,
+-- | bump it inside `use`, and bump it again inside `release`.
+-- | A correct interpreter returns `release` having run after
+-- | `use`, so the final Ref value is 2 and the workload's result
+-- | is 1 (the value `use` saw after its own bump).
+bracketSanityInstr :: forall r e. Ref Int -> Instr r e Int
+bracketSanityInstr counter =
+  instrBracket
+    (instrLiftEffect (Ref.read counter))
+    (\_ -> instrLiftEffect (Ref.modify_ (_ + 1) counter))
+    ( \_ -> do
+        _ <- instrLiftEffect (Ref.modify_ (_ + 1) counter)
+        instrLiftEffect (Ref.read counter)
+    )
+
+-- | Bench workload: acquire/use/release loop. Each iteration is
+-- | a complete bracket round-trip with a trivial acquire and a
+-- | trivial release. Measures the per-bracket interpreter cost
+-- | (two extra `runInstr` invocations plus an `Aff.bracket`).
+bracketLoopInstr :: forall r e. Int -> Instr r e Int
+bracketLoopInstr n = go 0 n
+  where
+  go :: Int -> Int -> Instr r e Int
+  go acc 0 = instrPure acc
+  go acc k =
+    instrFlatMap
+      ( instrBracket
+          (instrPure (acc + 1))
+          (\_ -> instrPure unit)
+          (\x -> instrPure x)
+      )
+      \x -> go x (k - 1)
+
+-- | A loop that reads, increments, and writes an `Effect.Ref` once
+-- | per iteration, all lifted through `instrLiftEffect`. There is
+-- | no new interpreter machinery here - this just shows that
+-- | mutable state composes naturally through the `SYNC` tag we
+-- | already have. Mirrors a `Ref`-based loop one would write
+-- | against production `RIO` with `liftEffect` + `Effect.Ref`.
+refCounterLoopInstr :: forall r e. Ref Int -> Int -> Instr r e Int
+refCounterLoopInstr ref n = go 0 n
+  where
+  go :: Int -> Int -> Instr r e Int
+  go acc 0 = instrPure acc
+  go _ k =
+    instrFlatMap (instrLiftEffect (Ref.modify (_ + 1) ref)) \x ->
+      go x (k - 1)
