@@ -12,19 +12,32 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 ### Added
 
 - `rio-node`: new sibling package wrapping the Node.js standard
-  library bindings as RIO services. First module shipped is
-  `RIO.Node.FileSystem`, a service exposing the full surface of
-  `Node.FS.Aff` (read / write / append / `stat` / `lstat` /
-  `readdir` / `mkdir` / `mkdir'` / `rm` / `rm'` / `rmdir` /
-  `rmdir'` / `mkdtemp` / `mkdtemp'` / `rename` / `unlink` /
-  `link` / `symlink` / `readlink` / `realpath` / `realpath'` /
-  `chmod` / `chown` / `truncate` / `utimes` / `access` /
-  `access'` / `copyFile` / `copyFile'` / `fdOpen` / `fdRead` /
-  `fdWrite` / `fdNext` / `fdAppend` / `fdClose`) and a
-  `liveFileSystem` implementation backed by `node-fs`. CI
-  builds and tests the new package alongside the existing
-  adapters. The remaining `Node.*` services (Process, Path,
-  ChildProcess, OS, Buffer, Stream bridge, HTTP, Net, URL,
+  library bindings as RIO services. First three modules shipped:
+  * `RIO.Node.FileSystem` — service exposing the full surface
+    of `Node.FS.Aff` (read / write / append / `stat` / `lstat` /
+    `readdir` / `mkdir` / `mkdir'` / `rm` / `rm'` / `rmdir` /
+    `rmdir'` / `mkdtemp` / `mkdtemp'` / `rename` / `unlink` /
+    `link` / `symlink` / `readlink` / `realpath` / `realpath'` /
+    `chmod` / `chown` / `truncate` / `utimes` / `access` /
+    `access'` / `copyFile` / `copyFile'` / `fdOpen` / `fdRead` /
+    `fdWrite` / `fdNext` / `fdAppend` / `fdClose`) with a
+    `liveFileSystem` implementation backed by `node-fs`.
+  * `RIO.Node.Path` — thin convenience wrappers around
+    `Node.Path`. Pure functions are re-exported verbatim;
+    `resolve` is lifted into `RIO` because `Node.Path.resolve`
+    reads `process.cwd()`.
+  * `RIO.Node.OS` — service over the read-only and
+    priority-control surface of `Node.OS` (`arch`, `cpus`,
+    `endianness`, `freemem`, `getPriority` /
+    `setPriority` / `getCurrentProcessPriority` /
+    `setCurrentProcessPriority`, `homedir`, `hostname`,
+    `loadavg`, `machine`, `networkInterfaces`, `platform`,
+    `release`, `tmpdir`, `totalmem`, `uptime`, `userInfo`,
+    `version`) with a `liveOS` implementation. `eol`,
+    `devNull`, and `constants` are re-exported as pure values.
+  CI builds and tests the new package alongside the existing
+  adapters. The remaining `Node.*` services (Process,
+  ChildProcess, Buffer, Stream bridge, HTTP, Net, URL,
   ReadLine, EventEmitter, HTTP2) are tracked as follow-up
   work.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
