@@ -11,6 +11,21 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Metrics.OTel`: a pure OTLP/JSON metrics exporter, the
+  companion of `RIO.Tracer.OTel`. `exportMetrics cfg records`
+  takes an `ExportConfig` (service resource attributes, scope,
+  and a `timeUnixNano` snapshot timestamp) plus an array of
+  `MetricRecord`s (the shape `RIO.Test.Metrics.snapshot`
+  returns), aggregates by `(name, kind)`, and produces a
+  `resourceMetrics` document an OTLP receiver accepts on
+  `POST /v1/metrics`. Aggregation: counters sum to a single
+  cumulative monotonic data point; gauges collapse to the last
+  recorded value; histograms reduce to `{ count, sum, min,
+  max }` per name. `renderOTLP` serialises the result to a
+  compact JSON string. Pair with `RIO.HttpClient.post` and a
+  JSON body for the wire export; on its own the module is
+  pure and deterministic, so test assertions on emission shape
+  do not need network mocks.
 - `RIO.Stream.Concurrent.broadcastDynamic`: subscribe-on-demand
   fan-out for a single source stream. The source is drained
   once into a fresh `Hub` on a forked, scope-bound fiber; the

@@ -61,6 +61,7 @@ import Test.RIO.Logger.CompositionSpec as LoggerCompositionSpec
 import Test.RIO.MemoSpec as MemoSpec
 import Test.RIO.MetricSpec as MetricSpec
 import Test.RIO.MetricsSpec as MetricsSpec
+import Test.RIO.Metrics.OTelSpec as MetricsOTelSpec
 import Test.RIO.PoolSpec as PoolSpec
 import Test.RIO.PredicateSpec as PredicateSpec
 import Test.RIO.QueueSpec as QueueSpec
@@ -251,6 +252,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ValidationSpec.spec
   MetricSpec.spec
   MetricsSpec.spec
+  MetricsOTelSpec.spec
   FiberRefSpec.spec
   WorkerPoolSpec.spec
   RuntimeSpec.spec
