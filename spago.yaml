@@ -5,8 +5,10 @@ package:
     license: MIT
   dependencies:
     - aff
+    - argonaut-core
     - arrays
     - avar
+    - bifunctors
     - console
     - control
     - datetime
@@ -18,6 +20,7 @@ package:
     - integers
     - lists
     - maybe
+    - newtype
     - node-process
     - now
     - numbers
@@ -33,11 +36,13 @@ package:
     - strings
     - transformers
     - tuples
+    - typelevel-prelude
     - variant
   test:
     main: Test.Main
     dependencies:
       - aff
+      - argonaut-core
       - arrays
       - datetime
       - either
@@ -50,6 +55,7 @@ package:
       - quickcheck
       - spec
       - spec-node
+      - strings
       - tuples
       - variant
 workspace:

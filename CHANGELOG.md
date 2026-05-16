@@ -11,6 +11,22 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Schema`: a small runtime schema library built on top of
+  `argonaut-core`. A `Schema a` carries both a decoder
+  (`Json -> Either DecodeError a`) and an encoder (`a -> Json`),
+  so the same value defines the wire format in both directions.
+  Primitive schemas (`string`, `int`, `number`, `boolean`,
+  `null_`) describe individual JSON kinds; combinators (`array`,
+  `nullable`, `transform`, `refine`, `union`, `enum`) compose
+  them. Records are described through an `Applicative` builder
+  (`RecordSchema r a`): each `field` declares how to pull a value
+  out of the target record and which schema validates it,
+  `fieldOpt` / `fieldDefault` cover absence and defaults, and
+  `recordOf` collapses the builder into a `Schema`. `parseJson`
+  parses-and-decodes in one step (returning `ParseError` for
+  invalid JSON); `DecodeError` accumulates a `$.field[0]`-style
+  path that `renderError` turns into a short human-readable
+  trail (`expected string at $.user[2], got number`).
 - `RIO.RateLimiter`: a token-bucket rate limiter built on top of
   `RIO.Clock`. `make` allocates a bucket configured by
   `{ permitsPerSecond, burst }`; `acquire` / `acquireN` block

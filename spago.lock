@@ -6,8 +6,10 @@
         "core": {
           "dependencies": [
             "aff",
+            "argonaut-core",
             "arrays",
             "avar",
+            "bifunctors",
             "console",
             "control",
             "datetime",
@@ -19,6 +21,7 @@
             "integers",
             "lists",
             "maybe",
+            "newtype",
             "node-process",
             "now",
             "numbers",
@@ -34,6 +37,7 @@
             "strings",
             "transformers",
             "tuples",
+            "typelevel-prelude",
             "variant"
           ],
           "build_plan": [
@@ -118,6 +122,7 @@
         "test": {
           "dependencies": [
             "aff",
+            "argonaut-core",
             "arrays",
             "datetime",
             "either",
@@ -130,6 +135,7 @@
             "quickcheck",
             "spec",
             "spec-node",
+            "strings",
             "tuples",
             "variant"
           ],
