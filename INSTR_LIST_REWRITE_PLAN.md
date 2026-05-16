@@ -245,7 +245,7 @@ fan-in workload effectively matches RIO and is well inside the
 - [~] race / FiberRefs / generalBracket deferred to later
       phases per the inline rationale.
 
-**Phase 3 closed at commit (pending).** Fork / join / parTraverse
+**Phase 3 closed at commit `393dd34`.** Fork / join / parTraverse
 are in. The thin-wrapper-on-`Aff` strategy pans out: anything
 that ultimately delegates to `Aff.forkAff` matches RIO almost
 exactly. Per-fork setup cost is the only place the spike pays
