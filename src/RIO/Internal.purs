@@ -44,6 +44,7 @@ module RIO.Internal
 import Prelude
 
 import Control.Monad.Error.Class (throwError)
+import Control.Monad.Rec.Class (Step(..), tailRecM)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Variant (Variant)
@@ -148,24 +149,26 @@ runInstr
 runInstr env instr = do
   state <- liftEffect (_initInstrState env instr)
   liftEffect (_stepInstr state)
-  drive state
+  tailRecM step state
   where
-  drive :: InstrState r e a -> Aff (Either (Variant e) a)
-  drive state =
+  step :: InstrState r e a -> Aff (Step (InstrState r e a) (Either (Variant e) a))
+  step state =
     if _isDone state then
       pure
-        if _isRightFinal state then Right (_finalRight state)
-        else Left (_finalLeft state)
+        ( Done
+            if _isRightFinal state then Right (_finalRight state)
+            else Left (_finalLeft state)
+        )
     else do
       attempted <- attempt (_pendingAff state)
       case attempted of
         Right v -> do
           liftEffect (_resumeAndStep state v)
-          drive state
+          pure (Loop state)
         Left err -> case matchTypedFailure err of
           Just variant -> do
             liftEffect (_failAndStep state variant)
-            drive state
+            pure (Loop state)
           Nothing -> throwError err
 
 -- | Raw projection of the newtype. Result type does NOT mention
