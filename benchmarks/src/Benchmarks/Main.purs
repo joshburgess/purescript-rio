@@ -29,7 +29,8 @@ module Benchmarks.Main
 
 import Prelude
 
-import Benchmarks.Harness (benchAff)
+import Benchmarks.Harness (benchAff, benchAffWith)
+import Benchmarks.Instr (bindChainInstr, runInstr, serviceLoopInstr)
 import Benchmarks.VsAff (runVsAff)
 import Data.Array (range) as Array
 import Data.Traversable (traverse)
@@ -147,9 +148,57 @@ main = launchAff_ do
 
   runVsAff
 
+  runInstrBench
+
   liftEffect (log "")
   liftEffect (log "rio-benchmarks: done.")
   liftEffect (log "")
+
+-- | Spike: instruction-list-encoded mini-RIO with a hand-rolled
+-- | synchronous interpreter. Compared head-to-head with the
+-- | production closure-based RIO on the same workloads.
+runInstrBench :: Aff Unit
+runInstrBench = do
+  liftEffect do
+    log ""
+    log "================================================================"
+    log "  Instruction-list spike vs production RIO (head-to-head)"
+    log "================================================================"
+    log ""
+
+  let
+    bindIters = 10000
+    serviceIters = 10000
+    sampleCount = 200
+
+  benchAffWith sampleCount
+    "RIO bind chain (10000 binds)"
+    (void (runRIO' (bindChain bindIters)))
+
+  benchAffWith sampleCount
+    "Instr bind chain (10000 binds)"
+    (void (runInstr {} (bindChainInstr bindIters)))
+
+  benchAffWith sampleCount
+    "RIO service loop (10000 ask + lookup)"
+    ( void
+        ( runRIO
+            (provideAll { svc: stubService } (serviceLoop serviceIters))
+        )
+    )
+
+  benchAffWith sampleCount
+    "Instr service loop (10000 ask + lookup)"
+    (void (runInstr { svc: stubService } (serviceLoopInstr serviceIters)))
+
+  liftEffect do
+    log ""
+    log "Reading the table: the Instr rows are the spike interpreter"
+    log "running the same workload shape. A smaller mean means the"
+    log "instruction-list encoding is faster on that workload; a"
+    log "comparable or larger mean means the spike is not worth the"
+    log "rewrite cost."
+    log ""
 
 loopPure :: forall r e. Int -> RIO r e Int
 loopPure n = go 0 n
