@@ -309,6 +309,12 @@ as a known optimisation, not a phase blocker.
 - [~] STM defers to Phase 5 (no spike-specific machinery
       needed beyond the existing `SYNC` lift).
 
+**Phase 4 closed at commit `44a1d9d`.** Ref via the existing
+`SYNC` path beats RIO by 1.6x. `instrBracket` is correct and
+known-slow on the synthetic pure-bracket loop; the dedicated
+`BRACKET` tag is a tracked follow-up. STM intentionally
+deferred.
+
 ---
 
 ## Phase 5: public API surgery
