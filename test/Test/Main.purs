@@ -59,6 +59,7 @@ import Test.RIO.RandomSpec as RandomSpec
 import Test.RIO.RateLimiterSpec as RateLimiterSpec
 import Test.RIO.RefSpec as RefSpec
 import Test.RIO.SchemaSpec as SchemaSpec
+import Test.RIO.SqlSpec as SqlSpec
 import Test.RIO.Ref.SynchronizedSpec as SynchronizedRefSpec
 import Test.RIO.Random.PropertiesSpec as RandomPropertiesSpec
 import Test.RIO.Random.ShufflePickSpec as RandomShufflePickSpec
@@ -214,6 +215,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   TDeferredSpec.spec
   TimeSpec.spec
   SchemaSpec.spec
+  SqlSpec.spec
   TracerSpec.spec
   ValidationSpec.spec
   MetricSpec.spec

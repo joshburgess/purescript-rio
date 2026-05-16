@@ -11,6 +11,23 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Sql`: a shape-only SQL service interface. Defines a small
+  backend-agnostic surface (`Sql` service record carrying
+  `execute` and `query`, `Statement`, `SqlValue` union for the
+  common-denominator types every SQL driver agrees on, `SqlRow`
+  as `Object SqlValue`, `SqlResult` reporting `rowsAffected`,
+  `SqlError` sum with `SqlConnectionFailed` / `SqlExecutionFailed`
+  / `SqlIntegrityViolation` / `SqlTimeout` / `SqlDecodeError`) so
+  application code can be written against a single API regardless
+  of which driver is wired in. `execute` and `query` raise on the
+  `sqlError` row tag; `queryOne` returns the first row (if any);
+  `queryDecode` runs a `RIO.Schema` decoder over each row.
+  `withTransaction` is implemented at the RIO layer (issues
+  `BEGIN` / `COMMIT` / `ROLLBACK` through `execute`) so it works
+  against any driver without needing a transaction hook on the
+  service record; on typed failure the original failure is
+  re-raised after `ROLLBACK`. `mockSql` builds an `Sql` from a
+  pair of `Aff` handlers for tests.
 - `RIO.Query`: a request-batching loader in the DataLoader
   family. Each fiber calls `load loader key` and the loader
   queues the key in a pending set; on the next macrotask
