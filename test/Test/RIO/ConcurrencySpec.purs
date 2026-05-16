@@ -40,6 +40,7 @@ import RIO.Core
   , sandbox
   , scoped
   , timeout
+  , timeoutFail
   , uninterruptible
   , zipPar
   )
@@ -734,6 +735,38 @@ spec = do
           prog :: RIO () (boom :: Unit) (Maybe Int)
           prog = timeout (Milliseconds 500.0)
             (fail (Proxy :: Proxy "boom") unit)
+        result <- runRIO prog
+        case result of
+          Left _ -> pure unit
+          Right _ -> 1 `shouldEqual` 0
+
+    describe "timeoutFail" do
+      it "returns the value when the action beats the deadline" do
+        let
+          prog :: RIO () (slow :: String) Int
+          prog = timeoutFail (Proxy :: Proxy "slow") "fetch"
+            (Milliseconds 200.0)
+            do
+              liftAff (delay (Milliseconds 10.0))
+              pure 7
+        result <- runRIO prog
+        result `shouldEqual` (Right 7 :: Either _ Int)
+
+      it "raises the supplied typed failure when the deadline fires" do
+        -- `timeoutFail` is a shape sugar around `timeout` + `fail`:
+        -- on a `Nothing` from the inner `timeout`, it raises the
+        -- caller-supplied row tag with the caller-supplied
+        -- payload. Pin both halves: the expiry surfaces as a
+        -- typed failure (not a `Maybe`), and the failure lands on
+        -- the row the caller declared rather than getting lost in
+        -- a generic timeout tag.
+        let
+          prog :: RIO () (slow :: String) Int
+          prog = timeoutFail (Proxy :: Proxy "slow") "fetch"
+            (Milliseconds 10.0)
+            do
+              liftAff (delay (Milliseconds 500.0))
+              pure 7
         result <- runRIO prog
         case result of
           Left _ -> pure unit
