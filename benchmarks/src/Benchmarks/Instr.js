@@ -8,6 +8,7 @@ const FLATMAP = 2;
 const ASK = 3;
 const FAIL = 4;
 const CATCH = 5;
+const LOCAL = 6;
 
 // Singleton ASK node: there's only ever one shape and no payload,
 // so we can reuse the same object instead of allocating per call.
@@ -34,10 +35,11 @@ export const instrFail = function (v) {
 };
 
 // catchTag: wrap `m` in a catch frame. The interpreter records
-// the current bind-stack depth at entry; if a FAIL surfaces
-// inside `m` whose Variant `type` field matches `label`, the
-// interpreter truncates the bind stack back to that depth and
-// invokes `handler` with the unwrapped value.
+// the current bind-stack depth at entry and snapshots the
+// current env; if a FAIL surfaces inside `m` whose Variant
+// `type` field matches `label`, the interpreter truncates the
+// bind stack back to that depth, restores env to the snapshot,
+// and invokes `handler` with the unwrapped value.
 //
 // Depends on Data.Variant's runtime shape: VariantRep is
 // `{ type: String, value: a }`. See variant-8.0.0/src/Data/
@@ -50,32 +52,48 @@ export const _instrCatchTag = function (label) {
   };
 };
 
+// instrLocal: run `inner` with the env transformed by `modify`.
+// The interpreter pushes the current env onto the `envs` stack
+// (with the current bind-stack depth), sets env to `modify(env)`,
+// then steps into `inner`. When the scope exits, the env is
+// restored. provide / provideAll are built on top of this.
+export const _instrLocal = function (modify) {
+  return function (inner) {
+    return { tag: LOCAL, modify: modify, inner: inner };
+  };
+};
+
 // The interpreter.
 //
-// Two parallel stacks:
+// Three parallel stacks:
 //   - `stack`  : bind continuations (functions `a -> Instr`).
-//   - `catches`: catch frames {depth, label, handler}, where
-//                `depth` is the bind-stack length at frame entry.
+//   - `catches`: catch frames {depth, label, handler, envSnapshot}.
+//   - `envs`   : env-restore frames {depth, env}.
 //
-// Hot path (bind / sync / pure / ask): the catches array is
-// only consulted on continuation pop and on FAIL, so the common
-// case pays at most one length-zero check.
-//
-// On normal value propagation we drop any catch frames whose
-// protected scope has now been exited (the bind stack has
-// dropped below the frame's recorded depth).
+// `depth` records the bind-stack length at frame entry. On
+// normal value propagation, frames whose protected scope has
+// exited (bind stack dropped below their depth) are popped. For
+// `envs` frames the env is also restored on pop.
 //
 // On FAIL we walk `catches` from the top looking for a matching
-// label. We truncate the bind stack to the matched frame's depth
-// and resume by stepping into `handler(value)`. If no frame
-// matches, we terminate the computation with `Left variant`.
+// label. We truncate the bind stack to the matched frame's
+// depth, restore env from the frame's snapshot, drop any envs
+// strictly past the frame's depth, and resume by stepping into
+// `handler(value)`. No match terminates the computation with
+// `Left variant`.
+//
+// Hot path (bind / sync / pure / ask / local) stays cheap:
+// catches and envs are only consulted on continuation pop and
+// on FAIL.
 export const _runInstr = function (left) {
   return function (right) {
-    return function (env) {
+    return function (initialEnv) {
       return function (initial) {
         return function () {
           const stack = [];
           const catches = [];
+          const envs = [];
+          let env = initialEnv;
           let current = initial;
           let result = undefined;
 
@@ -85,7 +103,14 @@ export const _runInstr = function (left) {
                 return right(result);
               }
               const k = stack.pop();
-              // Drop any catch frames whose scope is now exited.
+              // Drop env frames whose scope is exited, restoring env.
+              while (
+                envs.length > 0 &&
+                envs[envs.length - 1].depth > stack.length
+              ) {
+                env = envs.pop().env;
+              }
+              // Drop catch frames whose scope is exited.
               while (
                 catches.length > 0 &&
                 catches[catches.length - 1].depth > stack.length
@@ -129,6 +154,15 @@ export const _runInstr = function (left) {
                 const frame = catches[matched];
                 stack.length = frame.depth;
                 catches.length = matched;
+                // Drop env frames strictly past the catch's depth;
+                // env is restored from the catch's snapshot.
+                while (
+                  envs.length > 0 &&
+                  envs[envs.length - 1].depth > frame.depth
+                ) {
+                  envs.pop();
+                }
+                env = frame.envSnapshot;
                 current = frame.handler(variant.value);
                 result = undefined;
                 break;
@@ -138,8 +172,14 @@ export const _runInstr = function (left) {
                   depth: stack.length,
                   label: current.label,
                   handler: current.handler,
+                  envSnapshot: env,
                 });
                 current = current.m;
+                break;
+              case 6: // LOCAL
+                envs.push({ depth: stack.length, env: env });
+                env = current.modify(env);
+                current = current.inner;
                 break;
               default:
                 throw new Error("Benchmarks.Instr: unknown tag " + current.tag);

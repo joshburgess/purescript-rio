@@ -31,9 +31,11 @@ import Prelude
 
 import Benchmarks.Harness (benchAff, benchAffWith)
 import Benchmarks.Instr
-  ( bindChainInstr
+  ( Instr
+  , bindChainInstr
   , catchLoopInstr
   , failCatchOnceInstr
+  , instrLocal
   , runInstr
   , serviceLoopInstr
   )
@@ -94,6 +96,14 @@ catchLoop n = go 0 n
     catchTag (Proxy :: Proxy "oops")
       (\(x :: Int) -> go (acc + x) (k - 1))
       (fail (Proxy :: Proxy "oops") (1 :: Int))
+
+-- | Apples-to-apples with the production
+-- | `provideAll { svc: stubService } (serviceLoop n)` workload:
+-- | start with an empty env, install `svc` via `instrLocal`,
+-- | then run the service loop that asks for it each iteration.
+providedLoopInstr :: forall e. Int -> Instr () e Int
+providedLoopInstr n =
+  instrLocal (\_ -> { svc: stubService }) (serviceLoopInstr n)
 
 main :: Effect Unit
 main = launchAff_ do
@@ -212,8 +222,12 @@ runInstrBench = do
     )
 
   benchAffWith sampleCount
-    "Instr service loop (10000 ask + lookup)"
+    "Instr service loop (10000 ask + lookup, env via runInstr)"
     (void (runInstr { svc: stubService } (serviceLoopInstr serviceIters)))
+
+  benchAffWith sampleCount
+    "Instr provided service loop (10000 ask + lookup, env via instrLocal)"
+    (void (runInstr {} (providedLoopInstr serviceIters)))
 
   benchAffWith sampleCount
     "RIO fail + catchTag (1 round-trip)"

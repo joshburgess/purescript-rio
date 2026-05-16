@@ -25,6 +25,7 @@ module Benchmarks.Instr
   , instrFail
   , instrFailTag
   , instrCatchTag
+  , instrLocal
   , bindChainInstr
   , serviceLoopInstr
   , failCatchOnceInstr
@@ -68,6 +69,12 @@ foreign import _instrCatchTag
   -> (x -> Instr r e' a)
   -> Instr r e a
   -> Instr r e' a
+
+foreign import _instrLocal
+  :: forall r r' e a
+   . (Record r -> Record r')
+  -> Instr r' e a
+  -> Instr r e a
 
 foreign import _runInstr
   :: forall r e a
@@ -125,6 +132,18 @@ instrCatchTag
   -> Instr r e' a
 instrCatchTag proxy handler m =
   _instrCatchTag (reflectSymbol proxy) handler m
+
+-- | Run `inner` with the env transformed by `modify`. The
+-- | interpreter records the current env on an env-restore stack,
+-- | runs `inner` against the modified env, and restores on
+-- | scope exit (normal or failure). `provide` / `provideAll`
+-- | are built on top of this.
+instrLocal
+  :: forall r r' e a
+   . (Record r -> Record r')
+  -> Instr r' e a
+  -> Instr r e a
+instrLocal modify inner = _instrLocal modify inner
 
 -- | The same bind-chain workload `bindChain` runs against `RIO`,
 -- | rewritten against `Instr`. The body never touches the env.
