@@ -102,6 +102,7 @@ import Test.RIO.Stream.FilterMapCollectSpec as StreamFilterMapCollectSpec
 import Test.RIO.Stream.HaltInterruptSpec as StreamHaltInterruptSpec
 import Test.RIO.Stream.HeadLastFindSpec as StreamHeadLastFindSpec
 import Test.RIO.Stream.IntoSpec as StreamIntoSpec
+import Test.RIO.Stream.ConcurrentSpec as StreamConcurrentSpec
 import Test.RIO.Stream.ParSpec as StreamParSpec
 import Test.RIO.Stream.PropertiesSpec as StreamPropertiesSpec
 import Test.RIO.Stream.ResourceSpec as StreamResourceSpec
@@ -214,6 +215,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   StreamHaltInterruptSpec.spec
   StreamHeadLastFindSpec.spec
   StreamIntoSpec.spec
+  StreamConcurrentSpec.spec
   StreamParSpec.spec
   StreamPropertiesSpec.spec
   StreamResourceSpec.spec

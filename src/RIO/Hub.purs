@@ -23,6 +23,7 @@ module RIO.Hub
   , make
   , publish
   , publishAll
+  , shutdown
   , subscribe
   , subscriberCount
   , unsubscribe
@@ -51,6 +52,7 @@ type Subscriber a =
 type State a =
   { subscribers :: Array (Subscriber a)
   , nextTag :: Int
+  , isShutdown :: Boolean
   }
 
 -- | A broadcast hub.
@@ -59,7 +61,7 @@ newtype Hub a = Hub (Ref (State a))
 -- | Allocate a fresh hub with no subscribers.
 make :: forall a. Effect (Hub a)
 make = do
-  ref <- Ref.new { subscribers: [], nextTag: 0 }
+  ref <- Ref.new { subscribers: [], nextTag: 0, isShutdown: false }
   pure (Hub ref)
 
 -- | Subscribe a new consumer. Returns a queue that receives every
@@ -74,7 +76,7 @@ subscribe
   :: forall r e a
    . Hub a
   -> RIO r e { queue :: Queue a, unsubscribe :: RIO r e Unit }
-subscribe (Hub ref) = RIO \_ -> do
+subscribe (Hub ref) = RIO \r -> do
   queue <- liftEffect Queue.unbounded
   state <- liftEffect (Ref.read ref)
   let tag = state.nextTag
@@ -88,6 +90,13 @@ subscribe (Hub ref) = RIO \_ -> do
         )
         ref
     )
+  -- A hub that has already been shut down still hands out a queue
+  -- (so the call site does not have to special-case post-shutdown
+  -- subscribes), but the queue is immediately shut down so the
+  -- subscriber's first `take` returns `Nothing`.
+  when state.isShutdown do
+    _ <- unRIO (Queue.shutdown queue :: RIO _ () Unit) r
+    pure unit
   let
     unsub :: forall r' e'. RIO r' e' Unit
     unsub = RIO \_ -> liftEffect do
@@ -131,3 +140,31 @@ publishAll hub xs = for_ xs (publish hub)
 subscriberCount :: forall a. Hub a -> Effect Int
 subscriberCount (Hub ref) =
   Array.length <<< _.subscribers <$> Ref.read ref
+
+-- | Shut down the hub.
+-- |
+-- | Marks the hub as shut down and walks every current subscriber's
+-- | queue, calling `Queue.shutdown` on each so any consumer blocked
+-- | on `take` wakes up with `Nothing`. Subsequent calls to
+-- | `subscribe` still hand out a queue (so callers do not need a
+-- | special case), but the new queue is shut down immediately, so
+-- | the new subscriber's first `take` returns `Nothing`.
+-- |
+-- | Idempotent: a second `shutdown` after the first is a no-op.
+-- |
+-- | Use this when the upstream producer that feeds the hub has
+-- | finished (or failed) and the broadcast should terminate every
+-- | subscriber cleanly. The publisher should call `shutdown` *after*
+-- | every published value has been offered, otherwise the in-flight
+-- | tail of the stream is lost.
+shutdown :: forall r e a. Hub a -> RIO r e Unit
+shutdown (Hub ref) = RIO \r -> do
+  state <- liftEffect (Ref.read ref)
+  liftEffect (Ref.write (state { isShutdown = true }) ref)
+  traverse_
+    ( \sub -> do
+        _ <- unRIO (Queue.shutdown sub.queue :: RIO _ () Unit) r
+        pure unit
+    )
+    state.subscribers
+  pure (Right unit)

@@ -11,6 +11,29 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Stream.Concurrent.broadcastDynamic`: subscribe-on-demand
+  fan-out for a single source stream. The source is drained
+  once into a fresh `Hub` on a forked, scope-bound fiber; the
+  returned action is a `subscribe` that hands back a fresh
+  consumer `Stream` on each call. Each subscriber observes
+  every value published while it is alive. A subscriber that
+  attaches after the source has finished sees an empty stream
+  that terminates cleanly rather than blocking; if the source
+  raises a typed failure, the failure is captured and
+  re-raised on every subscriber's pull past the queue tail.
+  Complements `RIO.Stream.Par.broadcast` (static N-consumer
+  fan-out) by adding the ZIO `broadcastDynamic` / Effect-TS
+  `Stream.broadcastDynamic` shape: subscribers can come and
+  go independently, the producer never knows how many are
+  listening, and slow subscribers do not slow the producer or
+  each other.
+- `RIO.Hub.shutdown`: terminate a hub. Marks the hub as shut
+  down and walks every current subscriber's queue, shutting
+  each one so any consumer blocked on `take` wakes up with
+  `Nothing`. Subscribers attached *after* shutdown still
+  receive a queue (callers do not need a special case), but
+  the new queue is immediately shut down so the new
+  subscriber's first `take` returns `Nothing`. Idempotent.
 - `RIO.Runtime`: a reusable runtime that bundles an env
   record with a runner. `Runtime.make { ... }` packages the
   environment record; `Runtime.run rt program` executes a
