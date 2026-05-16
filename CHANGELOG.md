@@ -11,6 +11,20 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Query`: a request-batching loader in the DataLoader
+  family. Each fiber calls `load loader key` and the loader
+  queues the key in a pending set; on the next macrotask
+  (`Aff.delay 0`) it flushes the set through a user-supplied
+  `batchFn :: Array k -> Aff (Map k v)` and resolves every
+  awaiter with the right value. Concurrent loads of the same
+  key dedupe to a single `Deferred`; an optional in-loader
+  cache serves repeats without re-fetching. `loadMany` fetches
+  many keys through the same loader in parallel; `loadOpt`
+  returns `Nothing` for missing keys instead of raising;
+  `prime` / `clear` / `clearAll` / `size` manage the cache.
+  `maxBatchSize` caps each `batchFn` call. Missing keys surface
+  as `QueryMissingKey`; a rejected `batchFn` surfaces as
+  `QueryBatchFailure` on every awaiter in the batch.
 - `RIO.HttpClient`: a pluggable HTTP client service. Defines the
   shape (`HttpClient` service record, `Request` / `Response`
   records, `Method` sum, `RequestBody` sum, `HttpError` sum with

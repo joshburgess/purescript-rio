@@ -54,6 +54,7 @@ import Test.RIO.PoolSpec as PoolSpec
 import Test.RIO.QueueSpec as QueueSpec
 import Test.RIO.Queue.BulkSpec as QueueBulkSpec
 import Test.RIO.Queue.PropertiesSpec as QueuePropertiesSpec
+import Test.RIO.QuerySpec as QuerySpec
 import Test.RIO.RandomSpec as RandomSpec
 import Test.RIO.RateLimiterSpec as RateLimiterSpec
 import Test.RIO.RefSpec as RefSpec
@@ -175,6 +176,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   QueueSpec.spec
   QueueBulkSpec.spec
   QueuePropertiesSpec.spec
+  QuerySpec.spec
   PoolSpec.spec
   CacheSpec.spec
   HubSpec.spec
