@@ -51,14 +51,13 @@ module RIO.Local
 
 import Prelude
 
-import Data.Either (Either(..))
 import Effect (Effect)
 import Effect.Aff (finally)
 import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), unsafeUnRIO)
 
 -- | A read/write cell that survives across calls within a
 -- | program and can be temporarily overridden by `locally`. The
@@ -78,7 +77,7 @@ newtype Local a = Local (Ref a)
 newLocal :: forall r e' a. a -> RIO r e' (Local a)
 newLocal value = RIO \_ -> do
   ref <- liftEffect (Ref.new value)
-  pure (Right (Local ref))
+  pure (Local ref)
 
 -- | `Effect`-typed variant for callers that build their
 -- | environment record outside an `RIO` action (e.g. at the
@@ -94,23 +93,17 @@ newLocalEffect value = Local <$> Ref.new value
 
 -- | Read the current value.
 get :: forall r e a. Local a -> RIO r e a
-get (Local ref) = RIO \_ -> do
-  v <- liftEffect (Ref.read ref)
-  pure (Right v)
+get (Local ref) = RIO \_ -> liftEffect (Ref.read ref)
 
 -- | Overwrite the value. Visible to every fiber holding the
 -- | same `Local`.
 set :: forall r e a. Local a -> a -> RIO r e Unit
-set (Local ref) value = RIO \_ -> do
-  liftEffect (Ref.write value ref)
-  pure (Right unit)
+set (Local ref) value = RIO \_ -> liftEffect (Ref.write value ref)
 
 -- | Apply a pure function to the current value and store the
 -- | result.
 update :: forall r e a. Local a -> (a -> a) -> RIO r e Unit
-update (Local ref) f = RIO \_ -> do
-  liftEffect (Ref.modify_ f ref)
-  pure (Right unit)
+update (Local ref) f = RIO \_ -> liftEffect (Ref.modify_ f ref)
 
 -- | Run `action` with the value temporarily set to `value`.
 -- | The previous value is restored when `action` returns,
@@ -136,4 +129,4 @@ locally (Local ref) value action = RIO \r -> do
   liftEffect (Ref.write value ref)
   finally
     (liftEffect (Ref.write previous ref))
-    (unRIO action r)
+    (unsafeUnRIO action r)

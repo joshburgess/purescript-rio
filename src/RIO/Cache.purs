@@ -104,13 +104,11 @@ make
 make config = RIO \_ -> do
   entries <- liftEffect (ERef.new Map.empty)
   pure
-    ( Right
-        ( Cache
-            { entries
-            , lookup: config.lookup
-            , ttl: config.timeToLive
-            }
-        )
+    ( Cache
+        { entries
+        , lookup: config.lookup
+        , ttl: config.timeToLive
+        }
     )
 
 -- | Lookup `k`. On a hit, returns the cached value without
@@ -148,19 +146,19 @@ get cache@(Cache c) k = RIO \_ -> do
     Awaiter avar -> do
       result <- AVar.read avar
       case result of
-        Right v -> pure (Right v)
+        Right v -> pure v
         Left msg -> throwError (error msg)
     Owner avar -> runLookup cache k avar
 
 -- The owning fiber: run the lookup, store the result in the AVar
 -- so awaiters wake, and propagate any failure as a defect.
 runLookup
-  :: forall e k v
+  :: forall k v
    . Ord k
   => Cache k v
   -> k
   -> AVar (Either String v)
-  -> Aff (Either e v)
+  -> Aff v
 runLookup (Cache c) k avar =
   let
     cleanup = do
@@ -179,7 +177,7 @@ runLookup (Cache c) k avar =
       case result of
         Right v -> do
           _ <- AVar.tryPut (Right v) avar
-          pure (Right v)
+          pure v
         Left err -> do
           -- Evict so the next `get` retries.
           liftEffect (ERef.modify_ (Map.delete k) c.entries)
@@ -212,14 +210,12 @@ invalidate
   -> RIO r e Unit
 invalidate (Cache c) k = RIO \_ -> do
   liftEffect (ERef.modify_ (Map.delete k) c.entries)
-  pure (Right unit)
 
 -- | Drop every entry. A subsequent `get` for any key will run a
 -- | fresh lookup.
 invalidateAll :: forall r e k v. Cache k v -> RIO r e Unit
 invalidateAll (Cache c) = RIO \_ -> do
   liftEffect (ERef.write Map.empty c.entries)
-  pure (Right unit)
 
 -- | The number of entries currently stored (including expired
 -- | entries that have not yet been evicted by a later `get`).

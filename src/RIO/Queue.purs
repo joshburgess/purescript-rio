@@ -107,18 +107,16 @@ poll :: forall r e a. Queue a -> RIO r e (Maybe a)
 poll (Queue ref) = RIO \_ -> liftEffect do
   state <- Ref.read ref
   case Array.uncons state.items of
-    Nothing -> pure (Right Nothing)
+    Nothing -> pure Nothing
     Just { head, tail } -> do
       Ref.write (state { items = tail }) ref
       wakeOfferer ref
-      pure (Right (Just head))
+      pure (Just head)
 
 -- | Block until a value is available or the queue is shut down.
 -- | Returns `Nothing` if the queue is shut down and empty.
 take :: forall r e a. Queue a -> RIO r e (Maybe a)
-take (Queue ref) = RIO \_ -> do
-  result <- takeAff ref
-  pure (Right result)
+take (Queue ref) = RIO \_ -> takeAff ref
 
 takeAff :: forall a. Ref (State a) -> Aff (Maybe a)
 takeAff ref = makeAff \resume -> do
@@ -160,9 +158,7 @@ takeAff ref = makeAff \resume -> do
 -- | queue is at capacity, returning `false` only if the queue is
 -- | shut down before the offer is accepted.
 offer :: forall r e a. Queue a -> a -> RIO r e Boolean
-offer (Queue ref) a = RIO \_ -> do
-  result <- offerAff ref a
-  pure (Right result)
+offer (Queue ref) a = RIO \_ -> offerAff ref a
 
 offerAff :: forall a. Ref (State a) -> a -> Aff Boolean
 offerAff ref a = makeAff \resume -> do
@@ -273,7 +269,6 @@ shutdown (Queue ref) = RIO \_ -> liftEffect do
     ref
   for_ state.takers (\t -> t.resume Nothing)
   for_ state.offerers (\o -> o.resume false)
-  pure (Right unit)
 
 -- | After a take consumed a slot, see if a blocked offerer can
 -- | now succeed.

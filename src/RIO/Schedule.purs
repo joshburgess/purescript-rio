@@ -88,7 +88,7 @@ import Effect.Random as Random
 import Unsafe.Coerce (unsafeCoerce)
 
 import RIO.Clock (Clock, now, partsFromMs, sleep)
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), rioFail, unRIO, unsafeUnRIO)
 
 -- | A scheduling policy: given an input `i`, fire `Step r i o`.
 -- |
@@ -119,12 +119,12 @@ recurs :: forall r i. Int -> Schedule r i Int
 recurs n = go 0
   where
   go k = Schedule \_ -> RIO \_ ->
-    if k >= n then pure (Right Done)
+    if k >= n then pure Done
     else
       let
         next = k + 1
       in
-        pure (Right (Continue next (Milliseconds 0.0) (go next)))
+        pure (Continue next (Milliseconds 0.0) (go next))
 
 -- | Fixed delay between firings, forever.
 -- |
@@ -139,7 +139,7 @@ spaced ms = go 0
     let
       next = k + 1
     in
-      pure (Right (Continue next ms (go next)))
+      pure (Continue next ms (go next))
 
 -- | Exponential backoff: delay grows by `factor` each step,
 -- | starting from `base`. Output is the current delay (useful for
@@ -156,7 +156,7 @@ exponential (Milliseconds base) factor = go base
     let
       delay = Milliseconds ms
     in
-      pure (Right (Continue delay delay (go (ms * factor))))
+      pure (Continue delay delay (go (ms * factor)))
 
 -- | Fibonacci backoff: each delay is the sum of the previous two,
 -- | starting from `base` and `base`. Output is the current delay.
@@ -176,7 +176,7 @@ fibonacci (Milliseconds base) = go base base
     let
       delay = Milliseconds curr
     in
-      pure (Right (Continue delay delay (go curr (prev + curr))))
+      pure (Continue delay delay (go curr (prev + curr)))
 
 -- | Fire on a fixed cadence regardless of how long the work takes.
 -- |
@@ -289,20 +289,18 @@ andThen
   -> Schedule r i (Either o o')
 andThen sa sb = Schedule \i -> RIO \env -> do
   let Schedule fa = sa
-  res <- unRIO (fa i) env
+  res <- unsafeUnRIO (fa i) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> stepRight sb i env
-    Right (Continue o d next) ->
-      pure (Right (Continue (Left o) d (andThen next sb)))
+    Done -> stepRight sb i env
+    Continue o d next ->
+      pure (Continue (Left o) d (andThen next sb))
   where
   stepRight (Schedule fb) i env = do
-    res <- unRIO (fb i) env
+    res <- unsafeUnRIO (fb i) env
     case res of
-      Left v -> Variant.case_ v
-      Right Done -> pure (Right Done)
-      Right (Continue o d next) ->
-        pure (Right (Continue (Right o) d (mapSchedule Right next)))
+      Done -> pure Done
+      Continue o d next ->
+        pure (Continue (Right o) d (mapSchedule Right next))
 
 -- | Both schedules must continue: as soon as either says `Done`,
 -- | the intersection says `Done`. The delay is the larger of the
@@ -322,18 +320,12 @@ intersect sa sb = Schedule \i -> RIO \env -> do
   let
     Schedule fa = sa
     Schedule fb = sb
-  resA <- unRIO (fa i) env
-  resB <- unRIO (fb i) env
+  resA <- unsafeUnRIO (fa i) env
+  resB <- unsafeUnRIO (fb i) env
   case resA, resB of
-    Left v, _ -> Variant.case_ v
-    _, Left v -> Variant.case_ v
-    Right (Continue oa da nextA), Right (Continue ob db nextB) ->
-      pure
-        ( Right
-            ( Continue (Tuple oa ob) (maxMs da db) (intersect nextA nextB)
-            )
-        )
-    _, _ -> pure (Right Done)
+    Continue oa da nextA, Continue ob db nextB ->
+      pure (Continue (Tuple oa ob) (maxMs da db) (intersect nextA nextB))
+    _, _ -> pure Done
   where
   maxMs (Milliseconds a) (Milliseconds b) =
     Milliseconds (if a >= b then a else b)
@@ -350,14 +342,13 @@ whileInput
   -> Schedule r i o
   -> Schedule r i o
 whileInput pred (Schedule s) = Schedule \i -> RIO \env ->
-  if not (pred i) then pure (Right Done)
+  if not (pred i) then pure Done
   else do
-    res <- unRIO (s i) env
+    res <- unsafeUnRIO (s i) env
     case res of
-      Left v -> Variant.case_ v
-      Right Done -> pure (Right Done)
-      Right (Continue o d next) ->
-        pure (Right (Continue o d (whileInput pred next)))
+      Done -> pure Done
+      Continue o d next ->
+        pure (Continue o d (whileInput pred next))
 
 -- | The dual of `whileInput`: stop the moment the input satisfies the
 -- | predicate. Equivalent to `whileInput (not <<< pred)`, exposed as
@@ -380,13 +371,12 @@ whileOutput
   -> Schedule r i o
   -> Schedule r i o
 whileOutput pred (Schedule s) = Schedule \i -> RIO \env -> do
-  res <- unRIO (s i) env
+  res <- unsafeUnRIO (s i) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o d next) ->
-      if pred o then pure (Right (Continue o d (whileOutput pred next)))
-      else pure (Right Done)
+    Done -> pure Done
+    Continue o d next ->
+      if pred o then pure (Continue o d (whileOutput pred next))
+      else pure Done
 
 -- | The dual of `whileOutput`: stop the moment the underlying
 -- | schedule's output satisfies the predicate.
@@ -424,26 +414,16 @@ jittered
   -> Schedule r i o
   -> Schedule r i o
 jittered lo hi (Schedule s) = Schedule \i -> RIO \env -> do
-  res <- unRIO (s i) env
+  res <- unsafeUnRIO (s i) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o (Milliseconds ms) next) -> do
-      r <- unRIO randomNumber env
-      case r of
-        Left v -> Variant.case_ v
-        Right factorBase -> do
-          let factor = lo + (hi - lo) * factorBase
-          pure
-            ( Right
-                ( Continue o (Milliseconds (ms * factor)) (jittered lo hi next)
-                )
-            )
+    Done -> pure Done
+    Continue o (Milliseconds ms) next -> do
+      factorBase <- unsafeUnRIO randomNumber env
+      let factor = lo + (hi - lo) * factorBase
+      pure (Continue o (Milliseconds (ms * factor)) (jittered lo hi next))
   where
   randomNumber :: RIO r () Number
-  randomNumber = RIO \_ -> do
-    n <- liftEffect Random.random
-    pure (Right n)
+  randomNumber = RIO \_ -> liftEffect Random.random
 
 -- | Transform a schedule's output. The cadence (number of steps and
 -- | per-step delay) is preserved; only the output side changes.
@@ -453,12 +433,11 @@ mapSchedule
   -> Schedule r i o
   -> Schedule r i o'
 mapSchedule f (Schedule s) = Schedule \i -> RIO \env -> do
-  res <- unRIO (s i) env
+  res <- unsafeUnRIO (s i) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o d next) ->
-      pure (Right (Continue (f o) d (mapSchedule f next)))
+    Done -> pure Done
+    Continue o d next ->
+      pure (Continue (f o) d (mapSchedule f next))
 
 -- | Transform a schedule's input. Pre-processes each input with `f`
 -- | before passing it to the underlying schedule. Cadence, output,
@@ -473,12 +452,11 @@ mapInput
   -> Schedule r i o
   -> Schedule r i' o
 mapInput f (Schedule s) = Schedule \i' -> RIO \env -> do
-  res <- unRIO (s (f i')) env
+  res <- unsafeUnRIO (s (f i')) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o d next) ->
-      pure (Right (Continue o d (mapInput f next)))
+    Done -> pure Done
+    Continue o d next ->
+      pure (Continue o d (mapInput f next))
 
 -- | Transform a schedule's per-step delay. The decision (number of
 -- | steps, output values) is preserved; only the sleep time between
@@ -496,12 +474,11 @@ mapDelay
   -> Schedule r i o
   -> Schedule r i o
 mapDelay f (Schedule s) = Schedule \i -> RIO \env -> do
-  res <- unRIO (s i) env
+  res <- unsafeUnRIO (s i) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o d next) ->
-      pure (Right (Continue o (f d) (mapDelay f next)))
+    Done -> pure Done
+    Continue o d next ->
+      pure (Continue o (f d) (mapDelay f next))
 
 -- | Effectful sibling of `mapDelay`. The transform runs in
 -- | `RIO r ()`, so it can read services from `r` (a config
@@ -525,15 +502,12 @@ modifyDelayM
   -> Schedule r i o
   -> Schedule r i o
 modifyDelayM f (Schedule s) = Schedule \i -> RIO \env -> do
-  res <- unRIO (s i) env
+  res <- unsafeUnRIO (s i) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o d next) -> do
-      d' <- unRIO (f d) env
-      case d' of
-        Left v -> Variant.case_ v
-        Right delay -> pure (Right (Continue o delay (modifyDelayM f next)))
+    Done -> pure Done
+    Continue o d next -> do
+      delay <- unsafeUnRIO (f d) env
+      pure (Continue o delay (modifyDelayM f next))
 
 -- | Add an effectful delta to each step's delay, where the
 -- | delta is computed from the step's output. The decision and
@@ -556,16 +530,12 @@ addDelayM
   -> Schedule r i o
   -> Schedule r i o
 addDelayM f (Schedule s) = Schedule \i -> RIO \env -> do
-  res <- unRIO (s i) env
+  res <- unsafeUnRIO (s i) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o (Milliseconds d) next) -> do
-      extra <- unRIO (f o) env
-      case extra of
-        Left v -> Variant.case_ v
-        Right (Milliseconds add) ->
-          pure (Right (Continue o (Milliseconds (d + add)) (addDelayM f next)))
+    Done -> pure Done
+    Continue o (Milliseconds d) next -> do
+      Milliseconds add <- unsafeUnRIO (f o) env
+      pure (Continue o (Milliseconds (d + add)) (addDelayM f next))
 
 -- | Transform both the input and the output of a schedule in a
 -- | single step. `dimap pre post s` is `mapSchedule post (mapInput
@@ -578,12 +548,11 @@ dimap
   -> Schedule r i o
   -> Schedule r i' o'
 dimap pre post (Schedule s) = Schedule \i' -> RIO \env -> do
-  res <- unRIO (s (pre i')) env
+  res <- unsafeUnRIO (s (pre i')) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o d next) ->
-      pure (Right (Continue (post o) d (dimap pre post next)))
+    Done -> pure Done
+    Continue o d next ->
+      pure (Continue (post o) d (dimap pre post next))
 
 -- | Each step emits the array of every output the schedule has
 -- | produced so far (inclusive of the current one). Cadence and
@@ -602,15 +571,14 @@ collectAll
 collectAll = go []
   where
   go acc (Schedule s) = Schedule \i -> RIO \env -> do
-    res <- unRIO (s i) env
+    res <- unsafeUnRIO (s i) env
     case res of
-      Left v -> Variant.case_ v
-      Right Done -> pure (Right Done)
-      Right (Continue o d next) ->
+      Done -> pure Done
+      Continue o d next ->
         let
           acc' = Array.snoc acc o
         in
-          pure (Right (Continue acc' d (go acc' next)))
+          pure (Continue acc' d (go acc' next))
 
 -- | Replace each output with the 1-based iteration count. Cadence
 -- | is unchanged. Equivalent to `mapSchedule` ing the underlying
@@ -627,12 +595,11 @@ repetitions
 repetitions = go 1
   where
   go n (Schedule s) = Schedule \i -> RIO \env -> do
-    res <- unRIO (s i) env
+    res <- unsafeUnRIO (s i) env
     case res of
-      Left v -> Variant.case_ v
-      Right Done -> pure (Right Done)
-      Right (Continue _ d next) ->
-        pure (Right (Continue n d (go (n + 1) next)))
+      Done -> pure Done
+      Continue _ d next ->
+        pure (Continue n d (go (n + 1) next))
 
 -- | Run a side-effecting handler with each emitted output, then
 -- | pass the output through unchanged. Cadence is unaffected.
@@ -646,13 +613,12 @@ tapOutput
   -> Schedule r i o
   -> Schedule r i o
 tapOutput f (Schedule s) = Schedule \i -> RIO \env -> do
-  res <- unRIO (s i) env
+  res <- unsafeUnRIO (s i) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o d next) -> do
-      _ <- unRIO (f o) env
-      pure (Right (Continue o d (tapOutput f next)))
+    Done -> pure Done
+    Continue o d next -> do
+      _ <- unsafeUnRIO (f o) env
+      pure (Continue o d (tapOutput f next))
 
 -- | Discard a schedule's output, collapsing it to `Unit`. Cadence
 -- | and termination are preserved; only the output type changes.
@@ -707,12 +673,11 @@ delayed
   -> Schedule r i o
   -> Schedule r i o
 delayed (Milliseconds offset) (Schedule s) = Schedule \i -> RIO \env -> do
-  res <- unRIO (s i) env
+  res <- unsafeUnRIO (s i) env
   case res of
-    Left v -> Variant.case_ v
-    Right Done -> pure (Right Done)
-    Right (Continue o (Milliseconds d) next) ->
-      pure (Right (Continue o (Milliseconds (d + offset)) next))
+    Done -> pure Done
+    Continue o (Milliseconds d) next ->
+      pure (Continue o (Milliseconds (d + offset)) next)
 
 -- | Fire on each minute boundary (UTC). The emitted delay is the
 -- | distance from the current wall-clock time to the next minute
@@ -825,17 +790,13 @@ repeat sched action = loop sched
   where
   loop (Schedule s) = RIO \env -> do
     let envInner = (unsafeCoerce env :: Record r)
-    res <- unRIO action envInner
-    case res of
-      Left v -> pure (Left v)
-      Right a -> do
-        stepRes <- unRIO (s a) envInner
-        case stepRes of
-          Left v -> Variant.case_ v
-          Right Done -> pure (Right a)
-          Right (Continue _ ms next) -> do
-            _ <- unRIO (sleepIfPositive ms) env
-            unRIO (loop next) env
+    a <- unsafeUnRIO action envInner
+    stepRes <- unsafeUnRIO (s a) envInner
+    case stepRes of
+      Done -> pure a
+      Continue _ ms next -> do
+        _ <- unsafeUnRIO (sleepIfPositive ms) env
+        unsafeUnRIO (loop next) env
 
 -- | Run `action`; on typed failure, consult `schedule` with the
 -- | failure as input. While the schedule says `Continue`, sleep
@@ -863,15 +824,14 @@ retry sched action = loop sched
     let envInner = (unsafeCoerce env :: Record r)
     res <- unRIO action envInner
     case res of
-      Right a -> pure (Right a)
+      Right a -> pure a
       Left v -> do
-        stepRes <- unRIO (s v) envInner
+        stepRes <- unsafeUnRIO (s v) envInner
         case stepRes of
-          Left v' -> Variant.case_ v'
-          Right Done -> pure (Left v)
-          Right (Continue _ ms next) -> do
-            _ <- unRIO (sleepIfPositive ms) env
-            unRIO (loop next) env
+          Done -> rioFail v
+          Continue _ ms next -> do
+            _ <- unsafeUnRIO (sleepIfPositive ms) env
+            unsafeUnRIO (loop next) env
 
 -- | Retry forever (no delay between attempts) until the action
 -- | succeeds. The caller's error row is discharged because no typed
@@ -900,7 +860,7 @@ eventually action = RIO \r ->
     loop = do
       res <- unRIO action r
       case res of
-        Right a -> pure (Right a)
+        Right a -> pure a
         Left _ -> loop
   in
     loop
@@ -923,15 +883,14 @@ retryOrElse sched action fallback = loop sched
     let envInner = (unsafeCoerce env :: Record r)
     res <- unRIO action envInner
     case res of
-      Right a -> pure (Right a)
+      Right a -> pure a
       Left v -> do
-        stepRes <- unRIO (s v) envInner
+        stepRes <- unsafeUnRIO (s v) envInner
         case stepRes of
-          Left v' -> Variant.case_ v'
-          Right Done -> unRIO (fallback v) envInner
-          Right (Continue _ ms next) -> do
-            _ <- unRIO (sleepIfPositive ms) env
-            unRIO (loop next) env
+          Done -> unsafeUnRIO (fallback v) envInner
+          Continue _ ms next -> do
+            _ <- unsafeUnRIO (sleepIfPositive ms) env
+            unsafeUnRIO (loop next) env
 
 -- | Apply a schedule to one input, returning its next `Step`.
 -- |
@@ -975,7 +934,7 @@ unfold seed f = go seed
     let
       r = f s i
     in
-      pure (Right (Continue r.output r.delay (go r.state)))
+      pure (Continue r.output r.delay (go r.state))
 
 -- | Build a stateless schedule from a pure function on the input.
 -- | The schedule never stops; each step emits the function's
@@ -1000,11 +959,11 @@ fromFunction f = Schedule \i -> RIO \_ ->
   let
     r = f i
   in
-    pure (Right (Continue r.output r.delay (fromFunction f)))
+    pure (Continue r.output r.delay (fromFunction f))
 
 -- | Internal: sleep only when the requested delay is positive.
 -- | Avoids an unnecessary `delay 0` round-trip.
 sleepIfPositive :: forall r. Milliseconds -> RIO (clock :: Clock | r) () Unit
 sleepIfPositive ms =
   if unwrap ms > 0.0 then sleep ms
-  else RIO \_ -> pure (Right unit)
+  else RIO \_ -> pure unit

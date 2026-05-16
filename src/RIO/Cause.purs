@@ -78,7 +78,7 @@ import Effect.Exception (Error, message, stack)
 import Effect.Exception (error) as Exception
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), rioFail, unRIO, unsafeUnRIO)
 
 -- | One node of the failure tree.
 -- |
@@ -147,7 +147,7 @@ bothPar ra rb = RIO \r -> do
       Right (Right _) -> Nothing
       Right (Left v) -> Just (Fail v)
       Left err -> Just (Die err)
-  pure $ Right $ case causeA, causeB, oa, ob of
+  pure case causeA, causeB, oa, ob of
     Nothing, Nothing, Right (Right a), Right (Right b) ->
       Right (Tuple a b)
     Just c, Nothing, _, _ -> Left c
@@ -181,7 +181,7 @@ attemptCause
   -> RIO r e' (Either (Cause e) a)
 attemptCause action = RIO \r -> do
   outcome <- attempt (unRIO action r)
-  pure (Right (fromOutcome outcome))
+  pure (fromOutcome outcome)
 
 -- | The cause-aware analogue of `RIO.Error.foldRIO`: branch on the
 -- | full `Cause` (every typed failure *and* every defect, including
@@ -210,8 +210,8 @@ foldCauseRIO
 foldCauseRIO onCause onOk inner = RIO \r -> do
   outcome <- attempt (unRIO inner r)
   case fromOutcome outcome of
-    Right a -> unRIO (onOk a) r
-    Left cause -> unRIO (onCause cause) r
+    Right a -> unsafeUnRIO (onOk a) r
+    Left cause -> unsafeUnRIO (onCause cause) r
 
 -- | Catch every failure (typed or defect) with a single handler and
 -- | replace the error row. The cause-aware sibling of
@@ -258,10 +258,10 @@ catchSomeCause
 catchSomeCause classify inner = RIO \r -> do
   outcome <- attempt (unRIO inner r)
   case fromOutcome outcome of
-    Right a -> pure (Right a)
+    Right a -> pure a
     Left cause -> case classify cause of
-      Just handler -> unRIO handler r
-      Nothing -> unRIO (failCause cause) r
+      Just handler -> unsafeUnRIO handler r
+      Nothing -> unsafeUnRIO (failCause cause) r
 
 -- | Raise a pre-built `Cause` as a failure.
 -- |
@@ -279,7 +279,7 @@ catchSomeCause classify inner = RIO \r -> do
 -- | `catchAllCause` handler.
 failCause :: forall r e a. Cause e -> RIO r e a
 failCause cause = case leftmostLeaf cause of
-  Fail v -> RIO \_ -> pure (Left v)
+  Fail v -> RIO \_ -> rioFail v
   Die err -> RIO \_ -> throwError err
   -- Unreachable: leftmostLeaf always returns Fail or Die.
   _ -> RIO \_ ->
@@ -316,16 +316,16 @@ tapErrorCause
 tapErrorCause f inner = RIO \r -> do
   outcome <- attempt (unRIO inner r)
   case fromOutcome outcome of
-    Right a -> pure (Right a)
+    Right a -> pure a
     Left cause -> do
-      logged <- unRIO (f cause) r
+      logged <- attempt (unsafeUnRIO (f cause) r)
       case logged of
-        Left newFail -> pure (Left newFail)
+        Left newErr -> throwError newErr
         Right _ -> case cause of
-          Fail v -> pure (Left v)
+          Fail v -> rioFail v
           Die err -> throwError err
           _ -> case leftmostLeaf cause of
-            Fail v -> pure (Left v)
+            Fail v -> rioFail v
             Die err -> throwError err
             -- Unreachable: leftmostLeaf returns Fail or Die.
             _ -> throwError
@@ -375,7 +375,7 @@ parTraverseCause f as = RIO \r -> do
           Left _ -> Nothing
       )
       classified
-  pure $ Right $ case combineParallel failed of
+  pure case combineParallel failed of
     Nothing -> Right successes
     Just cause -> Left cause
 
@@ -412,14 +412,12 @@ raceCause ra rb = RIO \r -> do
   let
     runSide side = do
       outcome <- attempt (unRIO side r)
-      case fromOutcome outcome of
-        Right a -> pure (Right a)
-        Left c -> pure (Left c)
+      pure (fromOutcome outcome)
   Tuple oa ob <- sequential
     ( Tuple <$> parallel (runSide ra)
         <*> parallel (runSide rb)
     )
-  pure $ Right $ case oa, ob of
+  pure case oa, ob of
     Right a, _ -> Right a
     _, Right b -> Right b
     Left cA, Left cB -> Left (Parallel cA cB)
@@ -461,8 +459,8 @@ acquireReleaseCause
 acquireReleaseCause acquire release use = RIO \r -> do
   acqOutcome <- attempt (unRIO acquire r)
   case acqOutcome of
-    Left err -> pure (Right (Left (Die err)))
-    Right (Left v) -> pure (Right (Left (Fail v)))
+    Left err -> pure (Left (Die err))
+    Right (Left v) -> pure (Left (Fail v))
     Right (Right a) -> do
       releaseRef <- liftEffect
         (Ref.new (Right unit :: Either Error Unit))
@@ -488,7 +486,7 @@ acquireReleaseCause acquire release use = RIO \r -> do
         releaseCause = case releaseResult of
           Right _ -> Nothing
           Left err -> Just (Die err)
-      pure $ Right $ case useOutcome, useCause, releaseCause of
+      pure case useOutcome, useCause, releaseCause of
         Right (Right b), _, Nothing -> Right b
         Right (Right _), _, Just rc -> Left rc
         _, Just uc, Nothing -> Left uc

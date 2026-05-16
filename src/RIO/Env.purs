@@ -11,14 +11,13 @@ module RIO.Env
 
 import Prelude
 
-import Data.Either (Either(..))
 import Data.Symbol (class IsSymbol, reflectSymbol)
 import Prim.Row (class Cons) as Row
 import Record as Record
 import Record.Unsafe (unsafeSet)
 import Type.Proxy (Proxy)
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), unsafeUnRIO)
 
 -- | Read a single service out of the environment by name.
 -- |
@@ -38,7 +37,7 @@ ask
   => Row.Cons sym a r' r
   => Proxy sym
   -> RIO r e a
-ask sym = RIO \r -> pure (Right (Record.get sym r))
+ask sym = RIO \r -> pure (Record.get sym r)
 
 -- | Read a single service and project a value out of it in one step.
 -- | Equivalent to `map f (ask sym)`, but the named version is easier on
@@ -86,7 +85,7 @@ provide
   -> RIO r e b
   -> RIO r' e b
 provide sym v inner = RIO \r' ->
-  unRIO inner (unsafeSet (reflectSymbol sym) v r')
+  unsafeUnRIO inner (unsafeSet (reflectSymbol sym) v r')
 
 -- | Supply the entire environment to an inner `RIO`, leaving an empty
 -- | required row. After `provideAll`, the resulting `RIO () e a` can be
@@ -101,4 +100,4 @@ provide sym v inner = RIO \r' ->
 -- |     inner
 -- | ```
 provideAll :: forall r e a. Record r -> RIO r e a -> RIO () e a
-provideAll env inner = RIO \_ -> unRIO inner env
+provideAll env inner = RIO \_ -> unsafeUnRIO inner env

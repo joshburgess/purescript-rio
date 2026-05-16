@@ -30,7 +30,7 @@ import Effect.AVar (AVarStatus(..))
 import Effect.Aff.AVar (AVar)
 import Effect.Aff.AVar as AVar
 
-import RIO.Internal (RIO(..))
+import RIO.Internal (RIO(..), rioFail)
 
 -- | A write-once cell that carries either a typed failure in row
 -- | `e` or a value of type `a`.
@@ -57,7 +57,7 @@ newtype Deferred e a = Deferred (AVar (Either (Variant e) a))
 makeDeferred :: forall r e' e a. RIO r e' (Deferred e a)
 makeDeferred = RIO \_ -> do
   avar <- AVar.empty
-  pure (Right (Deferred avar))
+  pure (Deferred avar)
 
 -- | Fill the cell with a success. Returns `True` if this call
 -- | filled it, `False` if it was already filled. Infallible from
@@ -75,8 +75,7 @@ succeedDeferred
   -> a
   -> RIO r e' Boolean
 succeedDeferred (Deferred avar) a = RIO \_ -> do
-  ok <- AVar.tryPut (Right a) avar
-  pure (Right ok)
+  AVar.tryPut (Right a) avar
 
 -- | Fill the cell with a typed failure. Returns `True` if this
 -- | call filled it, `False` if it was already filled.
@@ -91,8 +90,7 @@ failDeferred
   -> Variant e
   -> RIO r e' Boolean
 failDeferred (Deferred avar) v = RIO \_ -> do
-  ok <- AVar.tryPut (Left v) avar
-  pure (Right ok)
+  AVar.tryPut (Left v) avar
 
 -- | Wait for the cell to be filled and surface its result.
 -- |
@@ -106,7 +104,11 @@ failDeferred (Deferred avar) v = RIO \_ -> do
 -- | result <- awaitDeferred answer
 -- | ```
 awaitDeferred :: forall r e a. Deferred e a -> RIO r e a
-awaitDeferred (Deferred avar) = RIO \_ -> AVar.read avar
+awaitDeferred (Deferred avar) = RIO \_ -> do
+  result <- AVar.read avar
+  case result of
+    Right a -> pure a
+    Left v -> rioFail v
 
 -- | Non-blocking probe: returns `Nothing` if the cell is empty,
 -- | `Just (Left v)` if filled with a typed failure, `Just (Right a)`
@@ -128,10 +130,6 @@ pollDeferred
   -> RIO r e' (Maybe (Either (Variant e) a))
 pollDeferred (Deferred avar) = RIO \_ -> do
   s <- AVar.status avar
-  pure
-    ( Right
-        ( case s of
-            Filled a -> Just a
-            _ -> Nothing
-        )
-    )
+  pure case s of
+    Filled a -> Just a
+    _ -> Nothing

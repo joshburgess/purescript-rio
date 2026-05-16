@@ -37,7 +37,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), unsafeUnRIO)
 
 -- | A pending acquirer.
 type Waiter =
@@ -83,7 +83,7 @@ withPermits n sem action = RIO \r -> do
   acquire sem n
   finally
     (liftEffect (release sem n))
-    (unRIO action r)
+    (unsafeUnRIO action r)
 
 -- The acquire is `Aff`-valued because it may block. Implemented
 -- with `makeAff` so a fiber interrupted while waiting is removed

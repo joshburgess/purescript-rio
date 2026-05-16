@@ -37,7 +37,6 @@ module RIO.Ref
 
 import Prelude
 
-import Data.Either (Either(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Ref (Ref) as ERef
@@ -53,7 +52,7 @@ newtype Ref a = Ref (ERef.Ref a)
 new :: forall r e a. a -> RIO r e (Ref a)
 new value = RIO \_ -> do
   ref <- liftEffect (ERef.new value)
-  pure (Right (Ref ref))
+  pure (Ref ref)
 
 -- | `Effect`-typed variant for callers that allocate state at
 -- | the top of `main` before entering `RIO`.
@@ -62,28 +61,20 @@ newEffect value = Ref <$> ERef.new value
 
 -- | Read the current value.
 read :: forall r e a. Ref a -> RIO r e a
-read (Ref ref) = RIO \_ -> do
-  v <- liftEffect (ERef.read ref)
-  pure (Right v)
+read (Ref ref) = RIO \_ -> liftEffect (ERef.read ref)
 
 -- | Overwrite the value, discarding the previous one.
 write :: forall r e a. Ref a -> a -> RIO r e Unit
-write (Ref ref) value = RIO \_ -> do
-  liftEffect (ERef.write value ref)
-  pure (Right unit)
+write (Ref ref) value = RIO \_ -> liftEffect (ERef.write value ref)
 
 -- | Apply a pure function to the current value and store the
 -- | result. Returns the new value.
 modify :: forall r e a. Ref a -> (a -> a) -> RIO r e a
-modify (Ref ref) f = RIO \_ -> do
-  v <- liftEffect (ERef.modify f ref)
-  pure (Right v)
+modify (Ref ref) f = RIO \_ -> liftEffect (ERef.modify f ref)
 
 -- | Apply a pure function and discard the result.
 modify_ :: forall r e a. Ref a -> (a -> a) -> RIO r e Unit
-modify_ (Ref ref) f = RIO \_ -> do
-  liftEffect (ERef.modify_ f ref)
-  pure (Right unit)
+modify_ (Ref ref) f = RIO \_ -> liftEffect (ERef.modify_ f ref)
 
 -- | Alias for `modify_` that reads naturally at call sites.
 update :: forall r e a. Ref a -> (a -> a) -> RIO r e Unit

@@ -73,7 +73,6 @@ module RIO.Logger
 import Prelude
 
 import Data.Array (filter, intercalate) as Array
-import Data.Either (Either(..))
 import Data.Foldable (foldl)
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
@@ -83,7 +82,7 @@ import Effect.Ref as Ref
 import Record (get) as Record
 import Type.Proxy (Proxy(..))
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), unsafeUnRIO)
 
 -- | The five levels mirror OTel's `SeverityNumber` family with
 -- | one entry per band. `LogTrace` is the noisiest; `LogError`
@@ -314,7 +313,6 @@ emitAt level msg = RIO \r -> do
   let logger = Record.get (Proxy :: Proxy "logger") r
   annotations <- liftEffect logger.getAnnotations
   liftEffect (logger.log level msg annotations)
-  pure (Right unit)
 
 -- | Run `action` with a single ambient field temporarily
 -- | attached to every log emission. The annotation cell is
@@ -362,7 +360,7 @@ withFields fields action = RIO \r -> do
       { getAnnotations = Ref.read privateRef
       , setAnnotations = \as -> Ref.write as privateRef
       }
-  unRIO action (r { logger = scopedLogger })
+  unsafeUnRIO action (r { logger = scopedLogger })
 
 -- | Merge a new field batch into an existing annotation list.
 -- | Any keys present in `incoming` replace their counterparts

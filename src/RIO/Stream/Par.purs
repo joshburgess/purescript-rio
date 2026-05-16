@@ -59,7 +59,7 @@ import Effect.Ref as Ref
 
 import RIO.Cause (Cause(..), attemptCause)
 import RIO.Concurrency (fork)
-import RIO.Internal (RIO(..))
+import RIO.Internal (RIO(..), rioFail)
 import RIO.Queue (Queue)
 import RIO.Queue as Queue
 import RIO.Stream (Step(..), Stream(..), unStream)
@@ -334,7 +334,7 @@ consumer queue failureRef = Stream do
 -- | defect with a clear message so a future regression is loud.
 propagateCause :: forall r e a. Cause e -> RIO r e a
 propagateCause = case _ of
-  Fail v -> RIO \_ -> pure (Left v)
+  Fail v -> RIO \_ -> rioFail v
   Die err -> RIO \_ -> throwError err
   Parallel _ _ -> RIO \_ ->
     throwError

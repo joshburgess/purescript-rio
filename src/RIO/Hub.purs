@@ -32,14 +32,13 @@ module RIO.Hub
 import Prelude
 
 import Data.Array (filter, length, snoc) as Array
-import Data.Either (Either(..))
 import Data.Foldable (for_, traverse_)
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), unsafeUnRIO)
 import RIO.Queue (Queue)
 import RIO.Queue as Queue
 
@@ -95,7 +94,7 @@ subscribe (Hub ref) = RIO \r -> do
   -- subscribes), but the queue is immediately shut down so the
   -- subscriber's first `take` returns `Nothing`.
   when state.isShutdown do
-    _ <- unRIO (Queue.shutdown queue :: RIO _ () Unit) r
+    _ <- unsafeUnRIO (Queue.shutdown queue :: RIO _ () Unit) r
     pure unit
   let
     unsub :: forall r' e'. RIO r' e' Unit
@@ -108,8 +107,7 @@ subscribe (Hub ref) = RIO \r -> do
             }
         )
         ref
-      pure (Right unit)
-  pure (Right { queue, unsubscribe: unsub })
+  pure { queue, unsubscribe: unsub }
 
 -- | Remove a previously-acquired subscription by passing the
 -- | `unsubscribe` returned from `subscribe`. Equivalent to running
@@ -125,11 +123,10 @@ publish (Hub ref) a = RIO \r -> do
   state <- liftEffect (Ref.read ref)
   traverse_
     ( \sub -> do
-        _ <- unRIO (Queue.offer sub.queue a :: RIO _ _ Boolean) r
+        _ <- unsafeUnRIO (Queue.offer sub.queue a :: RIO _ _ Boolean) r
         pure unit
     )
     state.subscribers
-  pure (Right unit)
 
 -- | Publish a batch of values in input order.
 publishAll :: forall r e a. Hub a -> Array a -> RIO r e Unit
@@ -163,8 +160,7 @@ shutdown (Hub ref) = RIO \r -> do
   liftEffect (Ref.write (state { isShutdown = true }) ref)
   traverse_
     ( \sub -> do
-        _ <- unRIO (Queue.shutdown sub.queue :: RIO _ () Unit) r
+        _ <- unsafeUnRIO (Queue.shutdown sub.queue :: RIO _ () Unit) r
         pure unit
     )
     state.subscribers
-  pure (Right unit)

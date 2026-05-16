@@ -42,7 +42,6 @@ module RIO.Ref.Synchronized
 
 import Prelude
 
-import Data.Either (Either(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Ref as ERef
@@ -63,7 +62,7 @@ new :: forall r e a. a -> RIO r e (SynchronizedRef a)
 new value = RIO \_ -> do
   ref <- liftEffect (ERef.new value)
   sem <- liftEffect (Semaphore.make 1)
-  pure (Right (SynchronizedRef { ref, sem }))
+  pure (SynchronizedRef { ref, sem })
 
 -- | `Effect`-typed variant for callers that allocate at the top
 -- | of `main`.
@@ -78,16 +77,12 @@ newEffect value = do
 -- | update to complete.
 read :: forall r e a. SynchronizedRef a -> RIO r e a
 read (SynchronizedRef s) = Semaphore.withPermit s.sem do
-  RIO \_ -> do
-    v <- liftEffect (ERef.read s.ref)
-    pure (Right v)
+  RIO \_ -> liftEffect (ERef.read s.ref)
 
 -- | Overwrite the value. Waits for any running effectful update.
 write :: forall r e a. SynchronizedRef a -> a -> RIO r e Unit
 write (SynchronizedRef s) value = Semaphore.withPermit s.sem do
-  RIO \_ -> do
-    liftEffect (ERef.write value s.ref)
-    pure (Right unit)
+  RIO \_ -> liftEffect (ERef.write value s.ref)
 
 -- | Apply a pure function under the lock. Returns the new value.
 -- | Equivalent to `modifyM ref (pure <<< f)` but avoids the extra
@@ -98,9 +93,7 @@ modify
   -> (a -> a)
   -> RIO r e a
 modify (SynchronizedRef s) f = Semaphore.withPermit s.sem do
-  RIO \_ -> do
-    v <- liftEffect (ERef.modify f s.ref)
-    pure (Right v)
+  RIO \_ -> liftEffect (ERef.modify f s.ref)
 
 -- | Apply an effectful function to the current value under the
 -- | lock and store the result. Returns the new value. While the
@@ -111,13 +104,11 @@ modifyM
   -> (a -> RIO r e a)
   -> RIO r e a
 modifyM (SynchronizedRef s) f = Semaphore.withPermit s.sem do
-  current <- RIO \_ -> do
-    v <- liftEffect (ERef.read s.ref)
-    pure (Right v)
+  current <- RIO \_ -> liftEffect (ERef.read s.ref)
   next <- f current
   RIO \_ -> do
     liftEffect (ERef.write next s.ref)
-    pure (Right next)
+    pure next
 
 -- | `modifyM` that discards the new value.
 modifyM_

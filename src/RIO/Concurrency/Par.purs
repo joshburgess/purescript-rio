@@ -48,14 +48,14 @@ module RIO.Concurrency.Par
   , pure
   ) where
 
-import Prelude (($), (<$>), (<*>))
+import Prelude (bind, ($), (<$>), (<*>))
 import Prelude (pure) as P
 
 import Control.Parallel (parallel, sequential)
 import Data.Either (Either(..))
 import Data.Functor (map) as F
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), rioFail, unRIO)
 
 -- | The qualified-`ado` desugaring target for the functorial
 -- | step. Identical to the `Functor RIO` instance; mapping over
@@ -76,12 +76,15 @@ apply
    . RIO r e (a -> b)
   -> RIO r e a
   -> RIO r e b
-apply rf ra = RIO \r ->
-  sequential
+apply rf ra = RIO \r -> do
+  result <- sequential
     ( combine
         <$> parallel (unRIO rf r)
         <*> parallel (unRIO ra r)
     )
+  case result of
+    Right b -> P.pure b
+    Left v -> rioFail v
   where
   combine :: Either _ (a -> b) -> Either _ a -> Either _ b
   combine (Left v) _ = Left v

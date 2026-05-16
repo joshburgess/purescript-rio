@@ -74,7 +74,7 @@ import Unsafe.Coerce (unsafeCoerce)
 
 import RIO.Concurrency (Fiber(..), mkFiber)
 import RIO.Env (ask) as Env
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), unRIO, unsafeUnRIO)
 import RIO.Resource (Scope, addFinalizer)
 
 -- | A type-erased `Ref` cell, recovered by the carrying
@@ -98,7 +98,7 @@ newtype FiberRefs = FiberRefs (Ref (Map Int AnyRef))
 newFiberRefs :: forall r e. RIO r e FiberRefs
 newFiberRefs = RIO \_ -> do
   ref <- liftEffect (Ref.new (Map.empty :: Map Int AnyRef))
-  pure (Right (FiberRefs ref))
+  pure (FiberRefs ref)
 
 -- | `Effect`-typed variant for callers building the environment
 -- | outside an `RIO` action (e.g. at the top of `main`).
@@ -133,7 +133,7 @@ make initial = do
     key <- liftEffect nextKey
     ref <- liftEffect (Ref.new initial)
     liftEffect (Ref.modify_ (Map.insert key (eraseRef ref)) storage)
-    pure (Right (FiberRef { key, default: initial }))
+    pure (FiberRef { key, default: initial })
 
 -- | Read the calling fiber's value of the cell.
 get
@@ -147,8 +147,8 @@ get (FiberRef { key, default }) = do
     case Map.lookup key m of
       Just anyRef -> do
         v <- liftEffect (Ref.read (reifyRef anyRef))
-        pure (Right v)
-      Nothing -> pure (Right default)
+        pure v
+      Nothing -> pure default
 
 -- | Overwrite the calling fiber's value of the cell. If the cell
 -- | does not yet have an entry in this fiber's storage (because
@@ -165,13 +165,11 @@ set (FiberRef { key }) value = do
   RIO \_ -> do
     m <- liftEffect (Ref.read storage)
     case Map.lookup key m of
-      Just anyRef -> do
+      Just anyRef ->
         liftEffect (Ref.write value (reifyRef anyRef))
-        pure (Right unit)
       Nothing -> do
         ref <- liftEffect (Ref.new value)
         liftEffect (Ref.modify_ (Map.insert key (eraseRef ref)) storage)
-        pure (Right unit)
 
 -- | Apply a pure function to the calling fiber's value and store
 -- | the result. Equivalent to `get` followed by `set`.
@@ -203,7 +201,7 @@ forkFiber inner = do
     childStorage <- liftEffect (snapshotStorage parent)
     let childEnv = unsafeSet "fiberRefs" (FiberRefs childStorage) r
     fib <- mkFiber (unRIO inner childEnv)
-    pure (Right fib)
+    pure fib
 
 -- | Scope-bounded variant of `forkFiber`: the child's lifetime is
 -- | bounded by the supplied `Scope`, just like
@@ -223,8 +221,8 @@ forkFiberScoped scope inner = do
       cleanup = Aff.killFiber
         (Aff.error "RIO.forkFiberScoped: scope exit")
         f.underlying
-    _ <- unRIO (addFinalizer scope cleanup) r
-    pure (Right fib)
+    unsafeUnRIO (addFinalizer scope cleanup) r
+    pure fib
 
 -- | Clone every entry in the source storage into a fresh `Ref`
 -- | holding the same value. The clone is per-entry; reads and

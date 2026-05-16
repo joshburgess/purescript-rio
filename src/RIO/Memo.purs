@@ -53,7 +53,7 @@ import Effect.Exception (error)
 import Effect.Ref as Ref
 import Data.Variant (Variant)
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), rioFail, unRIO)
 
 -- | Wrap an action so it runs at most once. The outer `RIO`
 -- | prepares the memo cell; the returned inner `RIO` is the
@@ -67,7 +67,7 @@ memoize
   -> RIO r e' (RIO r e a)
 memoize action = RIO \_ -> do
   cell <- liftEffect (Ref.new Nothing)
-  pure (Right (memoCell action cell))
+  pure (memoCell action cell)
 
 memoCell
   :: forall r e a
@@ -87,14 +87,17 @@ memoCell action cell = RIO \r -> do
     Awaiter avar -> do
       result <- AVar.read avar
       case result of
-        Right outcome -> pure outcome
+        Right (Right a) -> pure a
+        Right (Left v) -> rioFail v
         Left msg -> throwError (error msg)
     Owner avar -> do
       attempted <- attempt (unRIO action r)
       case attempted of
         Right outcome -> do
           _ <- AVar.tryPut (Right outcome) avar
-          pure outcome
+          case outcome of
+            Right a -> pure a
+            Left v -> rioFail v
         Left err -> do
           _ <- AVar.tryPut (Left (show err)) avar
           throwError err

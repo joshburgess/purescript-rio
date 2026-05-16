@@ -59,7 +59,6 @@ module RIO.Pool
 import Prelude
 
 import Data.Array as Array
-import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Aff (Aff, finally)
@@ -68,7 +67,7 @@ import Effect.Class (liftEffect)
 import Effect.Exception (error, throwException)
 import Effect.Ref as ERef
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), unsafeUnRIO)
 import RIO.Resource (Scope, addFinalizer)
 import RIO.Semaphore (Semaphore)
 import RIO.Semaphore as Semaphore
@@ -116,17 +115,15 @@ make scope config = do
     totalRef <- liftEffect (ERef.new 0)
     shutdownRef <- liftEffect (ERef.new false)
     pure
-      ( Right
-          ( Pool
-              { sem
-              , idleRef
-              , totalRef
-              , acquire: config.acquire
-              , release: config.release
-              , shutdownRef
-              , capacity: max 0 config.maxSize
-              }
-          )
+      ( Pool
+          { sem
+          , idleRef
+          , totalRef
+          , acquire: config.acquire
+          , release: config.release
+          , shutdownRef
+          , capacity: max 0 config.maxSize
+          }
       )
   addFinalizer scope (drainAll pool)
   pure pool
@@ -160,8 +157,7 @@ withResource
   -> RIO r e b
 withResource pool@(Pool p) use = Semaphore.withPermit p.sem do
   -- Check shutdown before allocating.
-  shut <- RIO \_ ->
-    Right <$> liftEffect (ERef.read p.shutdownRef)
+  shut <- RIO \_ -> liftEffect (ERef.read p.shutdownRef)
   when shut do
     RIO \_ -> liftAff
       (liftEffect (throwException (error "RIO.Pool: pool is shut down")))
@@ -176,7 +172,7 @@ withResource pool@(Pool p) use = Semaphore.withPermit p.sem do
         else
           liftEffect
             (ERef.modify_ (\xs -> Array.snoc xs resource) p.idleRef)
-    finally returnIt (unRIO (use resource) r)
+    finally returnIt (unsafeUnRIO (use resource) r)
 
 -- Pop an idle resource if available; otherwise acquire a fresh
 -- one. Increments `totalRef` when a fresh resource is minted.
@@ -186,11 +182,11 @@ borrowOne (Pool p) = RIO \_ -> do
   case Array.unsnoc idleNow of
     Just { init, last } -> do
       liftEffect (ERef.write init p.idleRef)
-      pure (Right last)
+      pure last
     Nothing -> do
       a <- p.acquire
       liftEffect (ERef.modify_ (_ + 1) p.totalRef)
-      pure (Right a)
+      pure a
 
 -- Drain every idle resource, releasing it. Set the shutdown
 -- flag so in-flight resources release on return rather than

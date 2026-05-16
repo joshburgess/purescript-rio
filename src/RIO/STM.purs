@@ -61,7 +61,7 @@ import Prim.Row (class Cons) as Row
 import Type.Proxy (Proxy)
 import Unsafe.Coerce (unsafeCoerce)
 
-import RIO.Internal (RIO(..))
+import RIO.Internal (RIO(..), rioFail)
 
 -- | A transactional reference. Created with `newTRef`, read with
 -- | `readTRef`, written with `writeTRef`, modified with
@@ -351,8 +351,8 @@ atomically (STM body) = RIO \_ -> attempt
         liftEffect do
           ws <- Ref.read log.writes
           for_ ws \w -> w.apply
-        pure (Right a)
-      TxFailed v -> pure (Left v)
+        pure a
+      TxFailed v -> rioFail v
       TxRetry -> do
         signal <- AVar.empty
         liftEffect (registerWaiters log signal)

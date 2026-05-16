@@ -21,16 +21,17 @@ module RIO.Resource
 
 import Prelude
 
+import Control.Monad.Error.Class (throwError)
 import Data.Array (foldr)
 import Data.Either (Either(..))
-import Data.Variant as Variant
+import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff, attempt, finally)
 import Effect.Aff (bracket, generalBracket) as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Record.Unsafe (unsafeSet)
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), matchTypedFailure, unsafeUnRIO)
 
 -- | Run `acquire`, then `use`, then `release`, guaranteeing that
 -- | `release` runs no matter how `use` ends: success, typed failure,
@@ -61,19 +62,9 @@ acquireRelease
   -> RIO r e b
 acquireRelease acquire release use = RIO \r ->
   Aff.bracket
-    (unRIO acquire r)
-    ( case _ of
-        Left _ -> pure unit
-        Right a -> do
-          relRes <- unRIO (release a) r
-          case relRes of
-            Right _ -> pure unit
-            Left v -> Variant.case_ v
-    )
-    ( case _ of
-        Left v -> pure (Left v)
-        Right a -> unRIO (use a) r
-    )
+    (unsafeUnRIO acquire r)
+    (\a -> unsafeUnRIO (release a) r)
+    (\a -> unsafeUnRIO (use a) r)
 
 -- | Top-level bracket sugar: the same shape as `acquireRelease` but
 -- | the release action shares the *use* error row. Any typed failure
@@ -103,21 +94,19 @@ bracket
   -> RIO r e b
 bracket acquire release use = RIO \r ->
   Aff.bracket
-    (unRIO acquire r)
-    ( case _ of
-        Left _ -> pure unit
-        Right a -> do
-          relRes <- unRIO (release a) r
-          case relRes of
-            Right _ -> pure unit
-            -- Release errors are silently swallowed; use
-            -- `acquireRelease` directly if you need to observe them.
-            Left _ -> pure unit
+    (unsafeUnRIO acquire r)
+    ( \a -> do
+        outcome <- attempt (unsafeUnRIO (release a) r)
+        case outcome of
+          Right _ -> pure unit
+          -- Release typed failures are silently swallowed; use
+          -- `acquireRelease` directly if you need to observe them.
+          -- Defects propagate.
+          Left err -> case matchTypedFailure err of
+            Just _ -> pure unit
+            Nothing -> throwError err
     )
-    ( case _ of
-        Left v -> pure (Left v)
-        Right a -> unRIO (use a) r
-    )
+    (\a -> unsafeUnRIO (use a) r)
 
 -- | `finally`-style guarantor: run `finalizer` after `action`, on
 -- | every termination path (success, typed failure, defect, or
@@ -140,14 +129,7 @@ bracket acquire release use = RIO \r ->
 -- | ```
 ensuring :: forall r e a. RIO r e a -> RIO r () Unit -> RIO r e a
 ensuring action finalizer = RIO \r ->
-  let
-    finAff = do
-      res <- unRIO finalizer r
-      case res of
-        Right _ -> pure unit
-        Left v -> Variant.case_ v
-  in
-    finally finAff (unRIO action r)
+  finally (unsafeUnRIO finalizer r) (unsafeUnRIO action r)
 
 -- | Run `finalizer` only when `action` is interrupted (the
 -- | fiber is killed). Normal completion, typed failure, and
@@ -178,20 +160,13 @@ ensuring action finalizer = RIO \r ->
 -- | ```
 onInterrupt :: forall r e a. RIO r e a -> RIO r () Unit -> RIO r e a
 onInterrupt action finalizer = RIO \r ->
-  let
-    finAff = do
-      res <- unRIO finalizer r
-      case res of
-        Right _ -> pure unit
-        Left v -> Variant.case_ v
-  in
-    Aff.generalBracket
-      (pure unit)
-      { killed: \_ _ -> finAff
-      , failed: \_ _ -> pure unit
-      , completed: \_ _ -> pure unit
-      }
-      (\_ -> unRIO action r)
+  Aff.generalBracket
+    (pure unit)
+    { killed: \_ _ -> unsafeUnRIO finalizer r
+    , failed: \_ _ -> pure unit
+    , completed: \_ _ -> pure unit
+    }
+    (\_ -> unsafeUnRIO action r)
 
 -- | A scope is a place to register finalizers that will run on exit.
 -- |
@@ -231,9 +206,8 @@ newtype Scope = Scope (Ref.Ref (Array (Aff Unit)))
 -- |   useConnection conn
 -- | ```
 addFinalizer :: forall r e. Scope -> Aff Unit -> RIO r e Unit
-addFinalizer (Scope ref) fin = RIO \_ -> do
+addFinalizer (Scope ref) fin = RIO \_ ->
   liftEffect (Ref.modify_ (\xs -> [ fin ] <> xs) ref)
-  pure (Right unit)
 
 -- | Run an inner computation in a fresh scope provided as a service
 -- | under the label `scope`. Finalizers registered via the scope run
@@ -276,4 +250,4 @@ scoped inner = RIO \r -> do
         -- is already LIFO because we prepend on registration.
         foldr (\fin acc -> attempt fin *> acc) (pure unit) fins
     )
-    (\_ -> unRIO inner extended)
+    (\_ -> unsafeUnRIO inner extended)

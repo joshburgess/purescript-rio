@@ -2,7 +2,6 @@ module Test.RIO.Schedule.ModifyDelayMSpec (spec) where
 
 import Prelude
 
-import Data.Either (Either(..))
 import Data.Int (toNumber)
 import Data.Time.Duration (Milliseconds(..))
 import Effect.Class (liftEffect)
@@ -89,7 +88,7 @@ spec = describe "RIO.Schedule (modifyDelayM / addDelayM)" do
         adjust :: Milliseconds -> RIO () () Milliseconds
         adjust _ = Internal.RIO \_ -> do
           n <- liftEffect (Ref.modify (_ + 10.0) counter)
-          pure (Right (Milliseconds n))
+          pure (Milliseconds n)
 
         sched :: Schedule () Unit Int
         sched = modifyDelayM adjust (spaced (Milliseconds 1.0))

@@ -48,7 +48,7 @@ import Record (get) as Record
 import Type.Proxy (Proxy(..))
 
 import RIO.Core (ask)
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), rioFail, unRIO)
 
 -- | A span identifier. Unique within a `Tracer`'s lifetime.
 newtype SpanId = SpanId Int
@@ -176,7 +176,9 @@ withSpan name action = RIO \r -> do
       liftEffect case result of
         Right _ -> finalize SpanOk
         Left _ -> finalize SpanFailed
-      pure result
+      case result of
+        Right a -> pure a
+        Left v -> rioFail v
 
 -- | Attach a string attribute to the currently-active span. A no-op
 -- | when no span is active (e.g. when called outside a `withSpan`

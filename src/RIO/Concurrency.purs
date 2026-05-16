@@ -76,7 +76,7 @@ import Type.Proxy (Proxy)
 import RIO.Cause (Cause(..), combineParallel) as Cause
 import RIO.Exit (Exit(..), die, fromEither) as Exit
 import RIO.Exit (Exit(..))
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), mkTypedFailureError, rioFail, unRIO, unsafeUnRIO)
 import RIO.Resource (Scope, addFinalizer)
 
 -- | A stable identity for a forked fiber.
@@ -207,7 +207,7 @@ mkFiber body = do
 fork :: forall r e e' a. RIO r e a -> RIO r e' (Fiber e a)
 fork inner = RIO \r -> do
   fib <- mkFiber (unRIO inner r)
-  pure (Right fib)
+  pure fib
 
 -- | Fork an `RIO` computation into a new fiber whose lifetime is
 -- | bounded by the given `Scope`. When the scope exits (success,
@@ -230,8 +230,8 @@ forkScoped :: forall r e e' a. Scope -> RIO r e a -> RIO r e' (Fiber e a)
 forkScoped scope inner = RIO \r -> do
   fib@(Fiber f) <- mkFiber (unRIO inner r)
   let cleanup = Aff.killFiber (Aff.error "RIO.forkScoped: scope exit") f.underlying
-  _ <- unRIO (addFinalizer scope cleanup) r
-  pure (Right fib)
+  unsafeUnRIO (addFinalizer scope cleanup) r
+  pure fib
 
 -- | Wait for a forked fiber to finish and surface its result.
 -- |
@@ -253,7 +253,11 @@ forkScoped scope inner = RIO \r -> do
 -- |   pure (ra + rb)
 -- | ```
 join :: forall r e a. Fiber e a -> RIO r e a
-join (Fiber f) = RIO \_ -> Aff.joinFiber f.underlying
+join (Fiber f) = RIO \_ -> do
+  outcome <- Aff.joinFiber f.underlying
+  case outcome of
+    Right a -> pure a
+    Left v -> rioFail v
 
 -- | Interrupt a running fiber.
 -- |
@@ -282,7 +286,7 @@ join (Fiber f) = RIO \_ -> Aff.joinFiber f.underlying
 interrupt :: forall r e e' a. Fiber e a -> RIO r e' Unit
 interrupt (Fiber f) = RIO \_ -> do
   Aff.killFiber (Aff.error "RIO.interrupt") f.underlying
-  pure (Right unit)
+  pure unit
 
 -- | The stable identity of a forked fiber. The id is allocated
 -- | at `fork` / `forkScoped` time and is unique across the host
@@ -315,7 +319,7 @@ fiberId (Fiber f) = f.id
 poll :: forall r e e' a. Fiber e a -> RIO r e' (Maybe (Exit e a))
 poll (Fiber f) = RIO \_ -> do
   s <- liftEffect (Ref.read f.state)
-  pure (Right s)
+  pure s
 
 -- | Wait for a fiber to finish and surface its terminal `Exit`,
 -- | including the `Cause` tree for any failure. Unlike `join`,
@@ -353,8 +357,8 @@ await (Fiber f) = RIO \_ -> do
   _ <- Aff.attempt (Aff.joinFiber f.underlying)
   s <- liftEffect (Ref.read f.state)
   case s of
-    Just exit -> pure (Right exit)
-    Nothing -> pure (Right (Exit.die (Aff.error "RIO.await: fiber state missing")))
+    Just exit -> pure exit
+    Nothing -> pure (Exit.die (Aff.error "RIO.await: fiber state missing"))
 
 -- | Await every fiber in the array and return their `Exit`s in
 -- | input order. None of the awaits unwind the caller's typed
@@ -443,7 +447,7 @@ joinAllPar fibs = do
 -- |   liftEffect (Ref.modify_ (_ + 1) commitCounter)
 -- | ```
 uninterruptible :: forall r e a. RIO r e a -> RIO r e a
-uninterruptible inner = RIO \r -> Aff.invincible (unRIO inner r)
+uninterruptible inner = RIO \r -> Aff.invincible (unsafeUnRIO inner r)
 
 -- | A short-circuiting error used inside `parTraverse` to abort
 -- | sibling fibers as soon as one branch fails. The first failure is
@@ -498,11 +502,11 @@ parTraverse f as = RIO \r -> do
           throwError (Aff.error shortCircuitMessage)
   outcome <- Aff.attempt (Parallel.parTraverse run as)
   case outcome of
-    Right values -> pure (Right values)
+    Right values -> pure values
     Left err -> do
       first <- liftEffect (Ref.read failureRef)
       case first of
-        Just v -> pure (Left v)
+        Just v -> rioFail v
         Nothing -> throwError err
 
 -- | The identity case of `parTraverse`: run an array of actions
@@ -587,8 +591,8 @@ validatePar f as = RIO \r -> do
   results <- Parallel.parTraverse (\a -> unRIO (f a) r) as
   let Tuple errs succs = partitionEithers results
   case NEA.fromArray errs of
-    Nothing -> pure (Right (Right succs))
-    Just nea -> pure (Right (Left nea))
+    Nothing -> pure (Right succs)
+    Just nea -> pure (Left nea)
 
 -- | Run every action in an array concurrently and split the results
 -- | into typed failures and successes, preserving input order within
@@ -613,7 +617,7 @@ partitionPar
   -> RIO r e' (Tuple (Array (Variant e)) (Array b))
 partitionPar f as = RIO \r -> do
   results <- Parallel.parTraverse (\a -> unRIO (f a) r) as
-  pure (Right (partitionEithers results))
+  pure (partitionEithers results)
 
 -- | Sequential sibling of `validatePar`: same accumulating-errors
 -- | semantics, but actions run one after another in input order
@@ -637,8 +641,8 @@ validate f as = RIO \r -> do
   results <- traverse (\a -> unRIO (f a) r) as
   let Tuple errs succs = partitionEithers results
   case NEA.fromArray errs of
-    Nothing -> pure (Right (Right succs))
-    Just nea -> pure (Right (Left nea))
+    Nothing -> pure (Right succs)
+    Just nea -> pure (Left nea)
 
 -- | Sequential sibling of `partitionPar`. Runs each action in order
 -- | and partitions the results into typed failures and successes,
@@ -657,7 +661,7 @@ partition
   -> RIO r e' (Tuple (Array (Variant e)) (Array b))
 partition f as = RIO \r -> do
   results <- traverse (\a -> unRIO (f a) r) as
-  pure (Right (partitionEithers results))
+  pure (partitionEithers results)
 
 partitionEithers
   :: forall a b
@@ -717,11 +721,11 @@ zipPar ra rb = RIO \r -> do
     ( Aff.sequential (Tuple <$> Aff.parallel runA <*> Aff.parallel runB)
     )
   case outcome of
-    Right t -> pure (Right t)
+    Right t -> pure t
     Left err -> do
       first <- liftEffect (Ref.read failureRef)
       case first of
-        Just v -> pure (Left v)
+        Just v -> rioFail v
         Nothing -> throwError err
 
 -- | Run two actions concurrently and combine their results with a
@@ -765,9 +769,12 @@ race
    . RIO r e a
   -> RIO r e a
   -> RIO r e a
-race ra rb = RIO \r ->
-  Aff.sequential
+race ra rb = RIO \r -> do
+  outcome <- Aff.sequential
     (Aff.parallel (unRIO ra r) <|> Aff.parallel (unRIO rb r))
+  case outcome of
+    Right a -> pure a
+    Left v -> rioFail v
 
 -- | Race a non-empty array of actions with true N-way concurrency
 -- | (built on `Control.Parallel.parOneOfMap`). First to complete
@@ -784,8 +791,11 @@ raceAll
   :: forall r e a
    . NonEmptyArray (RIO r e a)
   -> RIO r e a
-raceAll arr = RIO \r ->
-  Parallel.parOneOfMap (\rio -> unRIO rio r) arr
+raceAll arr = RIO \r -> do
+  outcome <- Parallel.parOneOfMap (\rio -> unRIO rio r) arr
+  case outcome of
+    Right a -> pure a
+    Left v -> rioFail v
 
 -- | Race two actions and preserve which arm won. The first arm
 -- | becomes `Left`; the second becomes `Right`. The loser is
@@ -828,10 +838,8 @@ forever :: forall r e a b. RIO r e a -> RIO r e b
 forever m = RIO \r ->
   let
     go = do
-      res <- unRIO m r
-      case res of
-        Left v -> pure (Left v)
-        Right _ -> go
+      _ <- unsafeUnRIO m r
+      go
   in
     go
 
@@ -874,7 +882,9 @@ async
    . ((Either (Variant e) a -> Effect Unit) -> Effect Unit)
   -> RIO r e a
 async register = RIO \_ -> Aff.makeAff \resume -> do
-  register \resolution -> resume (Right resolution)
+  register \resolution -> case resolution of
+    Right a -> resume (Right a)
+    Left v -> resume (Left (mkTypedFailureError v))
   pure Aff.nonCanceler
 
 -- | Like `async`, but the register function returns an `Effect Unit`
@@ -900,7 +910,9 @@ asyncInterrupt
    . ((Either (Variant e) a -> Effect Unit) -> Effect (Effect Unit))
   -> RIO r e a
 asyncInterrupt register = RIO \_ -> Aff.makeAff \resume -> do
-  cancel <- register \resolution -> resume (Right resolution)
+  cancel <- register \resolution -> case resolution of
+    Right a -> resume (Right a)
+    Left v -> resume (Left (mkTypedFailureError v))
   pure (Aff.Canceler \_ -> liftEffect cancel)
 
 -- | Filter an array using an effectful predicate, running every
@@ -959,7 +971,7 @@ timeout
 timeout ms action =
   race
     (map Just action)
-    (RIO \_ -> Aff.delay ms *> pure (Right Nothing))
+    (RIO \_ -> Aff.delay ms *> pure Nothing)
 
 -- | A timeout that produces a typed failure on expiry rather than
 -- | wrapping the result in `Maybe`. The caller supplies the failure
@@ -992,4 +1004,7 @@ timeoutFail sym a ms action = do
   result <- timeout ms action
   case result of
     Just b -> pure b
-    Nothing -> RIO \_ -> pure (Left (Variant.inj sym a))
+    Nothing ->
+      let v :: Variant e
+          v = Variant.inj sym a
+      in RIO \_ -> rioFail v

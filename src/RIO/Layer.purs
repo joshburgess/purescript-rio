@@ -28,9 +28,8 @@ module RIO.Layer
 
 import Prelude hiding ((>>>))
 
-import Data.Either (Either(..))
+import Data.Either (Either)
 import Data.Variant (Variant)
-import Data.Variant (expand) as Variant
 import Effect.Aff (Aff, attempt, bracket)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -40,7 +39,7 @@ import Record (union) as Record
 import Record.Unsafe (unsafeGet, unsafeSet)
 import Unsafe.Coerce (unsafeCoerce)
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO(..), unRIO, unsafeUnRIO)
 import RIO.Resource (Scope(..), scoped)
 
 -- | A layer is an `RIO` that runs in the surrounding `Scope` and
@@ -122,15 +121,12 @@ andThen
   -> Layer rMid e rOut
   -> Layer rIn e rOut
 andThen (Layer first) (Layer second) = Layer $ RIO \env -> do
-  res1 <- unRIO first env
-  case res1 of
-    Left v -> pure (Left v)
-    Right rMidRec -> do
-      let
-        scope :: Scope
-        scope = unsafeGet "scope" env
-        env' = unsafeSet "scope" scope rMidRec
-      unRIO second env'
+  rMidRec <- unsafeUnRIO first env
+  let
+    scope :: Scope
+    scope = unsafeGet "scope" env
+    env' = unsafeSet "scope" scope rMidRec
+  unsafeUnRIO second env'
 
 infixr 1 andThen as >>>
 
@@ -154,14 +150,9 @@ combine
   -> Layer rIn e r2Out
   -> Layer rIn e rOut
 combine (Layer l1) (Layer l2) = Layer $ RIO \env -> do
-  res1 <- unRIO l1 env
-  case res1 of
-    Left v -> pure (Left v)
-    Right r1Rec -> do
-      res2 <- unRIO l2 env
-      case res2 of
-        Left v -> pure (Left v)
-        Right r2Rec -> pure (Right (Record.union r1Rec r2Rec))
+  r1Rec <- unsafeUnRIO l1 env
+  r2Rec <- unsafeUnRIO l2 env
+  pure (Record.union r1Rec r2Rec)
 
 infixr 7 combine as <+>
 
@@ -196,18 +187,15 @@ passthrough
   => Layer rIn e rOut
   -> Layer rIn e rPassed
 passthrough (Layer rio) = Layer $ RIO \env -> do
-  res <- unRIO rio env
-  case res of
-    Left v -> pure (Left v)
-    Right outRec -> do
-      let
-        -- `env` has shape `(scope :: Scope | rIn)`; coerce away the
-        -- `scope` label so we can union the input services with the
-        -- layer's output. Safe because the `Union` constraint pins
-        -- `rPassed` to exactly `rOut + rIn`.
-        inRec :: Record rIn
-        inRec = (unsafeCoerce :: forall x. Record x -> Record rIn) env
-      pure (Right (Record.union outRec inRec :: Record rPassed))
+  outRec <- unsafeUnRIO rio env
+  let
+    -- `env` has shape `(scope :: Scope | rIn)`; coerce away the
+    -- `scope` label so we can union the input services with the
+    -- layer's output. Safe because the `Union` constraint pins
+    -- `rPassed` to exactly `rOut + rIn`.
+    inRec :: Record rIn
+    inRec = (unsafeCoerce :: forall x. Record x -> Record rIn) env
+  pure (Record.union outRec inRec :: Record rPassed)
 
 -- | Run a closed layer (input row `()`) in a fresh scope and hand
 -- | back its produced record.
@@ -277,12 +265,6 @@ provideLayer (Layer layerRio) program = RIO \rInRec ->
         let
           scope = Scope ref
           envWithScope = unsafeSet "scope" scope rInRec
-        layerRes <- unRIO layerRio envWithScope
-        case layerRes of
-          Left v -> pure (Left (Variant.expand v))
-          Right outRec -> do
-            progRes <- unRIO program outRec
-            case progRes of
-              Left v -> pure (Left ((unsafeCoerce :: Variant e' -> Variant eOut) v))
-              Right a -> pure (Right a)
+        outRec <- unsafeUnRIO layerRio envWithScope
+        unsafeUnRIO program outRec
     )
