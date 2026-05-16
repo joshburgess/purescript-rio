@@ -10,7 +10,7 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 
 import RIO.Core (RIO, runRIO')
-import RIO.Internal (RIO(..)) as Internal
+import RIO.Internal (mkRIO) as Internal
 import RIO.Schedule
   ( Schedule
   , Step(..)
@@ -86,7 +86,7 @@ spec = describe "RIO.Schedule (modifyDelayM / addDelayM)" do
         -- each step bumps the cap, so successive delays are
         -- monotonically increasing.
         adjust :: Milliseconds -> RIO () () Milliseconds
-        adjust _ = Internal.RIO \_ -> do
+        adjust _ = Internal.mkRIO \_ -> do
           n <- liftEffect (Ref.modify (_ + 10.0) counter)
           pure (Milliseconds n)
 

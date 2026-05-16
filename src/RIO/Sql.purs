@@ -59,7 +59,7 @@ import Type.Proxy (Proxy(..))
 
 import RIO.Core (ask, fail)
 import RIO.Error (catchAll)
-import RIO.Internal (RIO(..), rioFail)
+import RIO.Internal (RIO(..), mkRIO, rioFail)
 import RIO.Schema (Schema)
 import RIO.Schema as Schema
 
@@ -237,7 +237,7 @@ withTransaction body = do
   catchAll
     ( \v -> do
         _ <- execute (statement "ROLLBACK" [])
-        RIO \_ -> rioFail v
+        mkRIO \_ -> rioFail v
     )
     ( do
         a <- body

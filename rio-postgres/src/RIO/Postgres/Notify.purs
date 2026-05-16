@@ -58,8 +58,10 @@ import Effect.Aff.Postgres.Client (Client, Notification, exec) as PG
 import Effect.Postgres.Error.Except (Except) as PG
 
 import RIO.Env (ask)
-import RIO.Error (fail)
-import RIO.Internal (RIO(..), unRIO)
+import Data.Variant (Variant)
+import Data.Variant as Variant
+
+import RIO.Internal (RIO, mkRIO, rioFail)
 import RIO.Resource (acquireRelease)
 import RIO.Postgres (PgError(..), Postgres, execParams, execParamsUsing)
 
@@ -228,14 +230,14 @@ runListen
   -> PG.Client
   -> String
   -> RIO r e Unit
-runListen sym client channel = RIO \_ -> do
+runListen sym client channel = mkRIO \_ -> do
   res <- runExceptT
     ( PG.exec (("listen " <> quoteIdent channel) :: String) client
         :: PG.Except Aff Int
     )
   case res of
-    Right _ -> pure (Right unit)
-    Left es -> unRIO (fail sym (PgError es)) {}
+    Right _ -> pure unit
+    Left es -> rioFail (Variant.inj sym (PgError es) :: Variant e)
 
 -- | Quote a Postgres identifier (channel name) for safe inclusion
 -- | in `LISTEN` / `UNLISTEN`. Doubles embedded quotes per the

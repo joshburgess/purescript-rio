@@ -55,7 +55,7 @@ import Control.Parallel (parallel, sequential)
 import Data.Either (Either(..))
 import Data.Functor (map) as F
 
-import RIO.Internal (RIO(..), rioFail, unRIO)
+import RIO.Internal (RIO(..), mkRIO, rioFail, unRIO)
 
 -- | The qualified-`ado` desugaring target for the functorial
 -- | step. Identical to the `Functor RIO` instance; mapping over
@@ -76,7 +76,7 @@ apply
    . RIO r e (a -> b)
   -> RIO r e a
   -> RIO r e b
-apply rf ra = RIO \r -> do
+apply rf ra = mkRIO \r -> do
   result <- sequential
     ( combine
         <$> parallel (unRIO rf r)

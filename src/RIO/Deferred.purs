@@ -30,7 +30,7 @@ import Effect.AVar (AVarStatus(..))
 import Effect.Aff.AVar (AVar)
 import Effect.Aff.AVar as AVar
 
-import RIO.Internal (RIO(..), rioFail)
+import RIO.Internal (RIO(..), mkRIO, rioFail)
 
 -- | A write-once cell that carries either a typed failure in row
 -- | `e` or a value of type `a`.
@@ -55,7 +55,7 @@ newtype Deferred e a = Deferred (AVar (Either (Variant e) a))
 -- |   useWorker
 -- | ```
 makeDeferred :: forall r e' e a. RIO r e' (Deferred e a)
-makeDeferred = RIO \_ -> do
+makeDeferred = mkRIO \_ -> do
   avar <- AVar.empty
   pure (Deferred avar)
 
@@ -74,7 +74,7 @@ succeedDeferred
    . Deferred e a
   -> a
   -> RIO r e' Boolean
-succeedDeferred (Deferred avar) a = RIO \_ -> do
+succeedDeferred (Deferred avar) a = mkRIO \_ -> do
   AVar.tryPut (Right a) avar
 
 -- | Fill the cell with a typed failure. Returns `True` if this
@@ -89,7 +89,7 @@ failDeferred
    . Deferred e a
   -> Variant e
   -> RIO r e' Boolean
-failDeferred (Deferred avar) v = RIO \_ -> do
+failDeferred (Deferred avar) v = mkRIO \_ -> do
   AVar.tryPut (Left v) avar
 
 -- | Wait for the cell to be filled and surface its result.
@@ -104,7 +104,7 @@ failDeferred (Deferred avar) v = RIO \_ -> do
 -- | result <- awaitDeferred answer
 -- | ```
 awaitDeferred :: forall r e a. Deferred e a -> RIO r e a
-awaitDeferred (Deferred avar) = RIO \_ -> do
+awaitDeferred (Deferred avar) = mkRIO \_ -> do
   result <- AVar.read avar
   case result of
     Right a -> pure a
@@ -128,7 +128,7 @@ pollDeferred
   :: forall r e' e a
    . Deferred e a
   -> RIO r e' (Maybe (Either (Variant e) a))
-pollDeferred (Deferred avar) = RIO \_ -> do
+pollDeferred (Deferred avar) = mkRIO \_ -> do
   s <- AVar.status avar
   pure case s of
     Filled a -> Just a

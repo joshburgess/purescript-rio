@@ -78,7 +78,7 @@ import Effect.Exception (Error, message, stack)
 import Effect.Exception (error) as Exception
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..), rioFail, unRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkRIO, rioFail, unRIO, unsafeUnRIO)
 
 -- | One node of the failure tree.
 -- |
@@ -131,7 +131,7 @@ bothPar
    . RIO r e a
   -> RIO r e b
   -> RIO r e (Either (Cause e) (Tuple a b))
-bothPar ra rb = RIO \r -> do
+bothPar ra rb = mkRIO \r -> do
   -- Run both sides under `attempt` so defects don't tear the
   -- whole pair down before we have both outcomes.
   Tuple oa ob <- sequential
@@ -179,7 +179,7 @@ attemptCause
   :: forall r e e' a
    . RIO r e a
   -> RIO r e' (Either (Cause e) a)
-attemptCause action = RIO \r -> do
+attemptCause action = mkRIO \r -> do
   outcome <- attempt (unRIO action r)
   pure (fromOutcome outcome)
 
@@ -207,7 +207,7 @@ foldCauseRIO
   -> (a -> RIO r e' b)
   -> RIO r e a
   -> RIO r e' b
-foldCauseRIO onCause onOk inner = RIO \r -> do
+foldCauseRIO onCause onOk inner = mkRIO \r -> do
   outcome <- attempt (unRIO inner r)
   case fromOutcome outcome of
     Right a -> unsafeUnRIO (onOk a) r
@@ -255,7 +255,7 @@ catchSomeCause
    . (Cause e -> Maybe (RIO r e a))
   -> RIO r e a
   -> RIO r e a
-catchSomeCause classify inner = RIO \r -> do
+catchSomeCause classify inner = mkRIO \r -> do
   outcome <- attempt (unRIO inner r)
   case fromOutcome outcome of
     Right a -> pure a
@@ -279,10 +279,10 @@ catchSomeCause classify inner = RIO \r -> do
 -- | `catchAllCause` handler.
 failCause :: forall r e a. Cause e -> RIO r e a
 failCause cause = case leftmostLeaf cause of
-  Fail v -> RIO \_ -> rioFail v
-  Die err -> RIO \_ -> throwError err
+  Fail v -> mkRIO \_ -> rioFail v
+  Die err -> mkRIO \_ -> throwError err
   -- Unreachable: leftmostLeaf always returns Fail or Die.
-  _ -> RIO \_ ->
+  _ -> mkRIO \_ ->
     throwError (Exception.error "RIO.Cause.failCause: impossible")
 
 -- | The leftmost atomic leaf of a cause tree. Used by `failCause` to
@@ -313,7 +313,7 @@ tapErrorCause
    . (Cause e -> RIO r e Unit)
   -> RIO r e a
   -> RIO r e a
-tapErrorCause f inner = RIO \r -> do
+tapErrorCause f inner = mkRIO \r -> do
   outcome <- attempt (unRIO inner r)
   case fromOutcome outcome of
     Right a -> pure a
@@ -357,7 +357,7 @@ parTraverseCause
    . (a -> RIO r e b)
   -> Array a
   -> RIO r e' (Either (Cause e) (Array b))
-parTraverseCause f as = RIO \r -> do
+parTraverseCause f as = mkRIO \r -> do
   outcomes <- Parallel.parTraverse
     (\a -> attempt (unRIO (f a) r))
     as
@@ -408,7 +408,7 @@ raceCause
    . RIO r e a
   -> RIO r e a
   -> RIO r e' (Either (Cause e) a)
-raceCause ra rb = RIO \r -> do
+raceCause ra rb = mkRIO \r -> do
   let
     runSide side = do
       outcome <- attempt (unRIO side r)
@@ -456,7 +456,7 @@ acquireReleaseCause
   -> (a -> RIO r () Unit)
   -> (a -> RIO r e b)
   -> RIO r e' (Either (Cause e) b)
-acquireReleaseCause acquire release use = RIO \r -> do
+acquireReleaseCause acquire release use = mkRIO \r -> do
   acqOutcome <- attempt (unRIO acquire r)
   case acqOutcome of
     Left err -> pure (Left (Die err))

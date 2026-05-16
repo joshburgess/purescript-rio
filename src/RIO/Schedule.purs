@@ -88,7 +88,7 @@ import Effect.Random as Random
 import Unsafe.Coerce (unsafeCoerce)
 
 import RIO.Clock (Clock, now, partsFromMs, sleep)
-import RIO.Internal (RIO(..), rioFail, unRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkRIO, rioFail, unRIO, unsafeUnRIO)
 
 -- | A scheduling policy: given an input `i`, fire `Step r i o`.
 -- |
@@ -118,7 +118,7 @@ data Step r i o
 recurs :: forall r i. Int -> Schedule r i Int
 recurs n = go 0
   where
-  go k = Schedule \_ -> RIO \_ ->
+  go k = Schedule \_ -> mkRIO \_ ->
     if k >= n then pure Done
     else
       let
@@ -135,7 +135,7 @@ recurs n = go 0
 spaced :: forall r i. Milliseconds -> Schedule r i Int
 spaced ms = go 0
   where
-  go k = Schedule \_ -> RIO \_ ->
+  go k = Schedule \_ -> mkRIO \_ ->
     let
       next = k + 1
     in
@@ -152,7 +152,7 @@ spaced ms = go 0
 exponential :: forall r i. Milliseconds -> Number -> Schedule r i Milliseconds
 exponential (Milliseconds base) factor = go base
   where
-  go ms = Schedule \_ -> RIO \_ ->
+  go ms = Schedule \_ -> mkRIO \_ ->
     let
       delay = Milliseconds ms
     in
@@ -172,7 +172,7 @@ exponential (Milliseconds base) factor = go base
 fibonacci :: forall r i. Milliseconds -> Schedule r i Milliseconds
 fibonacci (Milliseconds base) = go base base
   where
-  go prev curr = Schedule \_ -> RIO \_ ->
+  go prev curr = Schedule \_ -> mkRIO \_ ->
     let
       delay = Milliseconds curr
     in
@@ -287,7 +287,7 @@ andThen
    . Schedule r i o
   -> Schedule r i o'
   -> Schedule r i (Either o o')
-andThen sa sb = Schedule \i -> RIO \env -> do
+andThen sa sb = Schedule \i -> mkRIO \env -> do
   let Schedule fa = sa
   res <- unsafeUnRIO (fa i) env
   case res of
@@ -316,7 +316,7 @@ intersect
    . Schedule r i o
   -> Schedule r i o'
   -> Schedule r i (Tuple o o')
-intersect sa sb = Schedule \i -> RIO \env -> do
+intersect sa sb = Schedule \i -> mkRIO \env -> do
   let
     Schedule fa = sa
     Schedule fb = sb
@@ -341,7 +341,7 @@ whileInput
    . (i -> Boolean)
   -> Schedule r i o
   -> Schedule r i o
-whileInput pred (Schedule s) = Schedule \i -> RIO \env ->
+whileInput pred (Schedule s) = Schedule \i -> mkRIO \env ->
   if not (pred i) then pure Done
   else do
     res <- unsafeUnRIO (s i) env
@@ -370,7 +370,7 @@ whileOutput
    . (o -> Boolean)
   -> Schedule r i o
   -> Schedule r i o
-whileOutput pred (Schedule s) = Schedule \i -> RIO \env -> do
+whileOutput pred (Schedule s) = Schedule \i -> mkRIO \env -> do
   res <- unsafeUnRIO (s i) env
   case res of
     Done -> pure Done
@@ -413,7 +413,7 @@ jittered
   -> Number
   -> Schedule r i o
   -> Schedule r i o
-jittered lo hi (Schedule s) = Schedule \i -> RIO \env -> do
+jittered lo hi (Schedule s) = Schedule \i -> mkRIO \env -> do
   res <- unsafeUnRIO (s i) env
   case res of
     Done -> pure Done
@@ -423,7 +423,7 @@ jittered lo hi (Schedule s) = Schedule \i -> RIO \env -> do
       pure (Continue o (Milliseconds (ms * factor)) (jittered lo hi next))
   where
   randomNumber :: RIO r () Number
-  randomNumber = RIO \_ -> liftEffect Random.random
+  randomNumber = mkRIO \_ -> liftEffect Random.random
 
 -- | Transform a schedule's output. The cadence (number of steps and
 -- | per-step delay) is preserved; only the output side changes.
@@ -432,7 +432,7 @@ mapSchedule
    . (o -> o')
   -> Schedule r i o
   -> Schedule r i o'
-mapSchedule f (Schedule s) = Schedule \i -> RIO \env -> do
+mapSchedule f (Schedule s) = Schedule \i -> mkRIO \env -> do
   res <- unsafeUnRIO (s i) env
   case res of
     Done -> pure Done
@@ -451,7 +451,7 @@ mapInput
    . (i' -> i)
   -> Schedule r i o
   -> Schedule r i' o
-mapInput f (Schedule s) = Schedule \i' -> RIO \env -> do
+mapInput f (Schedule s) = Schedule \i' -> mkRIO \env -> do
   res <- unsafeUnRIO (s (f i')) env
   case res of
     Done -> pure Done
@@ -473,7 +473,7 @@ mapDelay
    . (Milliseconds -> Milliseconds)
   -> Schedule r i o
   -> Schedule r i o
-mapDelay f (Schedule s) = Schedule \i -> RIO \env -> do
+mapDelay f (Schedule s) = Schedule \i -> mkRIO \env -> do
   res <- unsafeUnRIO (s i) env
   case res of
     Done -> pure Done
@@ -501,7 +501,7 @@ modifyDelayM
    . (Milliseconds -> RIO r () Milliseconds)
   -> Schedule r i o
   -> Schedule r i o
-modifyDelayM f (Schedule s) = Schedule \i -> RIO \env -> do
+modifyDelayM f (Schedule s) = Schedule \i -> mkRIO \env -> do
   res <- unsafeUnRIO (s i) env
   case res of
     Done -> pure Done
@@ -529,7 +529,7 @@ addDelayM
    . (o -> RIO r () Milliseconds)
   -> Schedule r i o
   -> Schedule r i o
-addDelayM f (Schedule s) = Schedule \i -> RIO \env -> do
+addDelayM f (Schedule s) = Schedule \i -> mkRIO \env -> do
   res <- unsafeUnRIO (s i) env
   case res of
     Done -> pure Done
@@ -547,7 +547,7 @@ dimap
   -> (o -> o')
   -> Schedule r i o
   -> Schedule r i' o'
-dimap pre post (Schedule s) = Schedule \i' -> RIO \env -> do
+dimap pre post (Schedule s) = Schedule \i' -> mkRIO \env -> do
   res <- unsafeUnRIO (s (pre i')) env
   case res of
     Done -> pure Done
@@ -570,7 +570,7 @@ collectAll
   -> Schedule r i (Array o)
 collectAll = go []
   where
-  go acc (Schedule s) = Schedule \i -> RIO \env -> do
+  go acc (Schedule s) = Schedule \i -> mkRIO \env -> do
     res <- unsafeUnRIO (s i) env
     case res of
       Done -> pure Done
@@ -594,7 +594,7 @@ repetitions
   -> Schedule r i Int
 repetitions = go 1
   where
-  go n (Schedule s) = Schedule \i -> RIO \env -> do
+  go n (Schedule s) = Schedule \i -> mkRIO \env -> do
     res <- unsafeUnRIO (s i) env
     case res of
       Done -> pure Done
@@ -612,7 +612,7 @@ tapOutput
    . (o -> RIO r () Unit)
   -> Schedule r i o
   -> Schedule r i o
-tapOutput f (Schedule s) = Schedule \i -> RIO \env -> do
+tapOutput f (Schedule s) = Schedule \i -> mkRIO \env -> do
   res <- unsafeUnRIO (s i) env
   case res of
     Done -> pure Done
@@ -672,7 +672,7 @@ delayed
    . Milliseconds
   -> Schedule r i o
   -> Schedule r i o
-delayed (Milliseconds offset) (Schedule s) = Schedule \i -> RIO \env -> do
+delayed (Milliseconds offset) (Schedule s) = Schedule \i -> mkRIO \env -> do
   res <- unsafeUnRIO (s i) env
   case res of
     Done -> pure Done
@@ -788,7 +788,7 @@ repeat
   -> RIO (clock :: Clock | r) e a
 repeat sched action = loop sched
   where
-  loop (Schedule s) = RIO \env -> do
+  loop (Schedule s) = mkRIO \env -> do
     let envInner = (unsafeCoerce env :: Record r)
     a <- unsafeUnRIO action envInner
     stepRes <- unsafeUnRIO (s a) envInner
@@ -820,7 +820,7 @@ retry
   -> RIO (clock :: Clock | r) e a
 retry sched action = loop sched
   where
-  loop (Schedule s) = RIO \env -> do
+  loop (Schedule s) = mkRIO \env -> do
     let envInner = (unsafeCoerce env :: Record r)
     res <- unRIO action envInner
     case res of
@@ -855,7 +855,7 @@ eventually
   :: forall r e e' a
    . RIO r e a
   -> RIO r e' a
-eventually action = RIO \r ->
+eventually action = mkRIO \r ->
   let
     loop = do
       res <- unRIO action r
@@ -879,7 +879,7 @@ retryOrElse
   -> RIO (clock :: Clock | r) e' a
 retryOrElse sched action fallback = loop sched
   where
-  loop (Schedule s) = RIO \env -> do
+  loop (Schedule s) = mkRIO \env -> do
     let envInner = (unsafeCoerce env :: Record r)
     res <- unRIO action envInner
     case res of
@@ -930,7 +930,7 @@ unfold
   -> Schedule r i o
 unfold seed f = go seed
   where
-  go s = Schedule \i -> RIO \_ ->
+  go s = Schedule \i -> mkRIO \_ ->
     let
       r = f s i
     in
@@ -955,7 +955,7 @@ fromFunction
   :: forall r i o
    . (i -> { output :: o, delay :: Milliseconds })
   -> Schedule r i o
-fromFunction f = Schedule \i -> RIO \_ ->
+fromFunction f = Schedule \i -> mkRIO \_ ->
   let
     r = f i
   in
@@ -966,4 +966,4 @@ fromFunction f = Schedule \i -> RIO \_ ->
 sleepIfPositive :: forall r. Milliseconds -> RIO (clock :: Clock | r) () Unit
 sleepIfPositive ms =
   if unwrap ms > 0.0 then sleep ms
-  else RIO \_ -> pure unit
+  else mkRIO \_ -> pure unit

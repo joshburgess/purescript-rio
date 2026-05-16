@@ -74,7 +74,7 @@ import Unsafe.Coerce (unsafeCoerce)
 
 import RIO.Concurrency (Fiber(..), mkFiber)
 import RIO.Env (ask) as Env
-import RIO.Internal (RIO(..), unRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkRIO, unRIO, unsafeUnRIO)
 import RIO.Resource (Scope, addFinalizer)
 
 -- | A type-erased `Ref` cell, recovered by the carrying
@@ -96,7 +96,7 @@ newtype FiberRefs = FiberRefs (Ref (Map Int AnyRef))
 -- | top-level `RIO` program (typically in `main`) before
 -- | `provide`ing it as the `fiberRefs` service.
 newFiberRefs :: forall r e. RIO r e FiberRefs
-newFiberRefs = RIO \_ -> do
+newFiberRefs = mkRIO \_ -> do
   ref <- liftEffect (Ref.new (Map.empty :: Map Int AnyRef))
   pure (FiberRefs ref)
 
@@ -129,7 +129,7 @@ make
   -> RIO (fiberRefs :: FiberRefs | r) e (FiberRef a)
 make initial = do
   FiberRefs storage <- Env.ask (Proxy :: Proxy "fiberRefs")
-  RIO \_ -> do
+  mkRIO \_ -> do
     key <- liftEffect nextKey
     ref <- liftEffect (Ref.new initial)
     liftEffect (Ref.modify_ (Map.insert key (eraseRef ref)) storage)
@@ -142,7 +142,7 @@ get
   -> RIO (fiberRefs :: FiberRefs | r) e a
 get (FiberRef { key, default }) = do
   FiberRefs storage <- Env.ask (Proxy :: Proxy "fiberRefs")
-  RIO \_ -> do
+  mkRIO \_ -> do
     m <- liftEffect (Ref.read storage)
     case Map.lookup key m of
       Just anyRef -> do
@@ -162,7 +162,7 @@ set
   -> RIO (fiberRefs :: FiberRefs | r) e Unit
 set (FiberRef { key }) value = do
   FiberRefs storage <- Env.ask (Proxy :: Proxy "fiberRefs")
-  RIO \_ -> do
+  mkRIO \_ -> do
     m <- liftEffect (Ref.read storage)
     case Map.lookup key m of
       Just anyRef ->
@@ -197,7 +197,7 @@ forkFiber
   -> RIO (fiberRefs :: FiberRefs | r) e' (Fiber e a)
 forkFiber inner = do
   FiberRefs parent <- Env.ask (Proxy :: Proxy "fiberRefs")
-  RIO \r -> do
+  mkRIO \r -> do
     childStorage <- liftEffect (snapshotStorage parent)
     let childEnv = unsafeSet "fiberRefs" (FiberRefs childStorage) r
     fib <- mkFiber (unRIO inner childEnv)
@@ -213,7 +213,7 @@ forkFiberScoped
   -> RIO (fiberRefs :: FiberRefs | r) e' (Fiber e a)
 forkFiberScoped scope inner = do
   FiberRefs parent <- Env.ask (Proxy :: Proxy "fiberRefs")
-  RIO \r -> do
+  mkRIO \r -> do
     childStorage <- liftEffect (snapshotStorage parent)
     let childEnv = unsafeSet "fiberRefs" (FiberRefs childStorage) r
     fib@(Fiber f) <- mkFiber (unRIO inner childEnv)

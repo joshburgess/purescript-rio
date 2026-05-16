@@ -39,7 +39,7 @@ import Record (union) as Record
 import Record.Unsafe (unsafeGet, unsafeSet)
 import Unsafe.Coerce (unsafeCoerce)
 
-import RIO.Internal (RIO(..), unRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkRIO, unRIO, unsafeUnRIO)
 import RIO.Resource (Scope(..), scoped)
 
 -- | A layer is an `RIO` that runs in the surrounding `Scope` and
@@ -120,7 +120,7 @@ andThen
    . Layer rIn e rMid
   -> Layer rMid e rOut
   -> Layer rIn e rOut
-andThen (Layer first) (Layer second) = Layer $ RIO \env -> do
+andThen (Layer first) (Layer second) = Layer $ mkRIO \env -> do
   rMidRec <- unsafeUnRIO first env
   let
     scope :: Scope
@@ -149,7 +149,7 @@ combine
   => Layer rIn e r1Out
   -> Layer rIn e r2Out
   -> Layer rIn e rOut
-combine (Layer l1) (Layer l2) = Layer $ RIO \env -> do
+combine (Layer l1) (Layer l2) = Layer $ mkRIO \env -> do
   r1Rec <- unsafeUnRIO l1 env
   r2Rec <- unsafeUnRIO l2 env
   pure (Record.union r1Rec r2Rec)
@@ -186,7 +186,7 @@ passthrough
    . Row.Union rOut rIn rPassed
   => Layer rIn e rOut
   -> Layer rIn e rPassed
-passthrough (Layer rio) = Layer $ RIO \env -> do
+passthrough (Layer rio) = Layer $ mkRIO \env -> do
   outRec <- unsafeUnRIO rio env
   let
     -- `env` has shape `(scope :: Scope | rIn)`; coerce away the
@@ -254,7 +254,7 @@ provideLayer
   => Layer rIn e rOut
   -> RIO rOut e' a
   -> RIO rIn eOut a
-provideLayer (Layer layerRio) program = RIO \rInRec ->
+provideLayer (Layer layerRio) program = mkRIO \rInRec ->
   bracket
     (liftEffect (Ref.new []))
     ( \ref -> do

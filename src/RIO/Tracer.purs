@@ -48,7 +48,7 @@ import Record (get) as Record
 import Type.Proxy (Proxy(..))
 
 import RIO.Core (ask)
-import RIO.Internal (RIO(..), rioFail, unRIO)
+import RIO.Internal (RIO(..), mkRIO, rioFail, unRIO)
 
 -- | A span identifier. Unique within a `Tracer`'s lifetime.
 newtype SpanId = SpanId Int
@@ -150,7 +150,7 @@ withSpan
    . String
   -> RIO (tracer :: Tracer | r) e a
   -> RIO (tracer :: Tracer | r) e a
-withSpan name action = RIO \r -> do
+withSpan name action = mkRIO \r -> do
   let tracer = Record.get (Proxy :: Proxy "tracer") r
   parent <- liftEffect tracer.currentSpan
   spanId <- liftEffect (tracer.startSpan { name, parent })

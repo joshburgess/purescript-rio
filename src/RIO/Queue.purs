@@ -41,7 +41,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..))
+import RIO.Internal (RIO(..), mkRIO)
 
 -- | A blocked taker.
 type Taker a =
@@ -104,7 +104,7 @@ size (Queue ref) = Array.length <<< _.items <$> Ref.read ref
 
 -- | Non-blocking dequeue. `Nothing` when the queue is empty.
 poll :: forall r e a. Queue a -> RIO r e (Maybe a)
-poll (Queue ref) = RIO \_ -> liftEffect do
+poll (Queue ref) = mkRIO \_ -> liftEffect do
   state <- Ref.read ref
   case Array.uncons state.items of
     Nothing -> pure Nothing
@@ -116,7 +116,7 @@ poll (Queue ref) = RIO \_ -> liftEffect do
 -- | Block until a value is available or the queue is shut down.
 -- | Returns `Nothing` if the queue is shut down and empty.
 take :: forall r e a. Queue a -> RIO r e (Maybe a)
-take (Queue ref) = RIO \_ -> takeAff ref
+take (Queue ref) = mkRIO \_ -> takeAff ref
 
 takeAff :: forall a. Ref (State a) -> Aff (Maybe a)
 takeAff ref = makeAff \resume -> do
@@ -158,7 +158,7 @@ takeAff ref = makeAff \resume -> do
 -- | queue is at capacity, returning `false` only if the queue is
 -- | shut down before the offer is accepted.
 offer :: forall r e a. Queue a -> a -> RIO r e Boolean
-offer (Queue ref) a = RIO \_ -> offerAff ref a
+offer (Queue ref) a = mkRIO \_ -> offerAff ref a
 
 offerAff :: forall a. Ref (State a) -> a -> Aff Boolean
 offerAff ref a = makeAff \resume -> do
@@ -257,7 +257,7 @@ takeUpTo q n
 -- | return `false` immediately; subsequent `take`s return `Nothing`
 -- | once the existing buffer is drained.
 shutdown :: forall r e a. Queue a -> RIO r e Unit
-shutdown (Queue ref) = RIO \_ -> liftEffect do
+shutdown (Queue ref) = mkRIO \_ -> liftEffect do
   state <- Ref.read ref
   Ref.write
     ( state

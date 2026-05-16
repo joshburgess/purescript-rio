@@ -69,7 +69,7 @@ import RIO.Deferred
   , succeedDeferred
   )
 import RIO.Error (catchAll) as Error
-import RIO.Internal (RIO(..))
+import RIO.Internal (RIO, unsafeUnRIO)
 import RIO.Queue (Queue)
 import RIO.Queue as Queue
 import RIO.Resource (Scope, addFinalizer)
@@ -153,10 +153,9 @@ shutdownAff
   :: forall e a b
    . Queue (Job e a b)
   -> Aff Unit
-shutdownAff queue = case Queue.shutdown queue of
-  RIO action -> do
-    _ <- action {}
-    pure unit
+shutdownAff queue = do
+  _ <- unsafeUnRIO (Queue.shutdown queue) {}
+  pure unit
 
 -- | Enqueue a job and return the cell that the worker will
 -- | fill. The caller can `awaitDeferred` it directly, hand it

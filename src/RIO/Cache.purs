@@ -66,7 +66,7 @@ import Effect.Now (now) as Now
 import Effect.Ref as ERef
 import Data.DateTime.Instant (unInstant)
 
-import RIO.Internal (RIO(..))
+import RIO.Internal (RIO(..), mkRIO)
 
 -- | Configuration for `make`.
 -- |
@@ -101,7 +101,7 @@ make
   :: forall r e k v
    . CacheConfig k v
   -> RIO r e (Cache k v)
-make config = RIO \_ -> do
+make config = mkRIO \_ -> do
   entries <- liftEffect (ERef.new Map.empty)
   pure
     ( Cache
@@ -125,7 +125,7 @@ get
   => Cache k v
   -> k
   -> RIO r e v
-get cache@(Cache c) k = RIO \_ -> do
+get cache@(Cache c) k = mkRIO \_ -> do
   Milliseconds nowMs <- liftEffect currentMs
   -- Synchronous check-or-install. Effect.Ref + Effect.AVar empty
   -- both run in Effect, so the read + insert sequence cannot be
@@ -208,13 +208,13 @@ invalidate
   => Cache k v
   -> k
   -> RIO r e Unit
-invalidate (Cache c) k = RIO \_ -> do
+invalidate (Cache c) k = mkRIO \_ -> do
   liftEffect (ERef.modify_ (Map.delete k) c.entries)
 
 -- | Drop every entry. A subsequent `get` for any key will run a
 -- | fresh lookup.
 invalidateAll :: forall r e k v. Cache k v -> RIO r e Unit
-invalidateAll (Cache c) = RIO \_ -> do
+invalidateAll (Cache c) = mkRIO \_ -> do
   liftEffect (ERef.write Map.empty c.entries)
 
 -- | The number of entries currently stored (including expired
