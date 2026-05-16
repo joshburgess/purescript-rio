@@ -11,6 +11,22 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.System`: a service for the bits of the host process
+  environment application code reads at runtime. The record
+  exposes `lookupEnv :: String -> Aff (Maybe String)`,
+  `getArgs :: Aff (Array String)`, and `getCwd :: Aff String`;
+  the live implementation (`liveSystem`) delegates to
+  `Node.Process`. `RIO.Config` continues to cover the
+  parse-the-env-once-at-startup path; `RIO.System` is for
+  handlers / scripts that need to consult the environment
+  later.
+- `RIO.Test.System`: a mutable in-memory `System` for tests.
+  `newTestSystem` takes initial `env`, `args`, and `cwd`
+  values and returns a `TestSystem` whose service reads
+  `Ref`-backed snapshots and whose `setEnv` / `unsetEnv` /
+  `setArgs` / `setCwd` mutate the simulated state between
+  calls, so a test can drive a handler through changing host
+  state without touching the real process.
 - `examples/showcase`: a worked example app that wires every
   major service introduced by the strategic-gap work
   (`HttpServer` + routing, `HttpStream` for SSE, `Sql` with
