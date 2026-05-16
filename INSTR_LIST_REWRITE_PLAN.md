@@ -178,7 +178,7 @@ sequences between suspensions to keep the FFI loop fed.
       1M-bind stack safety all green and slightly faster than the
       pre-refactor numbers.)
 
-**Phase 2 closed at commit (pending).** The ASYNC bridge works,
+**Phase 2 closed at commit `b5a7327`.** The ASYNC bridge works,
 the worst-case overhead is documented, and the realistic workload
 beats production RIO comfortably.
 
