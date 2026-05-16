@@ -2,18 +2,20 @@
 -- |
 -- | An `Http2SecureServer` is a value (a handle on the listening
 -- | TLS / HTTP/2 server), not a capability, so the `Effect`
--- | primitives are lifted directly into `RIO`. `toTlsServer` is
--- | intentionally omitted to avoid forcing a direct dependency
--- | on `node-tls`; the constructor `createSecureServer` is
--- | already typed against the TLS option row, so the dependency
--- | comes in transitively for callers who actually configure a
--- | server.
+-- | primitives are lifted directly into `RIO`. `toTlsServer` and
+-- | the `toNetServer` convenience (which composes
+-- | `toTlsServer` with `Node.TLS.Server.toTcpServer`) are
+-- | re-exported so callers can drive the underlying TLS / TCP
+-- | listener (e.g. `listenTcp` / `addressTcp` / `listeningH`)
+-- | without reaching for `Node.Http2.Server` or `Node.TLS.Server`
+-- | directly.
 module RIO.Node.HTTP2.Server
   ( module Exports
   , createSecureServer
   , setTimeout
   , timeout
   , updateSettings
+  , toNetServer
   ) where
 
 import Prelude
@@ -27,6 +29,7 @@ import Node.Http2.Server
   , sessionH
   , streamH
   , timeoutH
+  , toTlsServer
   , unknownProtocolH
   ) as Exports
 import Node.Http2.Server as Srv
@@ -35,12 +38,13 @@ import Node.Http2.Types
   , Http2SecureServer
   , Settings
   )
-import Node.Net.Types (NewServerOptions)
+import Node.Net.Types (NewServerOptions, Server, TCP)
+import Node.TLS.Server (toTcpServer) as TlsSrv
 import Node.TLS.Types
   ( CreateSecureContextOptions
-  , Server
   , TlsCreateServerOptions
   )
+import Node.TLS.Types (Server) as TLS
 import Prim.Row as Row
 
 import RIO.Core (RIO)
@@ -50,7 +54,7 @@ createSecureServer
   :: forall r e opts trash
    . Row.Union opts trash
        ( Http2CreateSecureServerOptions
-           ( TlsCreateServerOptions Server
+           ( TlsCreateServerOptions TLS.Server
                (CreateSecureContextOptions (NewServerOptions ()))
            )
        )
@@ -79,3 +83,10 @@ updateSettings
   -> Settings
   -> RIO r e Unit
 updateSettings s set = liftEffect (Srv.updateSettings s set)
+
+-- | Reach the underlying TCP `Server` so callers can drive its
+-- | listening / address / close primitives. Composes
+-- | `Node.Http2.Server.toTlsServer` with
+-- | `Node.TLS.Server.toTcpServer`.
+toNetServer :: Http2SecureServer -> Server TCP
+toNetServer = TlsSrv.toTcpServer <<< Srv.toTlsServer

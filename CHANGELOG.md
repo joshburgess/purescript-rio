@@ -323,12 +323,23 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `Http2CreateSecureServerOptions`), `setTimeout`, `timeout`,
     and `updateSettings`, and re-exports the server-level event
     handles (`checkContinueH` / `requestH` / `sessionErrorH` /
-    `sessionH` / `streamH` / `timeoutH` / `unknownProtocolH`).
+    `sessionH` / `streamH` / `timeoutH` / `unknownProtocolH`)
+    plus the `toTlsServer` raw conversion and the `toNetServer`
+    convenience (which composes `toTlsServer` with
+    `Node.TLS.Server.toTcpServer` so callers can reach the
+    underlying TCP listener without importing `Node.TLS.Server`
+    or `Node.Http2.Server` directly).
     `RIO.Node.HTTP2.Client` lifts `connect` / `connect'` (the
     latter carrying the stacked TLS + TCP `Row.Union` constraint
     from `Http2ClientConnectOptions`). `node-tls` is added to the
     package's main dependencies for the TLS option rows that
-    feed `createSecureServer` and `connect'`.
+    feed `createSecureServer` and `connect'`. A self-signed
+    `localhost` certificate fixture and a secure-server / client
+    round-trip test (server speaks raw-stream mode via `streamH`
+    and `respond`, client opens a request stream and reads the
+    response body) covers the end-to-end path through the
+    `createSecureServer` / `streamH` / `respond` / `toNetServer` /
+    `connect'` / `request` / `toDuplex` surface.
   CI builds and tests the new package alongside the existing
   adapters.
 - `RIO.Test.Property`: a thin RIO-tuned property harness exposing
