@@ -54,6 +54,7 @@ import Test.RIO.MemoSpec as MemoSpec
 import Test.RIO.MetricSpec as MetricSpec
 import Test.RIO.MetricsSpec as MetricsSpec
 import Test.RIO.PoolSpec as PoolSpec
+import Test.RIO.PredicateSpec as PredicateSpec
 import Test.RIO.QueueSpec as QueueSpec
 import Test.RIO.Queue.BulkSpec as QueueBulkSpec
 import Test.RIO.Queue.PropertiesSpec as QueuePropertiesSpec
@@ -186,6 +187,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   QueuePropertiesSpec.spec
   QuerySpec.spec
   PoolSpec.spec
+  PredicateSpec.spec
   CacheSpec.spec
   HubSpec.spec
   HubPropertiesSpec.spec

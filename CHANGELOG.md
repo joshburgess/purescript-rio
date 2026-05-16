@@ -11,6 +11,14 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.Predicate`: a tiny standalone predicate combinator
+  library. `Predicate a` wraps `a -> Boolean` together with
+  `and` / `or` / `not`, the constants `always` / `never`, the
+  array folds `all` / `any`, and `contramap` for input
+  adaptation. Independent of `RIO.Schema`: `Schema.refine`
+  consumes a failure-with-message refinement while `Predicate`
+  is the pure yes/no shape, so the two compose at the call
+  site without one depending on the other.
 - `RIO.Resource.bracket` (re-exported from `RIO.Core`): top-level
   bracket sugar with the same shape as `acquireRelease` but a
   release row that shares the use error row. Any typed failure
