@@ -132,8 +132,13 @@ instance applicativeRIO :: Applicative (RIO r e) where
 -- | `bind` is a single `Aff` bind plus one record-argument pass. Typed
 -- | failures propagate via the underlying `Aff`'s exception channel; the
 -- | continuation is invoked only on success.
+-- |
+-- | The newtype destructure on the continuation result is written as a
+-- | `case ... of RIO f -> f r` (rather than going through `unsafeUnRIO`)
+-- | so the compiler can see the newtype unwrap as a no-op rather than a
+-- | call to a separately-named identity function.
 instance bindRIO :: Bind (RIO r e) where
-  bind (RIO m) k = RIO \r -> m r >>= \a -> unsafeUnRIO (k a) r
+  bind (RIO m) k = RIO \r -> m r >>= \a -> case k a of RIO f -> f r
 
 instance monadRIO :: Monad (RIO r e)
 

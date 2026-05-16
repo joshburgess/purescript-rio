@@ -104,11 +104,19 @@ instance showFiberId :: Show FiberId where
 -- | non-unwinding `await` possible; `join` and `interrupt` ignore
 -- | it and go straight to the underlying fiber.
 -- |
+-- | The fiber's payload is intentionally the `Either`-reified shape
+-- | (rather than `Aff a` with typed failures thrown) so that
+-- | abandoning a typed-failed fiber is safe: an unhandled `Aff`
+-- | exception in a forked fiber is async-rethrown to the host's
+-- | unhandled-exception path, and we don't want a user who forks a
+-- | worker and never joins it to crash the process when that
+-- | worker takes a typed-failure branch.
+-- |
 -- | A typed failure inside the forked computation surfaces on
--- | `join` as `Left v`. A defect (uncaught `Aff` exception, or
--- | the kill exception from `interrupt`) propagates through `Aff`
--- | as a defect and reaches the joiner outside the typed-error
--- | row; `await` surfaces it as `Failure (Die err)` instead.
+-- | `join` as `Left v`. A defect (uncaught `Aff` exception, or the
+-- | kill exception from `interrupt`) propagates through `Aff` as a
+-- | defect and reaches the joiner outside the typed-error row;
+-- | `await` surfaces it as `Failure (Die err)` instead.
 newtype Fiber :: Row Type -> Type -> Type
 newtype Fiber e a = Fiber
   { id :: FiberId
