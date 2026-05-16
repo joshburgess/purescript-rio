@@ -39,6 +39,8 @@ module RIO.HttpServer
   , ok
   , textResponse
   , jsonResponse
+  , streamResponse
+  , eventStreamResponse
   , status
   , withHeader
   , withHeaders
@@ -60,6 +62,7 @@ import Effect.Aff.Class (liftAff)
 
 import RIO.Core (RIO)
 import RIO.HttpClient (Method, RequestBody)
+import RIO.HttpStream (BodyStream)
 
 -- | The HTTP server service. A backend wraps a handler and
 -- | exposes two operations: `listen` (start accepting requests
@@ -94,20 +97,30 @@ type ServerResponse =
 
 -- | A response body. `TextBody` and `JsonBody` are the common
 -- | cases; `NoResponseBody` covers `204` / `304` / `HEAD`
--- | responses. A streaming arm is reserved for the streaming-
--- | bodies follow-up.
+-- | responses; `StreamResponseBody` carries a pull-based chunk
+-- | stream for server-sent events, file downloads, and other
+-- | bodies that should not be buffered in memory.
 data ResponseBody
   = NoResponseBody
   | TextResponseBody String
   | JsonResponseBody Json
+  | StreamResponseBody BodyStream
 
-derive instance eqResponseBody :: Eq ResponseBody
+-- Streams cannot be compared structurally; equality is reserved
+-- for the non-streaming arms.  `StreamResponseBody _ == _` is
+-- always `false` even against itself.
+instance eqResponseBody :: Eq ResponseBody where
+  eq NoResponseBody NoResponseBody = true
+  eq (TextResponseBody a) (TextResponseBody b) = a == b
+  eq (JsonResponseBody _) (JsonResponseBody _) = false
+  eq _ _ = false
 
 instance showResponseBody :: Show ResponseBody where
   show = case _ of
     NoResponseBody -> "NoResponseBody"
     TextResponseBody s -> "(TextResponseBody " <> show s <> ")"
     JsonResponseBody _ -> "(JsonResponseBody _)"
+    StreamResponseBody _ -> "(StreamResponseBody _)"
 
 -- | A handler is an `Aff` from request to response. The handler
 -- | is run by the driver per inbound request; failures inside
@@ -192,6 +205,31 @@ jsonResponse j =
   { status: 200
   , headers: [ Tuple "Content-Type" "application/json" ]
   , body: JsonResponseBody j
+  }
+
+-- | A `200 OK` whose body is a pull-based chunk stream. The
+-- | caller picks the `Content-Type` (none is set automatically).
+streamResponse :: BodyStream -> ServerResponse
+streamResponse s =
+  { status: 200
+  , headers: []
+  , body: StreamResponseBody s
+  }
+
+-- | A `200 OK` shaped for Server-Sent Events: `Content-Type:
+-- | text/event-stream`, `Cache-Control: no-cache`, and a
+-- | streaming body. The supplied stream is expected to emit
+-- | well-formed SSE frames (`data: ...\n\n`); this helper does
+-- | not reformat them.
+eventStreamResponse :: BodyStream -> ServerResponse
+eventStreamResponse s =
+  { status: 200
+  , headers:
+      [ Tuple "Content-Type" "text/event-stream"
+      , Tuple "Cache-Control" "no-cache"
+      , Tuple "Connection" "keep-alive"
+      ]
+  , body: StreamResponseBody s
   }
 
 -- | Override the status code on an existing response.

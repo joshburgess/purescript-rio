@@ -91,6 +91,7 @@ import Effect.Aff.Class (liftAff)
 import Type.Proxy (Proxy(..))
 
 import RIO.Core (RIO, ask, fail)
+import RIO.HttpStream (BodyStream)
 import RIO.Schema (DecodeError, Schema)
 import RIO.Schema as Schema
 
@@ -127,10 +128,18 @@ instance showMethod :: Show Method where
 -- |   * `JsonBody` carries a `Json` value. The high-level
 -- |     `withJsonBody` helper sets `Content-Type: application/json`
 -- |     automatically.
+-- |   * `StreamBody` carries a pull-based chunk stream. The
+-- |     backend pulls chunks one at a time and writes each to
+-- |     the wire; `Nothing` ends the request body. Use this for
+-- |     uploads that should not be buffered in memory (file
+-- |     uploads, large multipart payloads). The caller is still
+-- |     responsible for `Content-Type` and any framing
+-- |     (chunked-transfer-encoding is the backend's call).
 data RequestBody
   = NoBody
   | TextBody String
   | JsonBody Json
+  | StreamBody BodyStream
 
 -- | The shape sent to the backend. The fields are intentionally
 -- | plain (no smart constructors required) so unfamiliar

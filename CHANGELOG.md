@@ -11,6 +11,38 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.HttpStream`: a pull-based chunk stream type for streaming
+  HTTP request and response bodies. `BodyStream` is an alias for
+  `Aff (Maybe String)`: each pull returns the next chunk or
+  `Nothing` once the stream is fully consumed. `fromString`,
+  `fromChunks`, and `empty` are the constructors; `drain` /
+  `drainTo` consume into a single string or a per-chunk consumer
+  action, `takeChunks` reads up to `N` chunks and returns the
+  remainder pullable, `map` transforms each chunk on demand, and
+  `chunkSize` reports the total length (UTF-16 code units) once
+  drained. The shape is `Aff`-typed (not `RIO`-typed) so it can
+  sit inside `HttpClient.Request` and
+  `HttpServer.ServerRequest` / `ServerResponse` without
+  polluting their row types; callers that want to build a stream
+  from a `RIO.Stream` should drain the `RIO.Stream` into an
+  `Aff` queue first.
+- `RIO.HttpClient`: added a `StreamBody BodyStream` arm to
+  `RequestBody` so clients can submit a request body as a
+  pull-based chunk stream rather than buffering it in memory.
+  Existing `EmptyBody` / `TextBody` / `JsonBody` arms are
+  unchanged.
+- `RIO.HttpServer`: added a `StreamResponseBody BodyStream` arm
+  to `ResponseBody`, a `streamResponse :: BodyStream ->
+  ServerResponse` builder that emits a `200` with a streaming
+  body and no preset `Content-Type` (the caller picks one), and
+  an `eventStreamResponse :: BodyStream -> ServerResponse`
+  builder shaped for Server-Sent Events
+  (`Content-Type: text/event-stream`, `Cache-Control: no-cache`,
+  `Connection: keep-alive`). The supplied stream is expected to
+  emit well-formed SSE frames; the helper does not reformat
+  them. Streams cannot be compared structurally, so the `Eq`
+  instance for `ResponseBody` returns `false` whenever either
+  side is a `StreamResponseBody`.
 - `RIO.HttpServer`: a shape-only HTTP server framework. Defines
   the surface (`HttpServer` service record carrying `listen` /
   `shutdown`, `ServerRequest` / `ServerResponse`, `Handler`
