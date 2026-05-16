@@ -11,6 +11,18 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `Test.RIO.STM.PropertiesSpec`: property-based coverage for
+  STM's transactional correctness. The existing
+  `STMSpec` pin (`"preserves the invariant under many parallel
+  updates"`) exercises one `TRef` under 50 increments;
+  the new spec generalises to N `TRef`s with a random stream of
+  transfers fired in parallel through `parTraverse`. Two
+  invariants are pinned across 30 random scenarios each:
+  conservation of the total balance, and non-negativity of every
+  account. The conservation invariant fails if `atomically` ever
+  leaked a half-applied transaction across contended writes; the
+  non-negativity invariant fails if the funds check ever
+  short-circuited under contention.
 - `examples/typed-error-workflow`: a worked, in-process example
   of the RIO typed-error workflow. A flaky `userApi` mock is
   called through a policy stack of `withFields` + `withSpan` +

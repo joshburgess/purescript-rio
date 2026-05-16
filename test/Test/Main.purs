@@ -113,6 +113,7 @@ import Test.RIO.Stream.TakeDropUntilSpec as StreamTakeDropUntilSpec
 import Test.RIO.Stream.TapMapAccumSpec as StreamTapMapAccumSpec
 import Test.RIO.Stream.TimedSpec as StreamTimedSpec
 import Test.RIO.STMSpec as STMSpec
+import Test.RIO.STM.PropertiesSpec as STMPropertiesSpec
 import Test.RIO.STM.TArraySpec as TArraySpec
 import Test.RIO.STM.TMapSpec as TMapSpec
 import Test.RIO.STM.TMap.PropertiesSpec as TMapPropertiesSpec
@@ -229,6 +230,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   SinkAggregateSpec.spec
   SinkPropertiesSpec.spec
   STMSpec.spec
+  STMPropertiesSpec.spec
   TQueueSpec.spec
   TQueueBulkSpec.spec
   TQueuePropertiesSpec.spec
