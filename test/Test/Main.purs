@@ -39,6 +39,7 @@ import Test.RIO.Error.TapSpec as ErrorTapSpec
 import Test.RIO.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.FailSpec as FailSpec
 import Test.RIO.FoldForeverSpec as FoldForeverSpec
+import Test.RIO.HttpClientSpec as HttpClientSpec
 import Test.RIO.HubSpec as HubSpec
 import Test.RIO.IterateReplicateSpec as IterateReplicateSpec
 import Test.RIO.Hub.PropertiesSpec as HubPropertiesSpec
@@ -178,6 +179,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   CacheSpec.spec
   HubSpec.spec
   HubPropertiesSpec.spec
+  HttpClientSpec.spec
   StreamSpec.spec
   StreamCombinatorsSpec.spec
   StreamFilterMapCollectSpec.spec

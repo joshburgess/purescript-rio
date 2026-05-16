@@ -11,6 +11,24 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
+- `RIO.HttpClient`: a pluggable HTTP client service. Defines the
+  shape (`HttpClient` service record, `Request` / `Response`
+  records, `Method` sum, `RequestBody` sum, `HttpError` sum with
+  transport / timeout / unexpected-status / Schema-decode arms)
+  so application code can be written against a single API
+  regardless of the wired-in backend. Ships `newRequest`,
+  `withMethod`, `withHeader` / `withHeaders`, `withBody`,
+  `withJsonBody` (adds `Content-Type: application/json` if the
+  request does not already carry one), `withTimeout`; smart
+  constructors for each method (`get`, `post`, `put`, `patch`,
+  `delete`, `head_`, `options`); `decodeBody` for
+  `Schema`-decoded responses; `statusClass` / `isSuccess` /
+  `ensureStatus` for status handling; and `mockHttpClient` for
+  tests. The error row tag is fixed to `httpError`, so callers
+  pair the client with `RIO.Schedule.retry`, `RIO.Tracer.withSpan`,
+  and `RIO.Logger.withFields` to layer in retries, tracing, and
+  structured logs without the client itself having to bake any
+  of those in.
 - `RIO.Schema`: a small runtime schema library built on top of
   `argonaut-core`. A `Schema a` carries both a decoder
   (`Json -> Either DecodeError a`) and an encoder (`a -> Json`),
