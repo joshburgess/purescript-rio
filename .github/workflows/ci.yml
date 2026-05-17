@@ -45,35 +45,35 @@ jobs:
       - name: Build (main package)
         run: npx spago build -p rio
 
-      - name: Debug purs graph (rio package)
+      - name: Debug purs graph (replicate spago invocation)
         run: |
           set +e
-          echo "==== sources ===="
-          npx spago sources -p rio | tee /tmp/sources.txt | wc -l
-          echo "==== first 3 sources ===="
-          head -3 /tmp/sources.txt
-          echo "==== globstar status ===="
-          shopt globstar || true
-          echo "==== expanding a single glob (no globstar) ===="
-          ls -d .spago/p/aff-8.0.0/src/**/*.purs 2>&1 | head -5
-          echo "==== expanding a single glob (with globstar) ===="
-          shopt -s globstar
-          ls -d .spago/p/aff-8.0.0/src/**/*.purs 2>&1 | head -5
-          echo "==== running purs graph with xargs ===="
-          shopt -s globstar nullglob
-          ARGS=""
-          while IFS= read -r line; do
-            ARGS="$ARGS $line"
-          done < /tmp/sources.txt
-          echo "arg length: ${#ARGS}"
+          # Collect the exact same globs spago uses: every dep in .spago/p plus
+          # every workspace package source dir, plus our test dir.
+          set -f
+          ARGS=".spago/BuildInfo.purs"
+          for d in .spago/p/*/; do
+            ARGS="$ARGS ${d}src/**/*.purs"
+          done
+          for w in rio-config-file rio-http rio-node rio-otel rio-postgres rio-postgres-migrate; do
+            ARGS="$ARGS ${w}/src/**/*.purs"
+          done
+          ARGS="$ARGS src/**/*.purs test/**/*.purs"
+          echo "==== arg count (chars) ===="
+          echo "${#ARGS}"
+          echo "==== first 200 chars of ARGS ===="
+          echo "${ARGS:0:200}"
+          echo "==== running purs graph (literal globs, like spago) ===="
           npx purs graph $ARGS > /tmp/graph.out 2> /tmp/graph.err
           rc=$?
+          set +f
           echo "purs graph exit: $rc"
-          echo "==== stdout (first 500 chars) ===="
-          head -c 500 /tmp/graph.out
-          echo ""
-          echo "==== stderr ===="
+          echo "==== stdout size ===="
+          wc -c /tmp/graph.out
+          echo "==== stderr (full) ===="
           cat /tmp/graph.err
+          echo "==== stderr size ===="
+          wc -c /tmp/graph.err
 
       - name: Test (main package)
         run: npx spago test -p rio
