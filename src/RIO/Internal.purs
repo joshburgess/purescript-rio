@@ -82,6 +82,7 @@ foreign import instrLiftEffect :: forall r e a. Effect a -> Instr r e a
 foreign import instrLiftAff :: forall r e a. Aff a -> Instr r e a
 foreign import instrBind
   :: forall r e a b. Instr r e a -> (a -> Instr r e b) -> Instr r e b
+
 foreign import instrAsk :: forall r e. Instr r e (Record r)
 foreign import instrFail :: forall r e a. Variant e -> Instr r e a
 foreign import instrCatchTag
@@ -99,6 +100,7 @@ foreign import instrCatchAll
    . (Variant e -> Instr r e' a)
   -> Instr r e a
   -> Instr r e' a
+
 foreign import instrLocal
   :: forall r r' e a
    . (Record r -> Record r')

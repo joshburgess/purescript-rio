@@ -1115,6 +1115,8 @@ timeoutFail sym a ms action = do
   case result of
     Just b -> pure b
     Nothing ->
-      let v :: Variant e
-          v = Variant.inj sym a
-      in mkRIO \_ -> rioFail v
+      let
+        v :: Variant e
+        v = Variant.inj sym a
+      in
+        mkRIO \_ -> rioFail v

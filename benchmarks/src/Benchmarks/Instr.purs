@@ -233,8 +233,10 @@ serviceLoopInstr n = go 0 n
   go :: Int -> Int -> Instr (svc :: { lookup :: Int -> Int } | r') e Int
   go acc 0 = instrPure acc
   go acc k = instrBind instrAsk \env ->
-    let _ = Proxy :: Proxy "svc"
-    in go (env.svc.lookup acc) (k - 1)
+    let
+      _ = Proxy :: Proxy "svc"
+    in
+      go (env.svc.lookup acc) (k - 1)
 
 -- | Same shape as production `failCatchOnce`: throw a typed
 -- | failure and catch it immediately. Single round-trip.
