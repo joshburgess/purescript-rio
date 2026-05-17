@@ -46,6 +46,8 @@ import Control.Monad.Except.Trans (runExceptT)
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Either (Either(..))
 import Data.Symbol (class IsSymbol)
+import Data.Variant (Variant)
+import Data.Variant as Variant
 import Data.Tuple.Nested ((/\))
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
@@ -68,8 +70,8 @@ import Effect.Postgres.Error.Except (Except) as PG
 import Effect.Postgres.Pool (release) as PG.PoolE
 
 import RIO.Env (ask)
-import RIO.Error (catchAll, fail)
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Error (catchAll, rethrow)
+import RIO.Internal (RIO, mkRIO, rioFail)
 import RIO.Resource (acquireRelease)
 
 -- | The Postgres service token. Holds a connection pool. Place it
@@ -103,11 +105,11 @@ fromExcept
   => Proxy sym
   -> PG.Except Aff a
   -> RIO r e a
-fromExcept sym action = RIO \_ -> do
+fromExcept sym action = mkRIO \_ -> do
   res <- runExceptT action
   case res of
-    Right a -> pure (Right a)
-    Left es -> unRIO (fail sym (PgError es)) {}
+    Right a -> pure a
+    Left es -> rioFail (Variant.inj sym (PgError es) :: Variant e)
 
 -- | Acquire a client from the pool, run `use`, and return the
 -- | client to the pool on exit (success, typed failure, defect,
@@ -144,9 +146,9 @@ withClientUsing
 withClientUsing sym pool use =
   acquireRelease
     (fromExcept sym (PG.Pool.connect pool))
-    ( \client -> RIO \_ -> do
+    ( \client -> mkRIO \_ -> do
         _ <- liftEffect (runExceptT (PG.PoolE.release pool client))
-        pure (Right unit)
+        pure unit
     )
     use
 
@@ -393,7 +395,7 @@ withTransaction sym use = withClient sym \client -> do
   catchAll
     ( \v -> do
         _ <- execUsing sym ("rollback" :: String) client
-        RIO \_ -> pure (Left v)
+        rethrow v
     )
     ( do
         a <- use client

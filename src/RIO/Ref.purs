@@ -38,11 +38,10 @@ module RIO.Ref
 import Prelude
 
 import Effect (Effect)
-import Effect.Class (liftEffect)
 import Effect.Ref (Ref) as ERef
 import Effect.Ref as ERef
 
-import RIO.Internal (RIO(..))
+import RIO.Internal (RIO(..), mkEffectRIO)
 
 -- | A mutable cell of type `a`. The constructor is hidden; use
 -- | `new` or `newEffect` to create one.
@@ -50,9 +49,7 @@ newtype Ref a = Ref (ERef.Ref a)
 
 -- | Create a fresh `Ref` initialised to `value`.
 new :: forall r e a. a -> RIO r e (Ref a)
-new value = RIO \_ -> do
-  ref <- liftEffect (ERef.new value)
-  pure (Ref ref)
+new value = mkEffectRIO \_ -> Ref <$> ERef.new value
 
 -- | `Effect`-typed variant for callers that allocate state at
 -- | the top of `main` before entering `RIO`.
@@ -61,20 +58,20 @@ newEffect value = Ref <$> ERef.new value
 
 -- | Read the current value.
 read :: forall r e a. Ref a -> RIO r e a
-read (Ref ref) = RIO \_ -> liftEffect (ERef.read ref)
+read (Ref ref) = mkEffectRIO \_ -> ERef.read ref
 
 -- | Overwrite the value, discarding the previous one.
 write :: forall r e a. Ref a -> a -> RIO r e Unit
-write (Ref ref) value = RIO \_ -> liftEffect (ERef.write value ref)
+write (Ref ref) value = mkEffectRIO \_ -> ERef.write value ref
 
 -- | Apply a pure function to the current value and store the
 -- | result. Returns the new value.
 modify :: forall r e a. Ref a -> (a -> a) -> RIO r e a
-modify (Ref ref) f = RIO \_ -> liftEffect (ERef.modify f ref)
+modify (Ref ref) f = mkEffectRIO \_ -> ERef.modify f ref
 
 -- | Apply a pure function and discard the result.
 modify_ :: forall r e a. Ref a -> (a -> a) -> RIO r e Unit
-modify_ (Ref ref) f = RIO \_ -> liftEffect (ERef.modify_ f ref)
+modify_ (Ref ref) f = mkEffectRIO \_ -> ERef.modify_ f ref
 
 -- | Alias for `modify_` that reads naturally at call sites.
 update :: forall r e a. Ref a -> (a -> a) -> RIO r e Unit

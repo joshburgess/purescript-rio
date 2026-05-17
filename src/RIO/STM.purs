@@ -61,7 +61,7 @@ import Prim.Row (class Cons) as Row
 import Type.Proxy (Proxy)
 import Unsafe.Coerce (unsafeCoerce)
 
-import RIO.Internal (RIO(..), rioFail)
+import RIO.Internal (RIO(..), mkRIO, rioFail)
 
 -- | A transactional reference. Created with `newTRef`, read with
 -- | `readTRef`, written with `writeTRef`, modified with
@@ -338,7 +338,7 @@ orElse (STM left) (STM right) = STM \log -> do
 -- |   writeTRef account (balance - amount)
 -- | ```
 atomically :: forall r e a. STM e a -> RIO r e a
-atomically (STM body) = RIO \_ -> attempt
+atomically (STM body) = mkRIO \_ -> attempt
   where
   attempt = do
     log <- liftEffect do

@@ -30,7 +30,7 @@ import Effect.Aff (Aff, joinFiber, forkAff, parallel, sequential)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import RIO.Core (RIO, runRIO')
-import RIO.Concurrency (awaitAll, fork, parTraverse)
+import RIO.Concurrency (awaitAll, fork, forkAll, forkAllUntracked, joinAll, parTraverse)
 
 -- | Workload 1: a chain of `pure (acc + 1)` binds in RIO.
 rioBindChain :: Int -> RIO () () Int
@@ -103,6 +103,30 @@ runVsAff = do
         ( runRIO' do
             fibs <- traverse (\n -> fork (rioChild n)) fanArr
             awaitAll fibs
+        )
+    )
+  benchAffWith sampleCount
+    "RIO fan-out/fan-in (forkAll x16 + awaitAll)"
+    ( void
+        ( runRIO' do
+            fibs <- forkAll (map rioChild fanArr)
+            awaitAll fibs
+        )
+    )
+  benchAffWith sampleCount
+    "RIO fan-out/fan-in (forkAll x16 + joinAll)"
+    ( void
+        ( runRIO' do
+            fibs <- forkAll (map rioChild fanArr)
+            joinAll fibs
+        )
+    )
+  benchAffWith sampleCount
+    "RIO fan-out/fan-in (forkAllUntracked x16 + joinAll)"
+    ( void
+        ( runRIO' do
+            fibs <- forkAllUntracked (map rioChild fanArr)
+            joinAll fibs
         )
     )
   benchAffWith sampleCount

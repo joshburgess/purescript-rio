@@ -31,7 +31,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Record.Unsafe (unsafeSet)
 
-import RIO.Internal (RIO(..), matchTypedFailure, unsafeUnRIO)
+import RIO.Internal (RIO(..), mkRIO, matchTypedFailure, unsafeUnRIO)
 
 -- | Run `acquire`, then `use`, then `release`, guaranteeing that
 -- | `release` runs no matter how `use` ends: success, typed failure,
@@ -60,7 +60,7 @@ acquireRelease
   -> (a -> RIO r () Unit)
   -> (a -> RIO r e b)
   -> RIO r e b
-acquireRelease acquire release use = RIO \r ->
+acquireRelease acquire release use = mkRIO \r ->
   Aff.bracket
     (unsafeUnRIO acquire r)
     (\a -> unsafeUnRIO (release a) r)
@@ -92,7 +92,7 @@ bracket
   -> (a -> RIO r e Unit)
   -> (a -> RIO r e b)
   -> RIO r e b
-bracket acquire release use = RIO \r ->
+bracket acquire release use = mkRIO \r ->
   Aff.bracket
     (unsafeUnRIO acquire r)
     ( \a -> do
@@ -128,7 +128,7 @@ bracket acquire release use = RIO \r ->
 -- | drainOnExit = ensuring serveRequests drainPool
 -- | ```
 ensuring :: forall r e a. RIO r e a -> RIO r () Unit -> RIO r e a
-ensuring action finalizer = RIO \r ->
+ensuring action finalizer = mkRIO \r ->
   finally (unsafeUnRIO finalizer r) (unsafeUnRIO action r)
 
 -- | Run `finalizer` only when `action` is interrupted (the
@@ -159,7 +159,7 @@ ensuring action finalizer = RIO \r ->
 -- |   (markAborted writeId)
 -- | ```
 onInterrupt :: forall r e a. RIO r e a -> RIO r () Unit -> RIO r e a
-onInterrupt action finalizer = RIO \r ->
+onInterrupt action finalizer = mkRIO \r ->
   Aff.generalBracket
     (pure unit)
     { killed: \_ _ -> unsafeUnRIO finalizer r
@@ -206,7 +206,7 @@ newtype Scope = Scope (Ref.Ref (Array (Aff Unit)))
 -- |   useConnection conn
 -- | ```
 addFinalizer :: forall r e. Scope -> Aff Unit -> RIO r e Unit
-addFinalizer (Scope ref) fin = RIO \_ ->
+addFinalizer (Scope ref) fin = mkRIO \_ ->
   liftEffect (Ref.modify_ (\xs -> [ fin ] <> xs) ref)
 
 -- | Run an inner computation in a fresh scope provided as a service
@@ -232,7 +232,7 @@ scoped
   :: forall r e a
    . RIO (scope :: Scope | r) e a
   -> RIO r e a
-scoped inner = RIO \r -> do
+scoped inner = mkRIO \r -> do
   ref <- liftEffect (Ref.new [])
   let
     scope = Scope ref

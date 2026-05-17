@@ -38,7 +38,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..), unsafeUnRIO)
+import RIO.Internal (RIO(..), mkEffectRIO, mkRIO, unsafeUnRIO)
 import RIO.Queue (Queue)
 import RIO.Queue as Queue
 
@@ -75,7 +75,7 @@ subscribe
   :: forall r e a
    . Hub a
   -> RIO r e { queue :: Queue a, unsubscribe :: RIO r e Unit }
-subscribe (Hub ref) = RIO \r -> do
+subscribe (Hub ref) = mkRIO \r -> do
   queue <- liftEffect Queue.unbounded
   state <- liftEffect (Ref.read ref)
   let tag = state.nextTag
@@ -98,7 +98,7 @@ subscribe (Hub ref) = RIO \r -> do
     pure unit
   let
     unsub :: forall r' e'. RIO r' e' Unit
-    unsub = RIO \_ -> liftEffect do
+    unsub = mkEffectRIO \_ -> do
       s' <- Ref.read ref
       Ref.write
         ( s'
@@ -119,7 +119,7 @@ unsubscribe action = action
 -- | observes the value through its own queue (so a slow consumer
 -- | cannot delay other consumers).
 publish :: forall r e a. Hub a -> a -> RIO r e Unit
-publish (Hub ref) a = RIO \r -> do
+publish (Hub ref) a = mkRIO \r -> do
   state <- liftEffect (Ref.read ref)
   traverse_
     ( \sub -> do
@@ -155,7 +155,7 @@ subscriberCount (Hub ref) =
 -- | every published value has been offered, otherwise the in-flight
 -- | tail of the stream is lost.
 shutdown :: forall r e a. Hub a -> RIO r e Unit
-shutdown (Hub ref) = RIO \r -> do
+shutdown (Hub ref) = mkRIO \r -> do
   state <- liftEffect (Ref.read ref)
   liftEffect (Ref.write (state { isShutdown = true }) ref)
   traverse_

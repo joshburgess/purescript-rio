@@ -37,7 +37,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
-import RIO.Internal (RIO(..), unsafeUnRIO)
+import RIO.Internal (RIO(..), mkRIO, unsafeUnRIO)
 
 -- | A pending acquirer.
 type Waiter =
@@ -79,7 +79,7 @@ withPermits
   -> Semaphore
   -> RIO r e a
   -> RIO r e a
-withPermits n sem action = RIO \r -> do
+withPermits n sem action = mkRIO \r -> do
   acquire sem n
   finally
     (liftEffect (release sem n))

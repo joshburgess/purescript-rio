@@ -42,7 +42,7 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
-import Data.Symbol (class IsSymbol)
+import Data.Symbol (class IsSymbol, reflectSymbol)
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Aff (attempt, throwError)
@@ -54,7 +54,16 @@ import Prim.RowList (Cons, Nil) as RLP
 import Prim.TypeError (class Fail, Above, Beside, Text)
 import Type.Proxy (Proxy)
 
-import RIO.Internal (RIO(..), matchTypedFailure, rioFail, unsafeUnRIO)
+import RIO.Internal
+  ( RIO(..)
+  , instrCatchAll
+  , instrCatchTag
+  , instrFail
+  , matchTypedFailure
+  , mkRIO
+  , rioFail
+  , unsafeUnRIO
+  )
 
 -- | Internal helper that walks an `e`-row's `RowList` to look up a
 -- | tag symbol. The funcdep `sym l -> a` means the payload type is
@@ -128,7 +137,7 @@ fail
   => Proxy sym
   -> a
   -> RIO r e b
-fail sym v = rethrow (Variant.inj sym v)
+fail sym v = RIO (instrFail (Variant.inj sym v))
 
 -- | Fail with an already-constructed `Variant`.
 -- |
@@ -141,7 +150,7 @@ fail sym v = rethrow (Variant.inj sym v)
 -- | catchAll (\v -> if shouldHandle v then pure fallback else rethrow v) program
 -- | ```
 rethrow :: forall r e a. Variant e -> RIO r e a
-rethrow v = RIO \_ -> rioFail v
+rethrow v = RIO (instrFail v)
 
 -- | Catch one tagged failure and remove it from the error row.
 -- |
@@ -169,20 +178,13 @@ catchTag
   -> (a -> RIO r e' b)
   -> RIO r e b
   -> RIO r e' b
-catchTag sym handler inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> pure a
-    Left err ->
-      let
-        matched :: Maybe (Variant e)
-        matched = matchTypedFailure err
-      in case matched of
-        Just v -> Variant.on sym
-          (\payload -> unsafeUnRIO (handler payload) r)
-          (\v' -> rioFail v')
-          v
-        Nothing -> throwError err
+catchTag sym handler (RIO innerI) =
+  RIO
+    ( instrCatchTag
+        (reflectSymbol sym)
+        (\payload -> case handler payload of RIO i -> i)
+        innerI
+    )
 
 -- | Catch every failure with a single handler and replace the error
 -- | row with whatever the handler's return type uses.
@@ -205,13 +207,12 @@ catchAll
    . (Variant e -> RIO r e' a)
   -> RIO r e a
   -> RIO r e' a
-catchAll handler inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> pure a
-    Left err -> case matchTypedFailure err of
-      Just v -> unsafeUnRIO (handler v) r
-      Nothing -> throwError err
+catchAll handler (RIO innerI) =
+  RIO
+    ( instrCatchAll
+        (\v -> case handler v of RIO i -> i)
+        innerI
+    )
 
 -- | Transform the failure value by a pure function, replacing the row.
 -- |
@@ -236,13 +237,8 @@ mapError
    . (Variant e -> Variant e')
   -> RIO r e a
   -> RIO r e' a
-mapError f inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> pure a
-    Left err -> case matchTypedFailure err of
-      Just v -> rioFail (f v)
-      Nothing -> throwError err
+mapError f (RIO innerI) =
+  RIO (instrCatchAll (\v -> instrFail (f v)) innerI)
 
 -- | Raise an `Aff` exception as a defect.
 -- |
@@ -264,7 +260,7 @@ mapError f inner = RIO \r -> do
 -- |   else die (Exception.error "invariant violated")
 -- | ```
 die :: forall r e a. Error -> RIO r e a
-die err = RIO \_ -> throwError err
+die err = mkRIO \_ -> throwError err
 
 -- | Reify defects into the success channel.
 -- |
@@ -285,7 +281,7 @@ die err = RIO \_ -> throwError err
 -- | safeFetch url = sandbox (liftAff (Http.fetch url))
 -- | ```
 sandbox :: forall r e a. RIO r e a -> RIO r e (Either Error a)
-sandbox inner = RIO \r -> do
+sandbox inner = mkRIO \r -> do
   outcome <- attempt (unsafeUnRIO inner r)
   case outcome of
     Right a -> pure (Right a)
@@ -307,11 +303,11 @@ sandbox inner = RIO \r -> do
 -- | rethrowUnknown = unsandbox
 -- | ```
 unsandbox :: forall r e a. RIO r e (Either Error a) -> RIO r e a
-unsandbox inner = RIO \r -> do
-  val <- unsafeUnRIO inner r
+unsandbox inner = do
+  val <- inner
   case val of
     Right a -> pure a
-    Left err -> throwError err
+    Left err -> die err
 
 -- | Run a side-effecting action on the success value and pass the
 -- | value through unchanged.
@@ -347,15 +343,8 @@ tapError
    . (Variant e -> RIO r e Unit)
   -> RIO r e a
   -> RIO r e a
-tapError f inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> pure a
-    Left err -> case matchTypedFailure err of
-      Just v -> do
-        _ <- unsafeUnRIO (f v) r
-        rioFail v
-      Nothing -> throwError err
+tapError f inner =
+  catchAll (\v -> f v >>= \_ -> rethrow v) inner
 
 -- | Fire one of two side-effecting handlers depending on whether the
 -- | inner action succeeded or raised a typed failure, then re-emit
@@ -382,17 +371,10 @@ tapBoth
   -> (a -> RIO r e Unit)
   -> RIO r e a
   -> RIO r e a
-tapBoth onErr onOk inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> do
-      _ <- unsafeUnRIO (onOk a) r
-      pure a
-    Left err -> case matchTypedFailure err of
-      Just v -> do
-        _ <- unsafeUnRIO (onErr v) r
-        rioFail v
-      Nothing -> throwError err
+tapBoth onErr onOk inner =
+  catchAll
+    (\v -> onErr v >>= \_ -> rethrow v)
+    (inner >>= \a -> onOk a >>= \_ -> pure a)
 
 -- | Fire a handler when the inner action raises a defect (an `Aff`
 -- | exception, whether from `die`, a lifted `Aff`, or a runtime
@@ -418,7 +400,7 @@ tapDefect
    . (Error -> RIO r e Unit)
   -> RIO r e a
   -> RIO r e a
-tapDefect f inner = RIO \r -> do
+tapDefect f inner = mkRIO \r -> do
   attempted <- attempt (unsafeUnRIO inner r)
   case attempted of
     Right a -> pure a
@@ -435,8 +417,8 @@ tapDefect f inner = RIO \r -> do
 -- | into the success channel, `fromEither` lifts a pure result back
 -- | into the row.
 fromEither :: forall r e a. Either (Variant e) a -> RIO r e a
-fromEither (Right a) = RIO \_ -> pure a
-fromEither (Left v) = RIO \_ -> rioFail v
+fromEither (Right a) = mkRIO \_ -> pure a
+fromEither (Left v) = mkRIO \_ -> rioFail v
 
 -- | Lift a pure `Maybe a` into `RIO`. `Nothing` becomes the supplied
 -- | typed failure; `Just` becomes a success.
@@ -447,8 +429,8 @@ fromEither (Left v) = RIO \_ -> rioFail v
 -- |   (Map.lookup "alice" users)
 -- | ```
 fromMaybe :: forall r e a. Variant e -> Maybe a -> RIO r e a
-fromMaybe _ (Just a) = RIO \_ -> pure a
-fromMaybe v Nothing = RIO \_ -> rioFail v
+fromMaybe _ (Just a) = mkRIO \_ -> pure a
+fromMaybe v Nothing = mkRIO \_ -> rioFail v
 
 -- | Reflect a typed failure into the success channel as `Left`. A
 -- | success becomes `Right a`; a typed failure becomes
@@ -470,13 +452,8 @@ either
   :: forall r e e' a
    . RIO r e a
   -> RIO r e' (Either (Variant e) a)
-either inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> pure (Right a)
-    Left err -> case matchTypedFailure err of
-      Just v -> pure (Left v)
-      Nothing -> throwError err
+either inner =
+  catchAll (\v -> pure (Left v)) (map Right inner)
 
 -- | Collapse a `RIO r e (Either (Variant e2) a)` into
 -- | `RIO r e a` by turning a `Left v` in the success channel into a
@@ -520,13 +497,11 @@ foldRIO
   -> (a -> RIO r e' b)
   -> RIO r e a
   -> RIO r e' b
-foldRIO onError onSuccess inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> unsafeUnRIO (onSuccess a) r
-    Left err -> case matchTypedFailure err of
-      Just v -> unsafeUnRIO (onError v) r
-      Nothing -> throwError err
+foldRIO onError onSuccess inner = do
+  result <- either inner
+  case result of
+    Right a -> onSuccess a
+    Left v -> onError v
 
 -- | Try the first action; if it fails with a typed error, run the
 -- | fallback and use its result. The first action's error row is
@@ -567,15 +542,13 @@ catchSome
    . (Variant e -> Maybe (RIO r e a))
   -> RIO r e a
   -> RIO r e a
-catchSome classify inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> pure a
-    Left err -> case matchTypedFailure err of
-      Just v -> case classify v of
-        Just handler -> unsafeUnRIO handler r
-        Nothing -> rioFail v
-      Nothing -> throwError err
+catchSome classify inner =
+  catchAll
+    ( \v -> case classify v of
+        Just handler -> handler
+        Nothing -> rethrow v
+    )
+    inner
 
 -- | Replace any typed failure with a pure success value. The error
 -- | row is discharged. Defects still propagate.
@@ -672,15 +645,13 @@ refineOrDieWith
   -> (Variant e -> Error)
   -> RIO r e a
   -> RIO r e' a
-refineOrDieWith classify toErr inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> pure a
-    Left err -> case matchTypedFailure err of
-      Just v -> case classify v of
-        Just v' -> rioFail v'
-        Nothing -> throwError (toErr v)
-      Nothing -> throwError err
+refineOrDieWith classify toErr inner =
+  catchAll
+    ( \v -> case classify v of
+        Just v' -> rethrow v'
+        Nothing -> die (toErr v)
+    )
+    inner
 
 -- | Convert a typed failure into a defect via a user-supplied
 -- | translator. The error row is discharged on the resulting
@@ -725,10 +696,5 @@ mapBoth
   -> (a -> b)
   -> RIO r e a
   -> RIO r e' b
-mapBoth onError onSuccess inner = RIO \r -> do
-  outcome <- attempt (unsafeUnRIO inner r)
-  case outcome of
-    Right a -> pure (onSuccess a)
-    Left err -> case matchTypedFailure err of
-      Just v -> rioFail (onError v)
-      Nothing -> throwError err
+mapBoth onError onSuccess inner =
+  mapError onError (map onSuccess inner)

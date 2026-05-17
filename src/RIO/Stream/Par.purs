@@ -59,7 +59,7 @@ import Effect.Ref as Ref
 
 import RIO.Cause (Cause(..), attemptCause)
 import RIO.Concurrency (fork)
-import RIO.Internal (RIO(..), rioFail)
+import RIO.Internal (RIO(..), mkRIO, rioFail)
 import RIO.Queue (Queue)
 import RIO.Queue as Queue
 import RIO.Stream (Step(..), Stream(..), unStream)
@@ -334,14 +334,14 @@ consumer queue failureRef = Stream do
 -- | defect with a clear message so a future regression is loud.
 propagateCause :: forall r e a. Cause e -> RIO r e a
 propagateCause = case _ of
-  Fail v -> RIO \_ -> rioFail v
-  Die err -> RIO \_ -> throwError err
-  Parallel _ _ -> RIO \_ ->
+  Fail v -> mkRIO \_ -> rioFail v
+  Die err -> mkRIO \_ -> throwError err
+  Parallel _ _ -> mkRIO \_ ->
     throwError
       ( Aff.error
           "RIO.Stream.Par: unexpected Parallel cause from a single producer"
       )
-  Sequential _ _ -> RIO \_ ->
+  Sequential _ _ -> mkRIO \_ ->
     throwError
       ( Aff.error
           "RIO.Stream.Par: unexpected Sequential cause from a single producer"

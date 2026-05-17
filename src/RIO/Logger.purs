@@ -82,7 +82,7 @@ import Effect.Ref as Ref
 import Record (get) as Record
 import Type.Proxy (Proxy(..))
 
-import RIO.Internal (RIO(..), unsafeUnRIO)
+import RIO.Internal (RIO(..), mkRIO, unsafeUnRIO)
 
 -- | The five levels mirror OTel's `SeverityNumber` family with
 -- | one entry per band. `LogTrace` is the noisiest; `LogError`
@@ -309,7 +309,7 @@ emitAt
    . LogLevel
   -> String
   -> RIO (logger :: Logger | r) e Unit
-emitAt level msg = RIO \r -> do
+emitAt level msg = mkRIO \r -> do
   let logger = Record.get (Proxy :: Proxy "logger") r
   annotations <- liftEffect logger.getAnnotations
   liftEffect (logger.log level msg annotations)
@@ -350,7 +350,7 @@ withFields
    . Array (Tuple String String)
   -> RIO (logger :: Logger | r) e a
   -> RIO (logger :: Logger | r) e a
-withFields fields action = RIO \r -> do
+withFields fields action = mkRIO \r -> do
   let logger = Record.get (Proxy :: Proxy "logger") r
   previous <- liftEffect logger.getAnnotations
   let next = mergeAnnotations previous fields

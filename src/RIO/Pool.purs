@@ -67,7 +67,7 @@ import Effect.Class (liftEffect)
 import Effect.Exception (error, throwException)
 import Effect.Ref as ERef
 
-import RIO.Internal (RIO(..), unsafeUnRIO)
+import RIO.Internal (RIO(..), mkEffectRIO, mkRIO, unsafeUnRIO)
 import RIO.Resource (Scope, addFinalizer)
 import RIO.Semaphore (Semaphore)
 import RIO.Semaphore as Semaphore
@@ -109,11 +109,11 @@ make
   -> PoolConfig a
   -> RIO r e (Pool a)
 make scope config = do
-  pool <- RIO \_ -> do
-    sem <- liftEffect (Semaphore.make config.maxSize)
-    idleRef <- liftEffect (ERef.new [])
-    totalRef <- liftEffect (ERef.new 0)
-    shutdownRef <- liftEffect (ERef.new false)
+  pool <- mkEffectRIO \_ -> do
+    sem <- Semaphore.make config.maxSize
+    idleRef <- ERef.new []
+    totalRef <- ERef.new 0
+    shutdownRef <- ERef.new false
     pure
       ( Pool
           { sem
@@ -157,12 +157,12 @@ withResource
   -> RIO r e b
 withResource pool@(Pool p) use = Semaphore.withPermit p.sem do
   -- Check shutdown before allocating.
-  shut <- RIO \_ -> liftEffect (ERef.read p.shutdownRef)
+  shut <- mkEffectRIO \_ -> ERef.read p.shutdownRef
   when shut do
-    RIO \_ -> liftAff
+    mkRIO \_ -> liftAff
       (liftEffect (throwException (error "RIO.Pool: pool is shut down")))
   resource <- borrowOne pool
-  RIO \r -> do
+  mkRIO \r -> do
     let
       returnIt = do
         nowShut <- liftEffect (ERef.read p.shutdownRef)
@@ -177,7 +177,7 @@ withResource pool@(Pool p) use = Semaphore.withPermit p.sem do
 -- Pop an idle resource if available; otherwise acquire a fresh
 -- one. Increments `totalRef` when a fresh resource is minted.
 borrowOne :: forall r e a. Pool a -> RIO r e a
-borrowOne (Pool p) = RIO \_ -> do
+borrowOne (Pool p) = mkRIO \_ -> do
   idleNow <- liftEffect (ERef.read p.idleRef)
   case Array.unsnoc idleNow of
     Just { init, last } -> do

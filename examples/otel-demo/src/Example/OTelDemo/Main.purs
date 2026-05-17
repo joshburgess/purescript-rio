@@ -1,4 +1,4 @@
--- | A small program that wires `RIO.Tracer.OTel.makeOTelTracer`
+-- | A small program that wires `RIO.Tracer.OTel.Adapter.makeOTelTracer`
 -- | into a real OpenTelemetry SDK with an in-memory exporter
 -- | (`InMemorySpanExporter` from `@opentelemetry/sdk-trace-base`).
 -- |
@@ -36,7 +36,7 @@ import RIO.Core
   , runRIO'
   )
 import RIO.Tracer (Tracer, addAttribute, withSpan)
-import RIO.Tracer.OTel (makeOTelTracer)
+import RIO.Tracer.OTel.Adapter (makeOTelTracer)
 import Type.Proxy (Proxy(..))
 
 work :: forall r e. RIO (tracer :: Tracer | r) e Unit

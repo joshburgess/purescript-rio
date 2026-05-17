@@ -45,6 +45,15 @@ jobs:
       - name: Build (main package)
         run: npx spago build -p rio
 
+      # `spago test -p rio` invokes `purs graph` across the entire workspace,
+      # so every workspace sibling's transitive deps must be present in
+      # .spago/p before the test step runs. Fetch them all upfront.
+      - name: Fetch deps for all workspace packages
+        run: |
+          for p in rio-http rio-node rio-otel rio-postgres rio-postgres-json rio-postgres-migrate rio-config-file; do
+            npx spago install -p "$p"
+          done
+
       - name: Test (main package)
         run: npx spago test -p rio
 
@@ -194,6 +203,14 @@ jobs:
 
       - name: Install npm deps (purs, spago, purs-tidy, pg)
         run: npm ci
+
+      # `spago test -p <pkg>` invokes `purs graph` across the entire workspace,
+      # so every sibling's transitive deps must be present in .spago/p first.
+      - name: Fetch deps for all workspace packages
+        run: |
+          for p in rio rio-http rio-node rio-otel rio-postgres rio-postgres-json rio-postgres-migrate rio-config-file; do
+            npx spago install -p "$p"
+          done
 
       - name: Run rio-postgres integration tests
         env:
