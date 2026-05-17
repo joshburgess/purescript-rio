@@ -1,6 +1,6 @@
 module Test.RIO.LocalSpec (spec) where
 
-import Prelude
+import Prelude hiding (join)
 
 import Data.Either (Either(..))
 import Effect.Aff (Milliseconds(..), attempt, delay, error, forkAff, killFiber)

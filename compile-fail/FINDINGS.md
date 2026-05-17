@@ -205,6 +205,76 @@ while trying to match type RIO
 mismatch; the missing label (`requestId`) is the obvious diff a
 visual scan picks out.
 
+## Case 07: `Layer >>>` chain with mismatched intermediate row
+
+`configLayer :: Layer rIn e (config :: Config)`,
+`dbLayer :: Layer (dsn :: String) e (db :: Database)`. The chain
+`configLayer >>> dbLayer` must reject because the first layer's
+output row `(config :: Config)` is not the second layer's input
+row `(dsn :: String)`. The compiler reports:
+
+```
+Could not match type
+  ( dsn :: String
+  ...
+  )
+with type
+  ( config :: { host :: String
+              }
+  ...
+  )
+while trying to match type Layer ( dsn :: String )
+  with type Layer ( config :: { host :: String } )
+```
+
+**Quality: GOOD.** The two intermediate rows appear directly. A
+user reads "I wired a layer whose input is `dsn` to one whose
+output is `config`" and either inserts a translator or fixes the
+upstream layer.
+
+## Case 08: `Layer <+>` with overlapping output labels
+
+Both `consoleLogger` and `fileLogger` produce `(logger ::
+Logger)`. The combined output row would carry `logger` twice;
+`Row.Union` (the constraint behind `combine` / `<+>`) cannot
+unify the duplicate against the caller-annotated singleton. The
+compiler reports:
+
+```
+while solving type class constraint
+  Prim.Row.Union ( logger :: ... )
+                 ( logger :: ... )
+                 ( logger :: ... )
+while applying a function combine
+```
+
+**Quality: GOOD.** The three rows in the `Union` constraint
+make the duplicate explicit: a user reads "both sides produce
+`logger`, the union wants to be just one `logger`" and either
+renames one output or picks a single source of truth.
+
+## Case 09: `runRIO'` with a leftover service requirement
+
+`inner :: forall e. RIO (logger :: Logger) e String` handed
+directly to `runRIO' :: RIO () () a -> Aff a`. The unsatisfied
+service row surfaces as:
+
+```
+Could not match type
+  ( logger :: { name :: String
+              }
+  )
+with type
+  ()
+while trying to match type RIO ( logger :: { name :: String } )
+  with type RIO (() @Type)
+```
+
+**Quality: GOOD.** Mirrors case 02 for the error row: the
+leftover row is named on the first line, the target shape on
+the third. A user reads "I never provided `logger`" and inserts
+`provide` / `provideAll` before the `runRIO'` call.
+
 ## Patterns we have NOT yet captured
 
 These remain on the v0.2 `Fail`-polish backlog:

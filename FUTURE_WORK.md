@@ -16,7 +16,9 @@ Confirmed in `src/RIO/` as of the last review:
 - Layers: `Layer rIn e rOut`, composition, `provideLayer`
 - Concurrency primitives: `Concurrency.Par`, `Deferred`, parallel
   combinators, `Fiber`-style fork via `Aff`
-- STM: `THub`, `TMap`, `TQueue`, `TSemaphore`
+- STM: `TRef`, `THub`, `TMap`, `TQueue`, `TSemaphore`, plus the
+  combinator set (`atomically`, `retry`, `check`, `orElse`,
+  `failSTM`)
 - Async (non-STM) primitives: `RIO.Queue`, `RIO.Hub`, `RIO.Semaphore`
 - Schedule (retry / repeat) with combinator-style policy values
 - Streams: `RIO.Stream` (pull-based, with map, filter, take, drop,
@@ -139,7 +141,9 @@ non-goals for the "is this real" milestone.
 
 - Full `ZStream` parity (sinks, parallel streams, transducers)
 - Kafka / Redis / MongoDB adapters
-- STM `orElse` and deeper transactional features
+- Deeper transactional STM features beyond what's already
+  shipped (`atomically`, `retry`, `check`, `orElse`, `failSTM`),
+  e.g. nested transactions or `TVar` distinct from `TRef`
 - A custom runtime / fiber supervisor beyond what `Aff` provides
 - A web framework on top of `rio-http` (HTTPurple is enough for the
   examples)

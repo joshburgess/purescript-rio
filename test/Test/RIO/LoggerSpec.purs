@@ -1,6 +1,6 @@
 module Test.RIO.LoggerSpec (spec) where
 
-import Prelude
+import Prelude hiding (join)
 
 import Data.Array (find, length) as Array
 import Data.Maybe (Maybe(..))

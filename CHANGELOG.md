@@ -9,6 +9,39 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ## [Unreleased]
 
+### Added
+
+- Three new `compile-fail` cases:
+  - **07** `layer-andThen-row-mismatch`: vertical layer chaining
+    (`>>>` / `andThen`) where the upstream's rOut doesn't match
+    the downstream's rIn is rejected with both intermediate rows
+    named in the "Could not match" message.
+  - **08** `layer-combine-duplicate-output`: horizontal layer
+    combination (`<+>` / `combine`) where two layers produce the
+    same output label surfaces the `Row.Union` constraint with
+    all three duplicate rows shown.
+  - **09** `runRIO-prime-with-leftover-service`: a program with
+    an unsatisfied service requirement (e.g. `(logger :: Logger)`)
+    handed directly to `runRIO'` is rejected by naming the
+    leftover row against the target `()` env row. Mirrors case 02
+    for the error row.
+
+  Quality grades for all three: GOOD (the relevant rows appear
+  directly in the error message). Tracked in
+  `compile-fail/FINDINGS.md`.
+
+### Fixed
+
+- Test-spec build warnings reduced to zero. Five test specs
+  (`LocalSpec`, `LoggerSpec`, `STMSpec`, `StreamSpec`,
+  `TracerSpec`) imported `Prelude` open while also using
+  `RIO.Core.join` (fiber join, distinct from `Prelude.join`) or
+  `RIO.Stream.map` (stream map). Their `import Prelude` lines now
+  hide the shadowed identifiers. Also drops one unused `retry`
+  import from `STMSpec`.
+- `rio-node`'s build is now warning-free: removed an unused
+  `import Prelude` from `RIO.Node.Path`.
+
 ### Removed
 
 - `INSTR_LIST_REWRITE_PLAN.md`: stale Phase 5 planning doc whose

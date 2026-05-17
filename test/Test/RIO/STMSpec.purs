@@ -1,6 +1,6 @@
 module Test.RIO.STMSpec (spec) where
 
-import Prelude
+import Prelude hiding (join)
 
 import Data.Array (range)
 import Data.Either (Either(..))
@@ -23,7 +23,6 @@ import RIO.STM
   , newTRef
   , orElse
   , readTRef
-  , retry
   , writeTRef
   )
 

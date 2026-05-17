@@ -27,8 +27,6 @@ module RIO.Node.Path
   , sep
   ) where
 
-import Prelude
-
 import Effect.Class (liftEffect)
 import Node.Path (FilePath) as Exports
 import Node.Path (FilePath)

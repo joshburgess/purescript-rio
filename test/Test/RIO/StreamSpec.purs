@@ -1,6 +1,6 @@
 module Test.RIO.StreamSpec (spec) where
 
-import Prelude
+import Prelude hiding (map)
 
 import Data.Array (range) as Array
 import Data.Either (Either(..))
