@@ -1,10 +1,10 @@
--- | Per-instruction-tag dispatch profiler.
+-- | Per-operation-tag dispatch profiler.
 -- |
 -- | Runs each representative workload in isolation, brackets it with
--- | `resetInstrCounts` / `dumpInstrCounts`, and logs the tag counts
+-- | `resetOpCounts` / `dumpOpCounts`, and logs the tag counts
 -- | alongside the iteration count so the mix per iteration is easy to
 -- | read off. Enable the profiling interpreter build via
--- | `RIO_INSTR_PROFILE=1`; with that env var unset, all fields read
+-- | `RIO_OP_PROFILE=1`; with that env var unset, all fields read
 -- | zero.
 module Benchmarks.Profile
   ( main
@@ -32,7 +32,7 @@ import RIO.Core
   , runRIO
   , runRIO'
   )
-import RIO.Internal (InstrCounts, dumpInstrCounts, resetInstrCounts)
+import RIO.Internal (OpCounts, dumpOpCounts, resetOpCounts)
 import Type.Proxy (Proxy(..))
 
 type Service = { lookup :: Int -> Int }
@@ -90,9 +90,9 @@ profileAll = do
   liftEffect do
     log ""
     log "================================================================"
-    log "  rio instruction-tag dispatch profile"
+    log "  rio operation-tag dispatch profile"
     log "================================================================"
-    log "  Set RIO_INSTR_PROFILE=1 to enable counting; otherwise all"
+    log "  Set RIO_OP_PROFILE=1 to enable counting; otherwise all"
     log "  counts read zero."
     log ""
 
@@ -122,15 +122,15 @@ profileAll = do
 
 profile :: String -> Int -> Aff Unit -> Aff Unit
 profile label iters action = do
-  liftEffect resetInstrCounts
+  liftEffect resetOpCounts
   action
-  counts <- liftEffect dumpInstrCounts
+  counts <- liftEffect dumpOpCounts
   liftEffect do
     log ("--- " <> label <> " ---")
     log ("  iterations: " <> show iters)
     logCounts counts iters
 
-logCounts :: InstrCounts -> Int -> Effect Unit
+logCounts :: OpCounts -> Int -> Effect Unit
 logCounts c iters = do
   let
     total =

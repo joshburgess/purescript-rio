@@ -26,7 +26,7 @@ export const _matchTypedFailure = function (nothing) {
 };
 
 // ---------------------------------------------------------------------------
-// Instruction-list interpreter.
+// Operation-list interpreter.
 //
 // Tags are small integers so V8 compiles the dispatch switch to a
 // jump table.
@@ -48,27 +48,27 @@ const CATCH_ALL = 10;
 // so we can reuse the same object instead of allocating per call.
 const ASK_NODE = { tag: ASK };
 
-export const instrPure = function (a) {
+export const opPure = function (a) {
   return { tag: PURE, value: a };
 };
 
-export const instrLiftEffect = function (eff) {
+export const opLiftEffect = function (eff) {
   return { tag: SYNC, eff: eff };
 };
 
-export const instrBind = function (m) {
+export const opBind = function (m) {
   return function (k) {
     return { tag: BIND, m: m, k: k };
   };
 };
 
-export const instrAsk = ASK_NODE;
+export const opAsk = ASK_NODE;
 
-export const instrFail = function (v) {
+export const opFail = function (v) {
   return { tag: FAIL, value: v };
 };
 
-export const instrCatchTag = function (label) {
+export const opCatchTag = function (label) {
   return function (handler) {
     return function (m) {
       return { tag: CATCH, label: label, handler: handler, m: m };
@@ -81,25 +81,25 @@ export const instrCatchTag = function (label) {
 // the `catchAll` surface combinator's contract. Defects (untagged
 // Aff exceptions) are NOT caught - they keep propagating just as in
 // the old mkRIO+attempt implementation.
-export const instrCatchAll = function (handler) {
+export const opCatchAll = function (handler) {
   return function (m) {
     return { tag: CATCH_ALL, handler: handler, m: m };
   };
 };
 
-export const instrLocal = function (modify) {
+export const opLocal = function (modify) {
   return function (inner) {
     return { tag: LOCAL, modify: modify, inner: inner };
   };
 };
 
-export const instrLiftAff = function (aff) {
+export const opLiftAff = function (aff) {
   return { tag: ASYNC, aff: aff };
 };
 
 // LIFT: the env-aware `Record r -> Aff a` bridge. The interpreter
 // evaluates `fn(env)` to obtain the Aff at suspension time.
-export const instrLift = function (fn) {
+export const opLift = function (fn) {
   return { tag: LIFT, fn: fn };
 };
 
@@ -107,11 +107,11 @@ export const instrLift = function (fn) {
 // produces an Effect; the interpreter runs it synchronously inside
 // the inner loop, no Aff suspension. The dominant `mkRIO \r ->
 // liftEffect (...)` shape compiles to one of these.
-export const instrSyncLift = function (fn) {
+export const opSyncLift = function (fn) {
   return { tag: SYNC_LIFT, fn: fn };
 };
 
-export const _initInstrState = function (env) {
+export const _initOpState = function (env) {
   return function (initial) {
     return function () {
       return {
@@ -134,52 +134,52 @@ export const _initInstrState = function (env) {
 // `value` field and no state allocation / interpreter loop is needed.
 // Hot path inside parTraverse / sequence-style combinators where each
 // element is `pure x`.
-export const _isPureInstr = function (instr) {
-  return instr.tag === PURE;
+export const _isPureOp = function (op) {
+  return op.tag === PURE;
 };
 
-// UNSAFE: only valid when `_isPureInstr instr` is true.
-export const _purePayload = function (instr) {
-  return instr.value;
+// UNSAFE: only valid when `_isPureOp op` is true.
+export const _purePayload = function (op) {
+  return op.value;
 };
 
 // Fast-path predicate: top-level node is SYNC (liftEffect). The result
 // is `eff()` and no state allocation / interpreter loop is needed.
 // Common in parTraverse over Effect-heavy work.
-export const _isSyncInstr = function (instr) {
-  return instr.tag === SYNC;
+export const _isSyncOp = function (op) {
+  return op.tag === SYNC;
 };
 
-// UNSAFE: only valid when `_isSyncInstr instr` is true.
-export const _syncEff = function (instr) {
-  return instr.eff;
+// UNSAFE: only valid when `_isSyncOp op` is true.
+export const _syncEff = function (op) {
+  return op.eff;
 };
 
 const PROFILE_ENABLED =
   typeof process !== "undefined" &&
   process.env &&
-  process.env.RIO_INSTR_PROFILE === "1";
+  process.env.RIO_OP_PROFILE === "1";
 
-const _INSTR_COUNTS = new Uint32Array(11);
+const _OP_COUNTS = new Uint32Array(11);
 
-export const _dumpInstrCounts = function () {
+export const _dumpOpCounts = function () {
   return {
-    PURE: _INSTR_COUNTS[0],
-    SYNC: _INSTR_COUNTS[1],
-    BIND: _INSTR_COUNTS[2],
-    ASK: _INSTR_COUNTS[3],
-    FAIL: _INSTR_COUNTS[4],
-    CATCH: _INSTR_COUNTS[5],
-    LOCAL: _INSTR_COUNTS[6],
-    ASYNC: _INSTR_COUNTS[7],
-    LIFT: _INSTR_COUNTS[8],
-    SYNC_LIFT: _INSTR_COUNTS[9],
-    CATCH_ALL: _INSTR_COUNTS[10],
+    PURE: _OP_COUNTS[0],
+    SYNC: _OP_COUNTS[1],
+    BIND: _OP_COUNTS[2],
+    ASK: _OP_COUNTS[3],
+    FAIL: _OP_COUNTS[4],
+    CATCH: _OP_COUNTS[5],
+    LOCAL: _OP_COUNTS[6],
+    ASYNC: _OP_COUNTS[7],
+    LIFT: _OP_COUNTS[8],
+    SYNC_LIFT: _OP_COUNTS[9],
+    CATCH_ALL: _OP_COUNTS[10],
   };
 };
 
-export const _resetInstrCounts = function () {
-  _INSTR_COUNTS.fill(0);
+export const _resetOpCounts = function () {
+  _OP_COUNTS.fill(0);
 };
 
 // Fused pop helper: invoked from PURE / SYNC / ASK / SYNC_LIFT to avoid
@@ -294,14 +294,14 @@ const runLoopFast = function (state) {
         state.current = state.current.m;
         break;
       default:
-        throw new Error("RIO.Internal: unknown instruction tag " + state.current.tag);
+        throw new Error("RIO.Internal: unknown operation tag " + state.current.tag);
     }
   }
 };
 
 const runLoopProfiled = function (state) {
   while (true) {
-    _INSTR_COUNTS[state.current.tag]++;
+    _OP_COUNTS[state.current.tag]++;
 
     switch (state.current.tag) {
       case 0:
@@ -383,21 +383,21 @@ const runLoopProfiled = function (state) {
         state.current = state.current.m;
         break;
       default:
-        throw new Error("RIO.Internal: unknown instruction tag " + state.current.tag);
+        throw new Error("RIO.Internal: unknown operation tag " + state.current.tag);
     }
   }
 };
 
 const runLoop = PROFILE_ENABLED ? runLoopProfiled : runLoopFast;
 
-export const _stepInstr = function (state) {
+export const _stepOp = function (state) {
   return function () {
     runLoop(state);
   };
 };
 
 // Combined resume + step. Installs `value` as the result of the
-// suspended instruction, advances past the continuation, and
+// suspended operation, advances past the continuation, and
 // continues dispatch. Mirrors the pop-K path inside `popK` because
 // the runLoop entry invariant is "state.current is non-null".
 export const _resumeAndStep = function (state) {

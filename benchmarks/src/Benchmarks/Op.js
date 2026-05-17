@@ -1,6 +1,6 @@
 "use strict";
 
-// Tags for the Instr ADT. Small integers so V8 can compile the
+// Tags for the Op ADT. Small integers so V8 can compile the
 // dispatch switch to a jump table.
 const PURE = 0;
 const SYNC = 1;
@@ -15,23 +15,23 @@ const ASYNC = 7;
 // so we can reuse the same object instead of allocating per call.
 const ASK_NODE = { tag: ASK };
 
-export const instrPure = function (a) {
+export const opPure = function (a) {
   return { tag: PURE, value: a };
 };
 
-export const instrLiftEffect = function (eff) {
+export const opLiftEffect = function (eff) {
   return { tag: SYNC, eff: eff };
 };
 
-export const instrBind = function (m) {
+export const opBind = function (m) {
   return function (k) {
     return { tag: BIND, m: m, k: k };
   };
 };
 
-export const instrAsk = ASK_NODE;
+export const opAsk = ASK_NODE;
 
-export const instrFail = function (v) {
+export const opFail = function (v) {
   return { tag: FAIL, value: v };
 };
 
@@ -43,7 +43,7 @@ export const instrFail = function (v) {
 // Depends on Data.Variant's runtime shape: VariantRep is
 // `{ type: String, value: a }`. See variant-8.0.0/src/Data/
 // Variant/Internal.purs (`VariantRep`).
-export const _instrCatchTag = function (label) {
+export const _opCatchTag = function (label) {
   return function (handler) {
     return function (m) {
       return { tag: CATCH, label: label, handler: handler, m: m };
@@ -51,26 +51,26 @@ export const _instrCatchTag = function (label) {
   };
 };
 
-// instrLocal: run `inner` with the env transformed by `modify`.
-export const _instrLocal = function (modify) {
+// opLocal: run `inner` with the env transformed by `modify`.
+export const _opLocal = function (modify) {
   return function (inner) {
     return { tag: LOCAL, modify: modify, inner: inner };
   };
 };
 
-// instrAsync: suspend the interpreter to run an Aff. The Aff's
-// value becomes the result of this instruction. Aff exceptions
+// opAsync: suspend the interpreter to run an Aff. The Aff's
+// value becomes the result of this operation. Aff exceptions
 // propagate up through the driving loop in PureScript.
 //
 // Note: this is the bridge that makes the spike useful for real
 // programs. liftAff / liftEffect on top of Aff and async work
 // (fork, timeouts, network IO) all flow through here.
-export const instrAsync = function (aff) {
+export const opAsync = function (aff) {
   return { tag: ASYNC, aff: aff };
 };
 
 // Fresh mutable interpreter state.
-export const _initInstrState = function (env) {
+export const _initOpState = function (env) {
   return function (initial) {
     return function () {
       return {
@@ -89,7 +89,7 @@ export const _initInstrState = function (env) {
   };
 };
 
-// Shared inner loop for `_stepInstr` and `_resumeAndStep`. Runs
+// Shared inner loop for `_stepOp` and `_resumeAndStep`. Runs
 // until the interpreter suspends on ASYNC, completes with a
 // value, or fails with an unhandled typed failure. Mutates
 // `state` in place; returns nothing.
@@ -183,7 +183,7 @@ const runLoop = function (state) {
           state.current = null;
           return;
         default:
-          throw new Error("Benchmarks.Instr: unknown tag " + state.current.tag);
+          throw new Error("Benchmarks.Op: unknown tag " + state.current.tag);
       }
     }
 };
@@ -193,12 +193,12 @@ const runLoop = function (state) {
 //
 // Mutates `state` in place. The caller drives the loop:
 //
-//   1. Call _stepInstr (once, to start).
+//   1. Call _stepOp (once, to start).
 //   2. If state.done, read finalRight or finalLeft.
 //   3. Otherwise, state.pendingAff is set; the caller runs it,
 //      then passes the result to _resumeAndStep, which installs
 //      the result and immediately continues the loop. Repeat.
-export const _stepInstr = function (state) {
+export const _stepOp = function (state) {
   return function () {
     runLoop(state);
   };
@@ -207,7 +207,7 @@ export const _stepInstr = function (state) {
 // Combined resume + step. Installs `value` as the next result
 // and immediately continues the inner loop. Saves one Aff bind
 // per iteration on the PureScript driver vs. calling
-// _resumeInstr and _stepInstr separately.
+// _resumeOp and _stepOp separately.
 export const _resumeAndStep = function (state) {
   return function (value) {
     return function () {
@@ -221,7 +221,7 @@ export const _resumeAndStep = function (state) {
 // Kept for backwards compat / debugging; not used by the
 // current driver, which prefers _resumeAndStep to fold one
 // extra Aff bind out of the hot path.
-export const _resumeInstr = function (state) {
+export const _resumeOp = function (state) {
   return function (value) {
     return function () {
       state.result = value;

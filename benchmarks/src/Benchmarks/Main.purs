@@ -30,22 +30,22 @@ module Benchmarks.Main
 import Prelude
 
 import Benchmarks.Harness (benchAff, benchAffWith)
-import Benchmarks.Instr
-  ( Instr
-  , asyncLoopInstr
-  , asyncSanityInstr
-  , bindChainInstr
-  , bracketLoopInstr
-  , bracketSanityInstr
-  , catchLoopInstr
-  , failCatchOnceInstr
-  , fanOutFanInInstr
-  , instrLocal
-  , instrParTraverse
-  , mixedLoopInstr
-  , refCounterLoopInstr
-  , runInstr
-  , serviceLoopInstr
+import Benchmarks.Op
+  ( Op
+  , asyncLoopOp
+  , asyncSanityOp
+  , bindChainOp
+  , bracketLoopOp
+  , bracketSanityOp
+  , catchLoopOp
+  , failCatchOnceOp
+  , fanOutFanInOp
+  , mixedLoopOp
+  , opLocal
+  , opParTraverse
+  , refCounterLoopOp
+  , runOp
+  , serviceLoopOp
   )
 import Data.Either (Either(..))
 import Benchmarks.VsAff (runVsAff)
@@ -108,10 +108,10 @@ catchLoop n = go 0 n
       (\(x :: Int) -> go (acc + x) (k - 1))
       (fail (Proxy :: Proxy "oops") (1 :: Int))
 
--- | RIO equivalent of `asyncLoopInstr`: lift `pure (acc + 1)` through
+-- | RIO equivalent of `asyncLoopOp`: lift `pure (acc + 1)` through
 -- | `Aff` once per iteration. Each `liftAff` traverses Aff's per-step
--- | machinery; the Instr spike's `asyncLoopInstr` runs the same
--- | workload through its step/resume bridge.
+-- | machinery; the Op spike's `asyncLoopOp` runs the same workload
+-- | through its step/resume bridge.
 asyncLoop :: forall r e. Int -> RIO r e Int
 asyncLoop n = go 0 n
   where
@@ -121,7 +121,7 @@ asyncLoop n = go 0 n
     x <- liftAff (pure (acc + 1))
     go x (k - 1)
 
--- | RIO counterpart of `bracketLoopInstr`: each iteration runs a
+-- | RIO counterpart of `bracketLoopOp`: each iteration runs a
 -- | full `bracket` round-trip with trivial acquire / use / release.
 bracketLoop :: forall r e. Int -> RIO r e Int
 bracketLoop n = go 0 n
@@ -132,7 +132,7 @@ bracketLoop n = go 0 n
     x <- bracket (pure (acc + 1)) (\_ -> pure unit) (\v -> pure v)
     go x (k - 1)
 
--- | RIO counterpart of `refCounterLoopInstr`: increment a shared
+-- | RIO counterpart of `refCounterLoopOp`: increment a shared
 -- | `Effect.Ref` via `liftEffect` once per iteration.
 refCounterLoop :: forall r e. Ref.Ref Int -> Int -> RIO r e Int
 refCounterLoop ref n = go n
@@ -143,7 +143,7 @@ refCounterLoop ref n = go n
     _ <- liftEffect (Ref.modify (_ + 1) ref)
     go (k - 1)
 
--- | RIO counterpart of `mixedLoopInstr`: 9 synchronous binds for
+-- | RIO counterpart of `mixedLoopOp`: 9 synchronous binds for
 -- | every `liftAff` to model a realistic ratio between in-process
 -- | work and Aff suspensions.
 mixedLoop :: forall r e. Int -> RIO r e Int
@@ -166,11 +166,11 @@ mixedLoop n = go 0 n
 
 -- | Apples-to-apples with the production
 -- | `provideAll { svc: stubService } (serviceLoop n)` workload:
--- | start with an empty env, install `svc` via `instrLocal`,
+-- | start with an empty env, install `svc` via `opLocal`,
 -- | then run the service loop that asks for it each iteration.
-providedLoopInstr :: forall e. Int -> Instr () e Int
-providedLoopInstr n =
-  instrLocal (\_ -> { svc: stubService }) (serviceLoopInstr n)
+providedLoopOp :: forall e. Int -> Op () e Int
+providedLoopOp n =
+  opLocal (\_ -> { svc: stubService }) (serviceLoopOp n)
 
 main :: Effect Unit
 main = launchAff_ do
@@ -242,21 +242,21 @@ main = launchAff_ do
 
   runVsAff
 
-  runInstrBench
+  runOpBench
 
   liftEffect (log "")
   liftEffect (log "rio-benchmarks: done.")
   liftEffect (log "")
 
--- | Spike: instruction-list-encoded mini-RIO with a hand-rolled
+-- | Spike: operation-list-encoded mini-RIO with a hand-rolled
 -- | synchronous interpreter. Compared head-to-head with the
 -- | production closure-based RIO on the same workloads.
-runInstrBench :: Aff Unit
-runInstrBench = do
+runOpBench :: Aff Unit
+runOpBench = do
   liftEffect do
     log ""
     log "================================================================"
-    log "  Instruction-list spike vs production RIO (head-to-head)"
+    log "  Operation-list spike vs production RIO (head-to-head)"
     log "================================================================"
     log ""
 
@@ -267,13 +267,13 @@ runInstrBench = do
     sampleCount = 200
 
   -- Sanity assertion: catch round-trip returns Right 2.
-  sanity <- runInstr {} failCatchOnceInstr
+  sanity <- runOp {} failCatchOnceOp
   liftEffect case sanity of
     Right 2 -> log "  catchTag sanity OK: Right 2"
     other -> log ("  catchTag SANITY FAILED: " <> show other)
 
   -- Sanity assertion: ASYNC round-trip returns Right 43.
-  asyncSanity <- runInstr {} (asyncSanityInstr :: Instr () () Int)
+  asyncSanity <- runOp {} (asyncSanityOp :: Op () () Int)
   liftEffect case asyncSanity of
     Right 43 -> log "  ASYNC sanity OK: Right 43"
     other -> log ("  ASYNC SANITY FAILED: " <> show other)
@@ -283,8 +283,8 @@ runInstrBench = do
     (void (runRIO' (bindChain bindIters)))
 
   benchAffWith sampleCount
-    "Instr bind chain (10000 binds)"
-    (void (runInstr {} (bindChainInstr bindIters)))
+    "Op bind chain (10000 binds)"
+    (void (runOp {} (bindChainOp bindIters)))
 
   benchAffWith sampleCount
     "RIO service loop (10000 ask + lookup)"
@@ -295,28 +295,28 @@ runInstrBench = do
     )
 
   benchAffWith sampleCount
-    "Instr service loop (10000 ask + lookup, env via runInstr)"
-    (void (runInstr { svc: stubService } (serviceLoopInstr serviceIters)))
+    "Op service loop (10000 ask + lookup, env via runOp)"
+    (void (runOp { svc: stubService } (serviceLoopOp serviceIters)))
 
   benchAffWith sampleCount
-    "Instr provided service loop (10000 ask + lookup, env via instrLocal)"
-    (void (runInstr {} (providedLoopInstr serviceIters)))
+    "Op provided service loop (10000 ask + lookup, env via opLocal)"
+    (void (runOp {} (providedLoopOp serviceIters)))
 
   benchAffWith sampleCount
     "RIO fail + catchTag (1 round-trip)"
     (void (runRIO' failCatchOnce))
 
   benchAffWith sampleCount
-    "Instr fail + catchTag (1 round-trip)"
-    (void (runInstr {} failCatchOnceInstr))
+    "Op fail + catchTag (1 round-trip)"
+    (void (runOp {} failCatchOnceOp))
 
   benchAffWith sampleCount
     "RIO catch loop (10000 round-trips)"
     (void (runRIO' (catchLoop catchIters)))
 
   benchAffWith sampleCount
-    "Instr catch loop (10000 round-trips)"
-    (void (runInstr {} (catchLoopInstr catchIters)))
+    "Op catch loop (10000 round-trips)"
+    (void (runOp {} (catchLoopOp catchIters)))
 
   -- Stack-safety smoke check: 1M binds in the interpreter loop
   -- must not blow the JS call stack and must complete in a
@@ -325,15 +325,15 @@ runInstrBench = do
   let stackIters = 1000000
 
   benchAffWith 10
-    "Instr bind chain (1M binds, stack safety)"
-    (void (runInstr {} (bindChainInstr stackIters)))
+    "Op bind chain (1M binds, stack safety)"
+    (void (runOp {} (bindChainOp stackIters)))
 
   benchAffWith 10
     "RIO bind chain (1M binds, stack safety)"
     (void (runRIO' (bindChain stackIters)))
 
   -- Phase 2: ASYNC bridge head-to-head. RIO's liftAff loop pays Aff
-  -- per step; Instr's instrAsync loop pays one step/resume round-trip
+  -- per step; Op's opAsync loop pays one step/resume round-trip
   -- per iteration plus Aff for the inner pure.
   let asyncIters = 10000
 
@@ -342,8 +342,8 @@ runInstrBench = do
     (void (runRIO' (asyncLoop asyncIters)))
 
   benchAffWith sampleCount
-    ("Instr instrAsync loop (" <> show asyncIters <> " iterations)")
-    (void (runInstr {} (asyncLoopInstr asyncIters)))
+    ("Op opAsync loop (" <> show asyncIters <> " iterations)")
+    (void (runOp {} (asyncLoopOp asyncIters)))
 
   -- Mixed workload: 9 sync binds per async hop. This is closer to
   -- realistic application code where most work is in-process and
@@ -355,8 +355,8 @@ runInstrBench = do
     (void (runRIO' (mixedLoop mixedIters)))
 
   benchAffWith sampleCount
-    ("Instr mixed loop (" <> show mixedIters <> " iters, 9 sync + 1 instrAsync)")
-    (void (runInstr {} (mixedLoopInstr mixedIters)))
+    ("Op mixed loop (" <> show mixedIters <> " iters, 9 sync + 1 opAsync)")
+    (void (runOp {} (mixedLoopOp mixedIters)))
 
   -- Phase 3: concurrency head-to-head. parTraverse and fan-out/fan-in.
   let
@@ -372,10 +372,10 @@ runInstrBench = do
     )
 
   benchAffWith sampleCount
-    "Instr parTraverse (32 elements, pure work)"
+    "Op parTraverse (32 elements, pure work)"
     ( void
-        ( runInstr {}
-            (instrParTraverse (\n -> pure (n + 1) :: Instr () () Int) parArr)
+        ( runOp {}
+            (opParTraverse (\n -> pure (n + 1) :: Op () () Int) parArr)
         )
     )
 
@@ -389,8 +389,8 @@ runInstrBench = do
     )
 
   benchAffWith sampleCount
-    "Instr fan-out/fan-in (instrForkFiber x16 + join)"
-    (void (runInstr {} (fanOutFanInInstr fanArr)))
+    "Op fan-out/fan-in (opForkFiber x16 + join)"
+    (void (runOp {} (fanOutFanInOp fanArr)))
 
   -- Phase 4: bracket and Ref head-to-head.
   --
@@ -399,8 +399,8 @@ runInstrBench = do
   -- to 2. Bracket returns the use's result (1). Final counter
   -- read is 2.
   bracketCounter <- liftEffect (Ref.new 0)
-  bracketResult <- runInstr {}
-    (bracketSanityInstr bracketCounter :: Instr () () Int)
+  bracketResult <- runOp {}
+    (bracketSanityOp bracketCounter :: Op () () Int)
   finalCounter <- liftEffect (Ref.read bracketCounter)
   liftEffect case bracketResult, finalCounter of
     Right 1, 2 -> log "  bracket sanity OK: result=1, counter=2"
@@ -420,8 +420,8 @@ runInstrBench = do
     (void (runRIO' (bracketLoop bracketIters)))
 
   benchAffWith sampleCount
-    ("Instr bracket loop (" <> show bracketIters <> " round-trips)")
-    (void (runInstr {} (bracketLoopInstr bracketIters)))
+    ("Op bracket loop (" <> show bracketIters <> " round-trips)")
+    (void (runOp {} (bracketLoopOp bracketIters)))
 
   -- Ref counter loop: mutable state via liftEffect, no new
   -- spike machinery (just SYNC under the hood).
@@ -435,17 +435,17 @@ runInstrBench = do
     )
 
   benchAffWith sampleCount
-    ("Instr Ref counter loop (" <> show refIters <> " modifies)")
+    ("Op Ref counter loop (" <> show refIters <> " modifies)")
     ( void do
         ref <- liftEffect (Ref.new 0)
-        runInstr {} (refCounterLoopInstr ref refIters)
+        runOp {} (refCounterLoopOp ref refIters)
     )
 
   liftEffect do
     log ""
-    log "Reading the table: the Instr rows are the spike interpreter"
+    log "Reading the table: the Op rows are the spike interpreter"
     log "running the same workload shape. A smaller mean means the"
-    log "instruction-list encoding is faster on that workload; a"
+    log "operation-list encoding is faster on that workload; a"
     log "comparable or larger mean means the spike is not worth the"
     log "rewrite cost."
     log ""

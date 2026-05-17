@@ -56,11 +56,11 @@ import Type.Proxy (Proxy)
 
 import RIO.Internal
   ( RIO(..)
-  , instrCatchAll
-  , instrCatchTag
-  , instrFail
   , matchTypedFailure
   , mkRIO
+  , opCatchAll
+  , opCatchTag
+  , opFail
   , rioFail
   , unsafeUnRIO
   )
@@ -137,7 +137,7 @@ fail
   => Proxy sym
   -> a
   -> RIO r e b
-fail sym v = RIO (instrFail (Variant.inj sym v))
+fail sym v = RIO (opFail (Variant.inj sym v))
 
 -- | Fail with an already-constructed `Variant`.
 -- |
@@ -150,7 +150,7 @@ fail sym v = RIO (instrFail (Variant.inj sym v))
 -- | catchAll (\v -> if shouldHandle v then pure fallback else rethrow v) program
 -- | ```
 rethrow :: forall r e a. Variant e -> RIO r e a
-rethrow v = RIO (instrFail v)
+rethrow v = RIO (opFail v)
 
 -- | Catch one tagged failure and remove it from the error row.
 -- |
@@ -180,7 +180,7 @@ catchTag
   -> RIO r e' b
 catchTag sym handler (RIO innerI) =
   RIO
-    ( instrCatchTag
+    ( opCatchTag
         (reflectSymbol sym)
         (\payload -> case handler payload of RIO i -> i)
         innerI
@@ -209,7 +209,7 @@ catchAll
   -> RIO r e' a
 catchAll handler (RIO innerI) =
   RIO
-    ( instrCatchAll
+    ( opCatchAll
         (\v -> case handler v of RIO i -> i)
         innerI
     )
@@ -238,7 +238,7 @@ mapError
   -> RIO r e a
   -> RIO r e' a
 mapError f (RIO innerI) =
-  RIO (instrCatchAll (\v -> instrFail (f v)) innerI)
+  RIO (opCatchAll (\v -> opFail (f v)) innerI)
 
 -- | Raise an `Aff` exception as a defect.
 -- |
