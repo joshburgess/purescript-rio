@@ -129,11 +129,36 @@ instance for the "tag missing from row" case (its message reads
 but the `Prim.Row.Cons` constraint on `catchTag`'s signature
 (needed for the residual-row calculation and for `Variant.on`
 inside the body) fires its row-mismatch error first at the use
-site and shadows the friendlier Fail. A future restructure that
-hides `Row.Cons` entirely behind a class-method dispatch (with
-careful funcdep coverage so the constraint solver doesn't see
-both failures in parallel) could let the friendly message win.
-For now the residual jargon is acceptable.
+site and shadows the friendlier Fail.
+
+We investigated two restructures that could in principle let the
+friendly Fail win:
+
+1. **Fold `Row.Cons` into the `CatchableErrorTag` instance head.**
+   The user-facing signature shrinks to one constraint, but the
+   compiler still reports the `Prim.Row.Cons` mismatch from
+   inside that head before reaching the row-list walk's `Fail`.
+   No change to the user-visible error.
+
+2. **Replace `Row.Cons` with a custom row-list walk that removes
+   the tag and rebuilds the residual row via `FromRowList`.**
+   This avoids the "subtract a missing label" mode of `Row.Cons`
+   entirely, and the friendly `Fail` does win for closed rows.
+   But the rebuild requires `Prim.RowList.RowToList`, which is
+   only defined for closed rows. Real `catchTag` call sites work
+   on programs with open error rows (e.g. `RIO r (database ::
+   DatabaseError | s) a` from `failWith`), so this approach
+   regresses the happy path with "No type class instance was
+   found for `RowToList`".
+
+The fundamental issue is that `Prim.Row.Cons` is symmetric and
+its mismatch error fires eagerly, while open-row support requires
+the symmetric subtraction direction it provides. No restructure
+within today's PureScript type system has let us suppress the
+mismatch without losing open-row support. We leave the residual
+jargon in place pending either an upstream improvement to
+`Prim.Row.Cons` error reporting or a fundamentally different
+encoding of typed-error rows.
 
 ## Case 05: `mapError` followed by `runRIO'` with a non-empty residual row
 
@@ -196,4 +221,6 @@ remains ACCEPTABLE-NOISY: the row-list walk does carry a
 custom Fail for the missing-tag case, but the parallel
 `Prim.Row.Cons` constraint that `catchTag` still needs (for the
 residual row and for `Variant.on`'s dispatch) fires its
-row-mismatch first at the use site.
+row-mismatch first at the use site. The investigation under
+case 04 above documents two restructures we tried and why
+each was a dead end.

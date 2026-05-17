@@ -27,7 +27,9 @@ Confirmed in `src/RIO/` as of the last review:
 - Clock + `TestClock`, Random + `TestRandom`, Config
 - Spec integration helpers
 - Adapters: `rio-http`, `rio-otel`, `rio-postgres` (with Notify,
-  prepared statements, pool stats, migrate, json)
+  prepared statements, pool stats, migrate, json), `rio-node`
+  (Buffer, ChildProcess, EventEmitter, FileSystem, HTTP, HTTP2,
+  Net, OS, Path, Process, ReadLine, Shutdown, Stream, URL)
 - Examples: `logger`, `notify`, `otel-demo`, `todo-api`,
   `worker-pool` (fan-out + Semaphore + Schedule retry + Metrics +
   Tracer), `stream-pipeline` (mergeAll + broadcast),
@@ -159,31 +161,34 @@ on the core demonstration.
   row-mismatch because the constraint required for the
   residual-row calculation fires its error first at the use
   site, shadowing the custom Fail attached to `FindErrorTag`'s
-  `Nil` instance. A future restructure that hides `Row.Cons`
-  entirely behind a class-method dispatch (with careful funcdep
-  coverage so the solver sees only one failure at the use site)
-  could let the friendly message win. Tracked in
-  `compile-fail/FINDINGS.md`.
-- **`rio-node` integration package.** A typed wrapper around the
-  Node-specific subset of standard library effects (file system,
-  child processes, OS signals) that today are reached via
-  `liftAff` against raw `node-*` packages. Equivalent in scope to
-  the Effect-TS `@effect/platform-node` adapter.
+  `Nil` instance. Two restructures were investigated and ruled
+  out: folding `Row.Cons` inside the `CatchableErrorTag` instance
+  head (the mismatch still wins) and replacing `Row.Cons` with a
+  row-list walk plus `FromRowList` rebuild (regresses open-row
+  call sites because `RowToList` is closed-only). Pending an
+  upstream change to `Prim.Row.Cons` error reporting or a
+  different encoding of typed-error rows, the residual jargon
+  stays. Tracked in `compile-fail/FINDINGS.md`.
 - **`rio-aws` integration package.** A typed wrapper around the
   AWS SDK v3 client surface, exposing services (S3, SQS,
   DynamoDB, etc.) as RIO service rows with `Cause`-aware error
   variants. Equivalent in scope to early ZIO AWS or
-  `@effect/aws-client`.
+  `@effect/aws-client`. Deferred to its own scope: the surface
+  is large (one service row per client) and the work is
+  additive rather than core demonstration material.
 ## Recommended priority order
 
 With `RIO.Sink` shipped (primitives, short-circuiting sinks,
 combinators, `zipPar`, `runSink`) and `RIO.Config.Rotating`
 covering the refreshable-cell story, every named gap in the
-core surface is closed. What remains is the items above plus
-the design call on a full `Channel` algebra, intentionally
+core surface is closed. `rio-node` has also landed (Buffer,
+ChildProcess, EventEmitter, FileSystem, HTTP, HTTP2, Net, OS,
+Path, Process, ReadLine, Shutdown, Stream, URL), closing the
+Node-platform adapter gap. What remains is the items above
+plus the design call on a full `Channel` algebra, intentionally
 deferred: `Stream.mapM` / `Stream.flatMap` / `Sink.andThen`
 already cover the common transducer cases, and a Channel layer
 should be driven by a real use case the current API cannot
-express rather than by surface-area parity. The integration
-packages (`rio-node`, `rio-aws`) are scoped, additive work that
-can land any time.
+express rather than by surface-area parity. `rio-aws` is
+scoped, additive work that can land any time on its own
+schedule.

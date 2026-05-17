@@ -9,6 +9,32 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ## [Unreleased]
 
+### Removed
+
+- `INSTR_LIST_REWRITE_PLAN.md`: stale Phase 5 planning doc whose
+  scope has long since shipped.
+- `benchmarks/src/Benchmarks/Op.{purs,js}` plus the `runOpBench`
+  block in `Benchmarks.Main`: the spike-vs-production comparison
+  became a tautology after the Phase 6 `Instr` rename, since the
+  production interpreter now is the Op-encoded interpreter.
+- `bench/` empty placeholder directory.
+
+### Changed
+
+- `compile-fail/FINDINGS.md` and `FUTURE_WORK.md` now record the
+  two restructures investigated for the case-04
+  (`catchTag` missing-tag) error message and why each is a dead
+  end inside today's PureScript type system. The user-visible
+  error is unchanged; the docs reflect the analysis.
+- `FUTURE_WORK.md` lists `rio-node` under shipped adapters
+  (Buffer, ChildProcess, EventEmitter, FileSystem, HTTP, HTTP2,
+  Net, OS, Path, Process, ReadLine, Shutdown, Stream, URL) and
+  marks `rio-aws` as a deferred, additive scope on its own
+  schedule rather than open core work.
+- `CONTRIBUTING.md` Project Structure listing updated: the
+  `bench/` placeholder is gone; the live `benchmarks/`,
+  `compile-fail/`, and `rio-*/` directories are listed instead.
+
 ### Added
 
 - `Test.RIO.STM.PropertiesSpec`: property-based coverage for

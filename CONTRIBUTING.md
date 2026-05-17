@@ -33,7 +33,9 @@ spikes/<name>/               one workspace package per de-risking spike,
                              each with its own spago.yaml and FINDINGS.md
 docs/                        user-facing guide content
 examples/                    end-to-end example programs
-bench/                       benchmark suite
+benchmarks/                  benchmark suite (workspace package)
+compile-fail/                negative tests for error-message quality
+rio-*/                       adapter / integration packages
 FUTURE_WORK.md               remaining open items relative to ZIO / Effect-TS
 ```
 
