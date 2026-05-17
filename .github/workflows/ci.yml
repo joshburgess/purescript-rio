@@ -47,8 +47,33 @@ jobs:
 
       - name: Debug purs graph (rio package)
         run: |
-          echo "==== purs graph stderr capture ===="
-          npx purs graph $(npx spago sources -p rio 2>/dev/null | tr '\n' ' ') 2>&1 1>/dev/null || echo "purs graph exited $?"
+          set +e
+          echo "==== sources ===="
+          npx spago sources -p rio | tee /tmp/sources.txt | wc -l
+          echo "==== first 3 sources ===="
+          head -3 /tmp/sources.txt
+          echo "==== globstar status ===="
+          shopt globstar || true
+          echo "==== expanding a single glob (no globstar) ===="
+          ls -d .spago/p/aff-8.0.0/src/**/*.purs 2>&1 | head -5
+          echo "==== expanding a single glob (with globstar) ===="
+          shopt -s globstar
+          ls -d .spago/p/aff-8.0.0/src/**/*.purs 2>&1 | head -5
+          echo "==== running purs graph with xargs ===="
+          shopt -s globstar nullglob
+          ARGS=""
+          while IFS= read -r line; do
+            ARGS="$ARGS $line"
+          done < /tmp/sources.txt
+          echo "arg length: ${#ARGS}"
+          npx purs graph $ARGS > /tmp/graph.out 2> /tmp/graph.err
+          rc=$?
+          echo "purs graph exit: $rc"
+          echo "==== stdout (first 500 chars) ===="
+          head -c 500 /tmp/graph.out
+          echo ""
+          echo "==== stderr ===="
+          cat /tmp/graph.err
 
       - name: Test (main package)
         run: npx spago test -p rio
