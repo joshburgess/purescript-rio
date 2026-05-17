@@ -16,13 +16,16 @@ Confirmed in `src/RIO/` as of the last review:
 - Layers: `Layer rIn e rOut`, composition, `provideLayer`
 - Concurrency primitives: `Concurrency.Par`, `Deferred`, parallel
   combinators, `Fiber`-style fork via `Aff`
-- STM: `TRef`, `THub`, `TMap`, `TQueue`, `TSemaphore`, plus the
-  combinator set (`atomically`, `retry`, `check`, `orElse`,
-  `failSTM`)
+- STM: `TRef` (with a `TVar` alias for muscle memory), `THub`,
+  `TMap`, `TQueue`, `TSemaphore`, plus the combinator set
+  (`atomically`, `retry`, `check`, `orElse`, `failSTM`)
 - Async (non-STM) primitives: `RIO.Queue`, `RIO.Hub`, `RIO.Semaphore`
 - Schedule (retry / repeat) with combinator-style policy values
 - Streams: `RIO.Stream` (pull-based, with map, filter, take, drop,
-  concat, flatMap, mapM, unfoldM, repeatM, fold runners)
+  concat, flatMap, mapM, unfoldM, repeatM, fold runners);
+  `RIO.Stream.Par`; `RIO.Stream.Resource`; `RIO.Sink`;
+  `RIO.Channel` (the minimal unified producer / consumer /
+  transducer primitive that Stream and Sink specialise)
 - Cause tree: `RIO.Cause` (parallel + sequential failure trees,
   `bothPar`, `prettyCause` renderer)
 - Logger, Metrics, Tracer (with `Test.*` doubles for each)
@@ -78,13 +81,16 @@ primitives (`drain`, `head`, `last`, `count`, `collect`,
 `filterIn`, `andThen`, `zipPar`, `zipParWith`), and a
 `runSink` runner.
 
-Still open:
-
-- A full `Channel` algebra (stream-to-stream transducers as
-  first-class values). Currently deferred: `mapM` / `flatMap` /
-  `Sink.andThen` already cover the common cases. Revisit only
-  if a concrete use case shows up that this trio cannot
-  express.
+`RIO.Channel` ships a minimal pull-based `Channel r e i o d`
+primitive: `fromStream` / `fromSink` bridges, `pipe`
+(end-to-end composition), and `run` (drain a closed pipeline).
+The combinators that the larger ZIO `ZChannel` surface offers
+(broadcasters, halt-when, parallel fan-out) stay on the
+concrete `Stream` / `Sink` types where they live today. The
+threshold for promoting those combinators onto `Channel` is a
+concrete use case that the current `Stream.mapM` /
+`Stream.flatMap` / `Sink.andThen` / `Channel.pipe` set cannot
+already express.
 
 ### Cause integration
 
@@ -143,7 +149,8 @@ non-goals for the "is this real" milestone.
 - Kafka / Redis / MongoDB adapters
 - Deeper transactional STM features beyond what's already
   shipped (`atomically`, `retry`, `check`, `orElse`, `failSTM`),
-  e.g. nested transactions or `TVar` distinct from `TRef`
+  e.g. nested transactions. (`TVar` ships as an alias for `TRef`
+  for muscle memory; there is no separate distinct type.)
 - A custom runtime / fiber supervisor beyond what `Aff` provides
 - A web framework on top of `rio-http` (HTTPurple is enough for the
   examples)

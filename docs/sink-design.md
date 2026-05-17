@@ -14,7 +14,10 @@ The headline decisions:
 - `zipPar` is single-fiber and pulls each input once. The
   per-fiber, per-consumer-queue variant is
   `RIO.Stream.Par.broadcast`.
-- No full `Channel` algebra; no push-based variant.
+- No push-based variant. `RIO.Channel` ships the minimal
+  unified producer / consumer / transducer primitive
+  (see below); the larger ZIO Channel surface stays out of
+  scope.
 - No `Sink.fromQueue` / `Sink.fromHub` family yet.
 
 The rest of this note explains each call.
@@ -86,7 +89,7 @@ final value is remembered and only the other side continues to
 see inputs; both `finish` actions run on stream exhaustion and
 their results are tupled.
 
-## Why no full `Channel` algebra
+## What `RIO.Channel` ships, and what stays in `Sink`
 
 ZIO's `Channel` unifies streams, sinks, and pipes into one
 six-parameter algebra. The unification has clear theoretical
@@ -95,19 +98,24 @@ combinator is a Channel composition, and the Sink / Stream
 distinction becomes a row-of-types convention rather than two
 separate datatypes.
 
-It pays for that with surface area that's hard for a casual
-reader to inspect. The user-facing type signatures grow six
-type parameters wide. The combinator names overlap with both
-Stream and Sink. The fusion story is a separate body of work
-on top.
+`RIO.Channel` ships a deliberately minimal version of that
+unification: `Channel r e i o d` plus `fromStream` /
+`fromSink` bridges, `pipe` (`>>>`-style end-to-end
+composition), and `run` (drains a closed pipeline). That's
+enough to express stream-to-stream transducers as first-class
+values without committing the whole library to the larger
+ZIO surface.
 
-`RIO.Sink` covers the real terminating-consumer cases without
-the Channel framing. The transducer cases that *would* require
-Channel (a stream-to-stream component with both consumer and
-producer behavior) are already covered by `Stream.mapM`,
-`Stream.flatMap`, and `Sink.andThen` for the common patterns.
-The threshold for revisiting Channel is a concrete use case
-that this trio cannot express, not "ZIO has it."
+The combinators that the larger ZIO Channel surface offers
+(broadcasters, halt-when, resource-safe finalisation,
+multi-source fan-out) stay on the concrete `Stream` / `Sink`
+types where they live today. `RIO.Sink` covers the
+terminating-consumer cases; `RIO.Stream.Par` covers the
+fan-in / fan-out / broadcast cases; `Stream.mapM`,
+`Stream.flatMap`, and `Sink.andThen` cover the common
+transducer patterns. Reach for `RIO.Channel` only when a
+specific transducer needs both consumer-style reads and
+producer-style emits in the same value.
 
 ## Why no push-based variant
 
@@ -134,7 +142,12 @@ its own design pass rather than be retro-fitted onto this one.
   `mapInput`, and `filterIn` allocates a fresh wrapper per
   step. A real workload that shows up in a profile is the
   right driver for a fusion pass, not a speculative one.
-- Channel (see above).
+- The full ZIO `ZChannel` surface (broadcasters, halt-when,
+  resource-safe finalisation, multi-source fan-out). The
+  pieces that benefit from being expressed as a transducer
+  algebra live on the minimal `RIO.Channel` shipped today;
+  the operational combinators stay on `Stream` and `Sink`,
+  where they read more directly.
 
 ## Pointers
 

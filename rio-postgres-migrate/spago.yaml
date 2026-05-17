@@ -16,7 +16,7 @@ package:
     - tuples
     - variant
   test:
-    main: Test.Main
+    main: Test.RioPostgresMigrate.Main
     dependencies:
       - aff
       - effect

@@ -11,7 +11,61 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
-- Three new `compile-fail` cases:
+- Direct contract specs for two previously test-bare modules:
+  - `Test.RIO.WebSocketSpec` pins `RIO.WebSocket.Message`'s `Eq`,
+    `Ord`, and `Show` instances and exercises `mockWebSocket`
+    directly. The flow-level behaviour of connect / send /
+    receive / close was already covered by
+    `Test.RIO.Test.WebSocketSpec`, which exercises the
+    `RIO.Test.WebSocket` recorder.
+  - `Test.RIO.ConsoleSpec` smoke-tests the ten `RIO.Console`
+    functions (`log`, `logShow`, `warn`, `warnShow`, `error`,
+    `errorShow`, `info`, `infoShow`, `debug`, `debugShow`) by
+    round-tripping each through `runRIO'`.
+
+### Changed
+
+- Per-adapter test entry points renamed from the colliding
+  `Test.Main` to a package-namespaced module so a workspace-root
+  `spago build` no longer fails with duplicate-module errors.
+  Each adapter's `Test.Main` is now `Test.<Pkg>.Main` with a
+  matching file path:
+  - `rio-http` -> `Test.RioHttp.Main`
+  - `rio-config-file` -> `Test.RioConfigFile.Main`
+  - `rio-otel` -> `Test.RioOtel.Main`
+  - `rio-postgres` -> `Test.RioPostgres.Main`
+  - `rio-postgres-migrate` -> `Test.RioPostgresMigrate.Main`
+  - `rio-postgres-json` -> `Test.RioPostgresJson.Main`
+  - `rio-node` -> `Test.RioNode.Main`
+  The `spago.yaml` `test.main` field for each adapter is
+  updated to match. The root `rio` package keeps `Test.Main`.
+
+### Added
+
+- `RIO.STM` exports `TVar` as a type alias for `TRef`, with
+  matching `newTVar` / `readTVar` / `writeTVar` / `modifyTVar`
+  aliases. Same value, two spellings, for callers coming from
+  ZIO or Haskell `stm`.
+- Three more `compile-fail` cases extending coverage to the
+  Stream / Sink / STM / Channel surfaces:
+  - **10** `stm-op-outside-atomically`: a `readTRef` bound
+    directly inside a `RIO`-typed do-block without `atomically`
+    is rejected by naming `STM` vs `RIO` on the first two lines.
+  - **11** `sink-zipPar-input-mismatch`: two sinks zipped via
+    `Sink.zipPar` that read different input element types
+    (`Sink _ _ Int Int` vs `Sink _ _ String String`) are rejected
+    with the two element types and the `Sink` constructor named
+    directly.
+  - **12** `channel-pipe-intermediate-mismatch`: a `Channel.pipe`
+    where the upstream emits `Int` and the downstream reads
+    `String` is rejected with the two element types and the
+    `Channel` constructor named directly.
+
+  Quality grades for all three: GOOD. Tracked in
+  `compile-fail/FINDINGS.md`.
+
+- Three new `compile-fail` cases on layer composition and the
+  env row (previously released):
   - **07** `layer-andThen-row-mismatch`: vertical layer chaining
     (`>>>` / `andThen`) where the upstream's rOut doesn't match
     the downstream's rIn is rejected with both intermediate rows
@@ -26,9 +80,16 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     leftover row against the target `()` env row. Mirrors case 02
     for the error row.
 
-  Quality grades for all three: GOOD (the relevant rows appear
-  directly in the error message). Tracked in
-  `compile-fail/FINDINGS.md`.
+### Changed
+
+- `README.md`, `docs/09-stm.md`, `docs/13-streams.md`,
+  `docs/sink-design.md`, and `FUTURE_WORK.md` updated to reflect
+  the shipped state: `RIO.Channel` (minimal pull-based unified
+  primitive) is listed alongside `RIO.Stream` and `RIO.Sink`;
+  the `TVar` alias is mentioned next to `TRef`; the "open"
+  surface is narrowed to `rio-aws`, real-Postgres CI coverage,
+  custom `Fail` polish, and a property-testing harness tuned
+  for RIO.
 
 ### Fixed
 

@@ -23,7 +23,7 @@ package:
     - tuples
     - variant
   test:
-    main: Test.Main
+    main: Test.RioPostgres.Main
     dependencies:
       - aff
       - effect

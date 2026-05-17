@@ -18,6 +18,7 @@ import Test.RIO.Concurrency.ValidatePartitionSpec as ValidatePartitionSpec
 import Test.RIO.Concurrency.ZipWithParSpec as ZipWithParSpec
 import Test.RIO.ConditionalSpec as ConditionalSpec
 import Test.RIO.ConfigSpec as ConfigSpec
+import Test.RIO.ConsoleSpec as ConsoleSpec
 import Test.RIO.Config.RotatingSpec as RotatingSpec
 import Test.RIO.CacheSpec as CacheSpec
 import Test.RIO.BrandSpec as BrandSpec
@@ -134,6 +135,7 @@ import Test.RIO.TracerSpec as TracerSpec
 import Test.RIO.Tracer.OTelSpec as TracerOTelSpec
 import Test.RIO.Tracer.PropagationSpec as TracerPropagationSpec
 import Test.RIO.ValidationSpec as ValidationSpec
+import Test.RIO.WebSocketSpec as WebSocketSpec
 
 main :: Effect Unit
 main = runSpecAndExitProcess [ consoleReporter ] do
@@ -210,6 +212,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   HttpStreamSpec.spec
   TestHttpClientSpec.spec
   TestHttpServerSpec.spec
+  WebSocketSpec.spec
   TestWebSocketSpec.spec
   StreamSpec.spec
   StreamCombinatorsSpec.spec
@@ -265,3 +268,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   TestHelpersSpec.spec
   TestPropertySpec.spec
   SpecHelpersSpec.spec
+  ConsoleSpec.spec

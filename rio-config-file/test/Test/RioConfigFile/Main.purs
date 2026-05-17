@@ -1,4 +1,4 @@
-module Test.Main where
+module Test.RioConfigFile.Main where
 
 import Prelude
 
@@ -6,8 +6,10 @@ import Effect (Effect)
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
-import Test.RIO.Tracer.OTel.AdapterSpec as OTelSpec
+import Test.RIO.Config.FileSpec as FileSpec
+import Test.RIO.Config.FileIntegrationSpec as IntegrationSpec
 
 main :: Effect Unit
 main = runSpecAndExitProcess [ consoleReporter ] do
-  OTelSpec.spec
+  FileSpec.spec
+  IntegrationSpec.spec

@@ -22,7 +22,7 @@ package:
     - strings
     - tuples
   test:
-    main: Test.Main
+    main: Test.RioConfigFile.Main
     dependencies:
       - aff
       - effect

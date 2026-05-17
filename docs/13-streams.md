@@ -321,8 +321,12 @@ no per-consumer queue. Use `RIO.Stream.Par.broadcast` when each
 consumer needs its own buffered backpressure boundary; use
 `zipPar` when you want a single-pass combination on one fiber.
 
-The full design discussion, including what is intentionally not
-shipped (a Channel algebra), lives in `docs/sink-design.md`.
+The full design discussion lives in `docs/sink-design.md`.
+A minimal pull-based `RIO.Channel r e i o d` ships alongside
+`Stream` and `Sink` (with `fromStream` / `fromSink` bridges,
+`pipe`, and `run`) so stream-to-stream transducers are
+expressible as first-class values when the standard
+`Stream.mapM` / `Sink.andThen` shapes are not enough.
 
 ## Worked examples
 
@@ -354,6 +358,8 @@ shipped (a Channel algebra), lives in `docs/sink-design.md`.
   (sink primitives and `zipPar` semantics).
 - Concurrency primitives the parallel combinators build on:
   [`docs/06-concurrency.md`](./06-concurrency.md).
-- Sink design notes, including what is intentionally not
-  shipped (a Channel algebra):
+- Sink design notes:
   [`docs/sink-design.md`](./sink-design.md).
+- `RIO.Channel` source and tests:
+  [`src/RIO/Channel.purs`](../src/RIO/Channel.purs),
+  [`test/Test/RIO/ChannelSpec.purs`](../test/Test/RIO/ChannelSpec.purs).

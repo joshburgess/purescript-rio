@@ -55,6 +55,12 @@ from separate `newTRef` calls are distinct, and writes do not
 clash. `modifyTRef` is `readTRef` then `writeTRef`; pulling it
 out as a primitive is just for readability.
 
+`RIO.STM` also exports `TVar` as a type alias for `TRef`, with
+matching `newTVar` / `readTVar` / `writeTVar` / `modifyTVar`
+aliases. This is for muscle memory only: callers coming from
+ZIO or Haskell `stm` can spell the type either way, and both
+names point at the same value. There is no semantic difference.
+
 `atomically` runs one transaction:
 
 ```purescript

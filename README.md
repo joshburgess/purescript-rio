@@ -140,7 +140,8 @@ or point your `spago.yaml` at the git remote directly.
   `exponential`, `jittered`, `intersect`, `andThen`, `whileInput`)
   with runners `repeat`, `retry`, `retryOrElse` that sleep through
   `Clock` so the virtual-time test clock can drive them.
-- `RIO.STM`: software-transactional memory. `TRef`, `STM e a`,
+- `RIO.STM`: software-transactional memory. `TRef` (with a
+  `TVar` alias for `ZIO`/`Effect-TS` muscle memory), `STM e a`,
   `newTRef` / `readTRef` / `writeTRef` / `modifyTRef`, `retry` /
   `check`, `orElse`, `failSTM`, and `atomically`. Single-event-loop
   atomicity: no version checks, no spinning.
@@ -177,6 +178,14 @@ or point your `spago.yaml` at the git remote directly.
   `any`, `all`), and combinators (`mapResult`, `mapInput`,
   `filterIn`, `andThen`, `zipPar`, `zipParWith`) with a single
   `runSink` runner.
+- `RIO.Channel`: a minimal unified producer / consumer /
+  transducer shape `Channel r e i o d`. `fromStream` / `fromSink`
+  bridge into existing pipelines; `pipe` (`upstream >>>
+  downstream`) and `run` compose and execute a closed pipeline.
+  The Channel layer is the bedrock primitive in ZIO and
+  Effect-TS, exposed here so users can write stream-to-stream
+  transducers as first-class values when `Stream.mapM` /
+  `Stream.flatMap` / `Sink.andThen` are not enough.
 - `RIO.Tracer`: spans with `withSpan` and `addAttribute`. Implicit
   parent / child context via a tracer-held current-span pointer.
   `noopTracer` for production opt-out.
@@ -344,24 +353,26 @@ testing), plus the larger surface listed above. The cause tree
 `acquireReleaseCause`, and `prettyCauseWithStack`. The stream
 modules ship `RIO.Stream` (pull-based, single-channel),
 `RIO.Stream.Par` (`mergeAll` / `broadcast` / `partition`),
-`RIO.Stream.Resource` (`bracketStream`), and `RIO.Sink`
-(first-class composable consumers with `zipPar`). `RIO.STM`
-and its derived structures, `RIO.Tracer` and `RIO.Metrics`
-with an OpenTelemetry adapter (`rio-otel`), `RIO.Random`,
-`RIO.Config` with `RIO.Config.Rotating` for refreshable cells,
-`RIO.Schedule`, `RIO.Local`, `RIO.Logger`, the qualified-do
-sugar (`RIO.Resource.Do`, `RIO.Concurrency.Par`), the
-`rio-http` companion package (an HTTPurple adapter), the
+`RIO.Stream.Resource` (`bracketStream`), `RIO.Sink`
+(first-class composable consumers with `zipPar`), and
+`RIO.Channel` (the unified producer / consumer / transducer
+primitive that `Stream` and `Sink` specialise). `RIO.STM` (with
+the `TVar` alias) and its derived structures, `RIO.Tracer` and
+`RIO.Metrics` with an OpenTelemetry adapter (`rio-otel`),
+`RIO.Random`, `RIO.Config` with `RIO.Config.Rotating` for
+refreshable cells, `RIO.Schedule`, `RIO.Local`, `RIO.Logger`,
+the qualified-do sugar (`RIO.Resource.Do`, `RIO.Concurrency.Par`),
+the `rio-http` companion package (an HTTPurple adapter), the
 `rio-postgres` adapter (wraps `purescript-postgresql` /
-`node-postgres`), and the `rio-config-file` adapter
-(`dotenvFileSource`, `jsonFileSource`).
+`node-postgres`), the `rio-config-file` adapter
+(`dotenvFileSource`, `jsonFileSource`), and the `rio-node`
+platform-adapter (Buffer, ChildProcess, EventEmitter,
+FileSystem, HTTP, HTTP2, Net, OS, Path, Process, ReadLine,
+Shutdown, Stream, URL).
 
-What's open: `rio-node` / `rio-aws` integration packages, a
-full `Channel` algebra for stream-to-stream transducers (only
-if a concrete use case shows up that `mapM` / `flatMap` /
-`Sink.andThen` cannot already express; see
-[`docs/sink-design.md`](./docs/sink-design.md)), real-Postgres
-CI coverage for `rio-postgres` (currently builds against the
+What's open: a `rio-aws` integration package (scoped, additive
+work that can land on its own schedule), real-Postgres CI
+coverage for `rio-postgres` (currently builds against the
 driver but has no integration tests; Docker-backed locally is
 the intended setup), custom `Fail` instances for the worst row
 / variant error messages, and a property-testing harness tuned

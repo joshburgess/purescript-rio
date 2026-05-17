@@ -275,6 +275,77 @@ leftover row is named on the first line, the target shape on
 the third. A user reads "I never provided `logger`" and inserts
 `provide` / `provideAll` before the `runRIO'` call.
 
+## Case 10: STM operation outside `atomically`
+
+`readTRef ref` is bound directly inside a `RIO`-typed do-block,
+with no `atomically` around the transaction. The compiler reports:
+
+```
+Could not match type
+  STM
+with type
+  RIO t0
+while trying to match type STM t3
+  with type RIO t0 t1
+while checking that expression readTRef ref
+  has type RIO t0 t1 t2
+```
+
+**Quality: GOOD.** The first two lines name the two monad
+constructors directly: `STM` was produced where `RIO` was wanted.
+A user reads "I used an STM operation outside the transaction"
+and either wraps the block in `atomically` or moves the read
+inside an existing `atomically` block.
+
+## Case 11: `Sink.zipPar` joins two sinks with different input types
+
+`sumInts :: Sink _ _ Int Int`, `concatStrings :: Sink _ _ String
+String`. `zipPar sumInts concatStrings` requires both sides to read
+the same input element type. The compiler reports:
+
+```
+Could not match type
+  String
+with type
+  Int
+while trying to match type Sink t3 t4 String
+  with type Sink t0 t1 Int
+while checking that expression concatStrings
+  has type Sink t0 t1 Int t2
+```
+
+**Quality: GOOD.** The two mismatched element types appear on the
+first two lines (`String` vs `Int`) and the `Sink` constructor
+named on the surrounding lines makes the source of the constraint
+obvious. A user reads "the two sinks I'm zipping read different
+elements" and either picks two compatible sinks or inserts a
+`mapInput` adapter on one side.
+
+## Case 12: `Channel.pipe` with intermediate element-type mismatch
+
+An upstream channel emits `Int` (`fromStream (Stream.fromArray
+[1,2,3])`) and a downstream channel reads `String` (`fromSink
+(collect :: Sink _ _ String _)`). `pipe` composes them end-to-end
+and requires the upstream's output element type to unify with the
+downstream's input element type. The compiler reports:
+
+```
+Could not match type
+  String
+with type
+  Int
+while trying to match type Channel t4 t5 String
+  with type Channel t0 t1 Int
+while checking that expression downstream
+  has type Channel t0 t1 Int t2 t3
+```
+
+**Quality: GOOD.** The mismatched element types are on the first
+two lines and the `Channel` constructor is named on the third. A
+user reads "the upstream emits Int, the downstream reads String,
+no pipe" and either changes one of the sides or inserts a
+`Stream.map` / `Sink.mapInput` adapter in between.
+
 ## Patterns we have NOT yet captured
 
 These remain on the v0.2 `Fail`-polish backlog:

@@ -27,16 +27,21 @@
 module RIO.STM
   ( STM
   , TRef
+  , TVar
   , atomically
   , check
   , failSTM
   , modifyTRef
+  , modifyTVar
   , newTRef
+  , newTVar
   , orElse
   , readTRef
+  , readTVar
   , retry
   , throwSTM
   , writeTRef
+  , writeTVar
   ) where
 
 import Prelude
@@ -236,6 +241,28 @@ modifyTRef :: forall e a. TRef a -> (a -> a) -> STM e Unit
 modifyTRef ref f = do
   a <- readTRef ref
   writeTRef ref (f a)
+
+-- | `TVar` is a synonym for `TRef`, provided for ZIO / Haskell-STM
+-- | parity. The two are interchangeable; use whichever name reads
+-- | better in context.
+type TVar :: Type -> Type
+type TVar = TRef
+
+-- | `newTRef` under the `TVar` name. See `newTRef`.
+newTVar :: forall e a. a -> STM e (TVar a)
+newTVar = newTRef
+
+-- | `readTRef` under the `TVar` name. See `readTRef`.
+readTVar :: forall e a. TVar a -> STM e a
+readTVar = readTRef
+
+-- | `writeTRef` under the `TVar` name. See `writeTRef`.
+writeTVar :: forall e a. TVar a -> a -> STM e Unit
+writeTVar = writeTRef
+
+-- | `modifyTRef` under the `TVar` name. See `modifyTRef`.
+modifyTVar :: forall e a. TVar a -> (a -> a) -> STM e Unit
+modifyTVar = modifyTRef
 
 -- | Abort the current transaction attempt and re-run it once any
 -- | `TRef` the transaction read changes.

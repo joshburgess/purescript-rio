@@ -13,7 +13,7 @@ package:
     - refs
     - rio
   test:
-    main: Test.Main
+    main: Test.RioOtel.Main
     dependencies:
       - aff
       - effect

@@ -10,7 +10,7 @@
 -- | If `PG_CONNECTION_STRING` is unset the suite is skipped
 -- | (printed as a pending case) so contributors who don't have
 -- | Postgres handy can still run the rest of the workspace.
-module Test.Main where
+module Test.RioPostgres.Main where
 
 import Prelude
 
