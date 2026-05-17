@@ -39,14 +39,14 @@ module Spike.QualifiedDo.Par
   , pure
   ) where
 
-import Prelude (($), (<$>), (<*>))
+import Prelude (($), (<$>), (<*>), (>>=))
 import Prelude (pure) as P
 
 import Control.Parallel (parallel, sequential)
 import Data.Either (Either(..))
 import Data.Functor (map) as F
 
-import RIO.Internal (RIO(..), unRIO)
+import RIO.Internal (RIO, mkRIO, rioFail, unRIO)
 
 -- | `Par.map`: the qualified-`ado` desugaring target for the
 -- | functorial step. Identical to the `Functor RIO` instance;
@@ -66,12 +66,15 @@ apply
    . RIO r e (a -> b)
   -> RIO r e a
   -> RIO r e b
-apply rf ra = RIO \r ->
+apply rf ra = mkRIO \r ->
   sequential
     ( combine
         <$> parallel (unRIO rf r)
         <*> parallel (unRIO ra r)
     )
+    >>= case _ of
+      Left v -> rioFail v
+      Right b -> P.pure b
   where
   combine :: Either _ (a -> b) -> Either _ a -> Either _ b
   combine (Left v) _ = Left v
