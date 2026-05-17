@@ -31,7 +31,7 @@ module RIO.Internal
   , matchTypedFailure
   , mkTypedFailureError
   , instrPure
-  , instrFlatMap
+  , instrBind
   , instrLiftEffect
   , instrLiftAff
   , instrLift
@@ -39,8 +39,12 @@ module RIO.Internal
   , instrAsk
   , instrFail
   , instrCatchTag
+  , instrCatchAll
   , instrLocal
   , runInstr
+  , InstrCounts
+  , dumpInstrCounts
+  , resetInstrCounts
   ) where
 
 import Prelude
@@ -76,7 +80,7 @@ foreign import data ForeignValue :: Type
 foreign import instrPure :: forall r e a. a -> Instr r e a
 foreign import instrLiftEffect :: forall r e a. Effect a -> Instr r e a
 foreign import instrLiftAff :: forall r e a. Aff a -> Instr r e a
-foreign import instrFlatMap
+foreign import instrBind
   :: forall r e a b. Instr r e a -> (a -> Instr r e b) -> Instr r e b
 foreign import instrAsk :: forall r e. Instr r e (Record r)
 foreign import instrFail :: forall r e a. Variant e -> Instr r e a
@@ -84,6 +88,15 @@ foreign import instrCatchTag
   :: forall r e e' a x
    . String
   -> (x -> Instr r e' a)
+  -> Instr r e a
+  -> Instr r e' a
+
+-- | Catch every typed failure raised inside `m` with a single handler
+-- | that receives the full `Variant e`. Mirrors the surface `catchAll`
+-- | combinator; defects (untagged Aff exceptions) keep propagating.
+foreign import instrCatchAll
+  :: forall r e e' a
+   . (Variant e -> Instr r e' a)
   -> Instr r e a
   -> Instr r e' a
 foreign import instrLocal
@@ -125,6 +138,11 @@ foreign import _finalRight :: forall r e a. InstrState r e a -> a
 foreign import _finalLeft :: forall r e a. InstrState r e a -> Variant e
 foreign import _pendingAff :: forall r e a. InstrState r e a -> Aff ForeignValue
 
+foreign import _isPureInstr :: forall r e a. Instr r e a -> Boolean
+foreign import _purePayload :: forall r e a. Instr r e a -> a
+foreign import _isSyncInstr :: forall r e a. Instr r e a -> Boolean
+foreign import _syncEff :: forall r e a. Instr r e a -> Effect a
+
 -- | `RIO r e a` is a computation that, given an environment of services
 -- | in row `r`, performs `Aff` work that either fails with a tagged
 -- | error in row `e` or produces a value of type `a`.
@@ -164,9 +182,16 @@ runInstr
   -> Instr r e a
   -> Aff (Either (Variant e) a)
 runInstr env instr = do
-  state <- liftEffect (_initInstrState env instr)
-  liftEffect (_stepInstr state)
-  tailRecM step state
+  state <- liftEffect do
+    s <- _initInstrState env instr
+    _stepInstr s
+    pure s
+  if _isDone state then
+    pure
+      if _isRightFinal state then Right (_finalRight state)
+      else Left (_finalLeft state)
+  else
+    tailRecM step state
   where
   step :: InstrState r e a -> Aff (Step (InstrState r e a) (Either (Variant e) a))
   step state =
@@ -193,17 +218,28 @@ runInstr env instr = do
 -- | Use this for internal composition; reach for `unRIO` when you
 -- | need to reify the failure shape.
 unsafeUnRIO :: forall r e a. RIO r e a -> Record r -> Aff a
-unsafeUnRIO (RIO instr) r = do
-  result <- runInstr r instr
-  case result of
-    Right a -> pure a
-    Left v -> rioFail v
+unsafeUnRIO (RIO instr) r =
+  if _isPureInstr instr then
+    pure (_purePayload instr)
+  else if _isSyncInstr instr then
+    liftEffect (_syncEff instr)
+  else do
+    result <- runInstr r instr
+    case result of
+      Right a -> pure a
+      Left v -> rioFail v
 
 -- | Public boundary: peel the newtype and reify any tagged
 -- | typed-failure exception back to `Left (Variant e)`. Defects
 -- | (untagged `Aff` exceptions) keep propagating.
 unRIO :: forall r e a. RIO r e a -> Record r -> Aff (Either (Variant e) a)
-unRIO (RIO instr) r = runInstr r instr
+unRIO (RIO instr) r =
+  if _isPureInstr instr then
+    pure (Right (_purePayload instr))
+  else if _isSyncInstr instr then
+    liftEffect (Right <$> _syncEff instr)
+  else
+    runInstr r instr
 
 -- | Raise a typed failure through `Aff`'s error channel. The thrown
 -- | exception carries the `Variant` payload on a marker property so
@@ -235,23 +271,52 @@ foreign import _matchTypedFailure
   -> Error
   -> r
 
+-- | Per-instruction-tag dispatch counts. Populated only when the
+-- | interpreter is built with `RIO_INSTR_PROFILE=1` in the
+-- | environment at module load time; otherwise all fields read zero.
+type InstrCounts =
+  { "PURE" :: Int
+  , "SYNC" :: Int
+  , "BIND" :: Int
+  , "ASK" :: Int
+  , "FAIL" :: Int
+  , "CATCH" :: Int
+  , "LOCAL" :: Int
+  , "ASYNC" :: Int
+  , "LIFT" :: Int
+  , "SYNC_LIFT" :: Int
+  , "CATCH_ALL" :: Int
+  }
+
+foreign import _dumpInstrCounts :: Effect InstrCounts
+foreign import _resetInstrCounts :: Effect Unit
+
+-- | Snapshot the per-tag dispatch counters. Reads zeros unless the
+-- | profiling build of the interpreter is in effect.
+dumpInstrCounts :: Effect InstrCounts
+dumpInstrCounts = _dumpInstrCounts
+
+-- | Zero the per-tag dispatch counters in place.
+resetInstrCounts :: Effect Unit
+resetInstrCounts = _resetInstrCounts
+
 instance functorRIO :: Functor (RIO r e) where
-  map f (RIO m) = RIO (instrFlatMap m \a -> instrPure (f a))
+  map f (RIO m) = RIO (instrBind m \a -> instrPure (f a))
 
 instance applyRIO :: Apply (RIO r e) where
   apply (RIO f) (RIO x) =
-    RIO (instrFlatMap f \fn -> instrFlatMap x \v -> instrPure (fn v))
+    RIO (instrBind f \fn -> instrBind x \v -> instrPure (fn v))
 
 instance applicativeRIO :: Applicative (RIO r e) where
   pure a = RIO (instrPure a)
 
--- | `bind` is a single FLATMAP instruction in the interpreter; the
+-- | `bind` is a single BIND instruction in the interpreter; the
 -- | continuation runs without leaving the FFI loop unless it hits
 -- | an async / lift node. The `case ... of RIO i -> i` destructure
 -- | is the same trick the closure encoding used: the newtype unwrap
 -- | compiles to a no-op.
 instance bindRIO :: Bind (RIO r e) where
-  bind (RIO m) k = RIO (instrFlatMap m \a -> case k a of RIO i -> i)
+  bind (RIO m) k = RIO (instrBind m \a -> case k a of RIO i -> i)
 
 instance monadRIO :: Monad (RIO r e)
 

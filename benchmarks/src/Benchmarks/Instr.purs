@@ -17,7 +17,7 @@ module Benchmarks.Instr
   ( Instr
   , runInstr
   , instrPure
-  , instrFlatMap
+  , instrBind
   , instrAsk
   , instrLiftEffect
   , instrLiftAff
@@ -78,7 +78,7 @@ foreign import instrPure :: forall r e a. a -> Instr r e a
 
 foreign import instrLiftEffect :: forall r e a. Effect a -> Instr r e a
 
-foreign import instrFlatMap
+foreign import instrBind
   :: forall r e a b
    . Instr r e a
   -> (a -> Instr r e b)
@@ -154,16 +154,16 @@ runInstr env instr = do
       drive state
 
 instance functorInstr :: Functor (Instr r e) where
-  map f i = instrFlatMap i (\a -> instrPure (f a))
+  map f i = instrBind i (\a -> instrPure (f a))
 
 instance applyInstr :: Apply (Instr r e) where
-  apply f x = instrFlatMap f \fn -> instrFlatMap x \v -> instrPure (fn v)
+  apply f x = instrBind f \fn -> instrBind x \v -> instrPure (fn v)
 
 instance applicativeInstr :: Applicative (Instr r e) where
   pure = instrPure
 
 instance bindInstr :: Bind (Instr r e) where
-  bind = instrFlatMap
+  bind = instrBind
 
 instance monadInstr :: Monad (Instr r e)
 
@@ -219,7 +219,7 @@ bindChainInstr n = go 0 n
   where
   go :: Int -> Int -> Instr r e Int
   go acc 0 = instrPure acc
-  go acc k = instrFlatMap (instrPure (acc + 1)) \x -> go x (k - 1)
+  go acc k = instrBind (instrPure (acc + 1)) \x -> go x (k - 1)
 
 -- | A service-loop workload that exercises the `Ask` instruction
 -- | per iteration. Mirrors `serviceLoop` from the production
@@ -232,7 +232,7 @@ serviceLoopInstr n = go 0 n
   where
   go :: Int -> Int -> Instr (svc :: { lookup :: Int -> Int } | r') e Int
   go acc 0 = instrPure acc
-  go acc k = instrFlatMap instrAsk \env ->
+  go acc k = instrBind instrAsk \env ->
     let _ = Proxy :: Proxy "svc"
     in go (env.svc.lookup acc) (k - 1)
 
@@ -262,7 +262,7 @@ catchLoopInstr n = go 0 n
 -- | so the final answer is `Right 43`.
 asyncSanityInstr :: forall r e. Instr r e Int
 asyncSanityInstr =
-  instrFlatMap (instrAsync (pure 42)) \n -> instrPure (n + 1)
+  instrBind (instrAsync (pure 42)) \n -> instrPure (n + 1)
 
 -- | A loop that suspends on `ASYNC` once per iteration. The inner
 -- | `Aff` is just `pure (acc + 1)` so the only async cost is the
@@ -274,7 +274,7 @@ asyncLoopInstr n = go 0 n
   where
   go :: Int -> Int -> Instr r e Int
   go acc 0 = instrPure acc
-  go acc k = instrFlatMap (instrAsync (pure (acc + 1))) \x -> go x (k - 1)
+  go acc k = instrBind (instrAsync (pure (acc + 1))) \x -> go x (k - 1)
 
 -- | A more realistic workload: 9 synchronous binds between each
 -- | `ASYNC` suspension. The synchronous portion runs entirely inside
@@ -288,16 +288,16 @@ mixedLoopInstr n = go 0 n
   go :: Int -> Int -> Instr r e Int
   go acc 0 = instrPure acc
   go acc k =
-    instrFlatMap (instrPure (acc + 1)) \a1 ->
-      instrFlatMap (instrPure (a1 + 1)) \a2 ->
-        instrFlatMap (instrPure (a2 + 1)) \a3 ->
-          instrFlatMap (instrPure (a3 + 1)) \a4 ->
-            instrFlatMap (instrPure (a4 + 1)) \a5 ->
-              instrFlatMap (instrPure (a5 + 1)) \a6 ->
-                instrFlatMap (instrPure (a6 + 1)) \a7 ->
-                  instrFlatMap (instrPure (a7 + 1)) \a8 ->
-                    instrFlatMap (instrPure (a8 + 1)) \a9 ->
-                      instrFlatMap (instrAsync (pure (a9 + 1))) \a10 ->
+    instrBind (instrPure (acc + 1)) \a1 ->
+      instrBind (instrPure (a1 + 1)) \a2 ->
+        instrBind (instrPure (a2 + 1)) \a3 ->
+          instrBind (instrPure (a3 + 1)) \a4 ->
+            instrBind (instrPure (a4 + 1)) \a5 ->
+              instrBind (instrPure (a5 + 1)) \a6 ->
+                instrBind (instrPure (a6 + 1)) \a7 ->
+                  instrBind (instrPure (a7 + 1)) \a8 ->
+                    instrBind (instrPure (a8 + 1)) \a9 ->
+                      instrBind (instrAsync (pure (a9 + 1))) \a10 ->
                         go a10 (k - 1)
 
 -- | Spike-side fiber handle. Wraps the underlying `Aff` fiber that
@@ -317,7 +317,7 @@ instrForkFiber
   :: forall r e e' a
    . Instr r e a
   -> Instr r e' (InstrFiber e a)
-instrForkFiber inner = instrFlatMap instrAsk \env ->
+instrForkFiber inner = instrBind instrAsk \env ->
   instrAsync do
     fib <- Aff.forkAff (runInstr env inner)
     pure (InstrFiber fib)
@@ -327,7 +327,7 @@ instrForkFiber inner = instrFlatMap instrAsk \env ->
 -- | a successful result is the value of `instrJoinFiber`.
 instrJoinFiber :: forall r e a. InstrFiber e a -> Instr r e a
 instrJoinFiber (InstrFiber fib) =
-  instrFlatMap (instrAsync (Aff.joinFiber fib)) case _ of
+  instrBind (instrAsync (Aff.joinFiber fib)) case _ of
     Right a -> instrPure a
     Left v -> instrFail v
 
@@ -341,11 +341,11 @@ instrParTraverse
    . (a -> Instr r e b)
   -> Array a
   -> Instr r e (Array b)
-instrParTraverse f arr = instrFlatMap instrAsk \env ->
+instrParTraverse f arr = instrBind instrAsk \env ->
   let
     runOne x = Aff.parallel (runInstr env (f x))
   in
-    instrFlatMap
+    instrBind
       (instrAsync (Aff.sequential (traverse runOne arr)))
       \results -> case sequence results of
         Right xs -> instrPure xs
@@ -357,7 +357,7 @@ instrParTraverse f arr = instrFlatMap instrAsk \env ->
 -- | in input order.
 fanOutFanInInstr :: forall r e. Array Int -> Instr r e (Array Int)
 fanOutFanInInstr arr =
-  instrFlatMap (traverse (\n -> instrForkFiber (instrPure (n + 1))) arr) \fibs ->
+  instrBind (traverse (\n -> instrForkFiber (instrPure (n + 1))) arr) \fibs ->
     traverse instrJoinFiber fibs
 
 -- | Acquire / use / release with guaranteed cleanup. Mirrors
@@ -381,7 +381,7 @@ instrBracket
   -> (a -> Instr r e Unit)
   -> (a -> Instr r e b)
   -> Instr r e b
-instrBracket acquire release use = instrFlatMap instrAsk \env ->
+instrBracket acquire release use = instrBind instrAsk \env ->
   let
     runOne :: forall x. Instr r e x -> Aff (Either (Variant e) x)
     runOne = runInstr env
@@ -398,7 +398,7 @@ instrBracket acquire release use = instrFlatMap instrAsk \env ->
           Left v -> pure (Left v)
       )
   in
-    instrFlatMap (instrAsync body) case _ of
+    instrBind (instrAsync body) case _ of
       Right b -> instrPure b
       Left v -> instrFail v
 
@@ -427,7 +427,7 @@ bracketLoopInstr n = go 0 n
   go :: Int -> Int -> Instr r e Int
   go acc 0 = instrPure acc
   go acc k =
-    instrFlatMap
+    instrBind
       ( instrBracket
           (instrPure (acc + 1))
           (\_ -> instrPure unit)
@@ -447,5 +447,5 @@ refCounterLoopInstr ref n = go 0 n
   go :: Int -> Int -> Instr r e Int
   go acc 0 = instrPure acc
   go _ k =
-    instrFlatMap (instrLiftEffect (Ref.modify (_ + 1) ref)) \x ->
+    instrBind (instrLiftEffect (Ref.modify (_ + 1) ref)) \x ->
       go x (k - 1)

@@ -4,7 +4,7 @@
 // dispatch switch to a jump table.
 const PURE = 0;
 const SYNC = 1;
-const FLATMAP = 2;
+const BIND = 2;
 const ASK = 3;
 const FAIL = 4;
 const CATCH = 5;
@@ -23,9 +23,9 @@ export const instrLiftEffect = function (eff) {
   return { tag: SYNC, eff: eff };
 };
 
-export const instrFlatMap = function (m) {
+export const instrBind = function (m) {
   return function (k) {
-    return { tag: FLATMAP, m: m, k: k };
+    return { tag: BIND, m: m, k: k };
   };
 };
 
@@ -127,7 +127,7 @@ const runLoop = function (state) {
           state.result = state.current.eff();
           state.current = null;
           break;
-        case 2: // FLATMAP
+        case 2: // BIND
           state.stack.push(state.current.k);
           state.current = state.current.m;
           break;

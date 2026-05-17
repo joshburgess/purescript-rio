@@ -21,9 +21,13 @@ module RIO.Concurrency
   , filterPar
   , forever
   , fork
+  , forkAll
+  , forkAllUntracked
   , forkScoped
+  , forkUntracked
   , interrupt
   , join
+  , joinAll
   , joinAllPar
   , mkFiber
   , never
@@ -72,11 +76,12 @@ import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import Prim.Row (class Cons) as Row
 import Type.Proxy (Proxy)
+import Unsafe.Coerce (unsafeCoerce)
 
 import RIO.Cause (Cause(..), combineParallel) as Cause
 import RIO.Exit (Exit(..), die, fromEither) as Exit
 import RIO.Exit (Exit(..))
-import RIO.Internal (RIO(..), mkEffectRIO, mkRIO, mkTypedFailureError, rioFail, unRIO, unsafeUnRIO)
+import RIO.Internal (RIO(..), matchTypedFailure, mkEffectRIO, mkRIO, mkTypedFailureError, rioFail, unRIO, unsafeUnRIO)
 import RIO.Resource (Scope, addFinalizer)
 
 -- | A stable identity for a forked fiber.
@@ -213,9 +218,90 @@ mkFiber body = do
 -- |   pure result
 -- | ```
 fork :: forall r e e' a. RIO r e a -> RIO r e' (Fiber e a)
-fork inner = mkRIO \r -> do
-  fib <- mkFiber (unRIO inner r)
-  pure fib
+fork inner = mkRIO \r -> mkFiber (unRIO inner r)
+
+-- | Fork an array of `RIO` computations into fresh fibers in a single
+-- | pass. Semantically equivalent to `traverse fork`, but each fork
+-- | is registered inside one shared interpreter-to-`Aff` excursion
+-- | rather than one per element. On hot fan-out paths this removes
+-- | the per-element interpreter↔`Aff` context switch and is
+-- | noticeably faster for arrays of more than a handful of children.
+-- |
+-- | Reach for `forkAll` instead of `traverse fork` whenever you have
+-- | the full child list up front and don't need to interleave other
+-- | `RIO` work between the forks.
+-- |
+-- | ```purescript
+-- | program = do
+-- |   fibs <- forkAll workers
+-- |   results <- traverse join fibs
+-- |   pure results
+-- | ```
+forkAll
+  :: forall r e e' a
+   . Array (RIO r e a)
+  -> RIO r e' (Array (Fiber e a))
+forkAll inners = mkRIO \r -> traverse (\inner -> mkFiber (unRIO inner r)) inners
+
+-- | Shared sentinel state Ref used by `forkUntracked` /
+-- | `forkAllUntracked` so untracked fibers don't pay the per-fork
+-- | `Ref.new Nothing` cost. The Ref is never written to; reads
+-- | always return `Nothing`. `poll` on an untracked fiber therefore
+-- | always returns `Nothing`. The `unsafeCoerce` is safe because
+-- | the Ref's content is monomorphic at `Nothing` and never changes
+-- | type or value.
+untrackedSentinel :: forall e a. Ref (Maybe (Exit e a))
+untrackedSentinel = unsafeCoerce
+  (unsafePerformEffect (Ref.new (Nothing :: Maybe (Exit () Unit))))
+
+-- | Fork an `RIO` computation into a new fiber, skipping the
+-- | `trackOutcome` / state-Ref machinery that powers `poll`. The
+-- | returned `Fiber` supports `join`, `await`, `awaitAll`,
+-- | `interrupt`, and `fiberId`; only `poll` is affected (it always
+-- | returns `Nothing`).
+-- |
+-- | Use this on hot fan-out paths where you know in advance that
+-- | every child fiber will be `join`ed or `await`ed and you don't
+-- | need a non-blocking completion check. Drops the
+-- | `Aff.generalBracket` frame around every fiber's body, which is
+-- | the dominant remaining per-fork cost vs raw `Aff.forkAff`.
+-- |
+-- | ```purescript
+-- | program = do
+-- |   fibs <- forkAllUntracked workers
+-- |   results <- joinAll fibs
+-- |   pure results
+-- | ```
+forkUntracked :: forall r e e' a. RIO r e a -> RIO r e' (Fiber e a)
+forkUntracked inner = mkRIO \r -> do
+  fid <- liftEffect freshFiberId
+  underlying <- Aff.forkAff (unRIO inner r)
+  pure (Fiber { id: fid, underlying, state: untrackedSentinel })
+
+-- | Batch variant of `forkUntracked`. Fork an array of `RIO`
+-- | computations in a single interpreter-to-`Aff` excursion,
+-- | skipping `trackOutcome` for every child. Combines the wins of
+-- | `forkAll` (one interpreter↔`Aff` switch for all forks) and
+-- | `forkUntracked` (no `generalBracket` per fiber).
+-- |
+-- | ```purescript
+-- | program = do
+-- |   fibs <- forkAllUntracked workers
+-- |   results <- joinAll fibs
+-- |   pure results
+-- | ```
+forkAllUntracked
+  :: forall r e e' a
+   . Array (RIO r e a)
+  -> RIO r e' (Array (Fiber e a))
+forkAllUntracked inners = mkRIO \r ->
+  let
+    mkOne inner = do
+      fid <- liftEffect freshFiberId
+      underlying <- Aff.forkAff (unRIO inner r)
+      pure (Fiber { id: fid, underlying, state: untrackedSentinel })
+  in
+    traverse mkOne inners
 
 -- | Fork an `RIO` computation into a new fiber whose lifetime is
 -- | bounded by the given `Scope`. When the scope exits (success,
@@ -266,6 +352,35 @@ join (Fiber f) = mkRIO \_ -> do
   case outcome of
     Right a -> pure a
     Left v -> rioFail v
+
+-- | Join every fiber in the array, collecting their results in
+-- | input order. Semantically equivalent to `traverse join`, but
+-- | every join happens inside a single interpreter-to-`Aff`
+-- | excursion rather than one per element.
+-- |
+-- | Failure semantics match `join`: the first typed failure
+-- | observed (in traversal order) is surfaced on the parent's row,
+-- | aborting the rest of the join sequence. Defects propagate as
+-- | `Aff` defects.
+-- |
+-- | The natural companion to `forkAll` / `forkAllUntracked` on hot
+-- | fan-out paths; for cause-aware joining that captures every
+-- | failure instead of short-circuiting, use `joinAllPar`.
+-- |
+-- | ```purescript
+-- | program = do
+-- |   fibs <- forkAll workers
+-- |   results <- joinAll fibs
+-- |   pure results
+-- | ```
+joinAll :: forall r e a. Array (Fiber e a) -> RIO r e (Array a)
+joinAll fibs = mkRIO \_ -> traverse joinOne fibs
+  where
+  joinOne (Fiber f) = do
+    outcome <- Aff.joinFiber f.underlying
+    case outcome of
+      Right a -> pure a
+      Left v -> rioFail v
 
 -- | Interrupt a running fiber.
 -- |
@@ -354,17 +469,17 @@ poll (Fiber f) = mkEffectRIO \_ -> Ref.read f.state
 -- | ```
 await :: forall r e e' a. Fiber e a -> RIO r e' (Exit e a)
 await (Fiber f) = mkRIO \_ -> do
-  -- attempt swallows any defect so we can read the state Ref
-  -- regardless of how the fiber ended. trackOutcome wrote to
-  -- the Ref before propagating the result, so the Just branch
-  -- is reached for every legitimate completion. The Nothing
-  -- fallback shouldn't happen in practice but is reported as a
-  -- Die rather than a hang.
-  _ <- Aff.attempt (Aff.joinFiber f.underlying)
-  s <- liftEffect (Ref.read f.state)
-  case s of
-    Just exit -> pure exit
-    Nothing -> pure (Exit.die (Aff.error "RIO.await: fiber state missing"))
+  -- Construct the Exit directly from the join outcome. trackOutcome
+  -- has already written the same Exit into the state Ref (for poll
+  -- to read), but the join result is the authoritative source: a
+  -- Right (Right a) is a Success, Right (Left v) is a typed
+  -- failure, and Left err is a defect (uncaught Aff exception or
+  -- the kill exception from interrupt).
+  outcome <- Aff.attempt (Aff.joinFiber f.underlying)
+  case outcome of
+    Right (Right a) -> pure (Exit.Success a)
+    Right (Left v) -> pure (Exit.Failure (Cause.Fail v))
+    Left err -> pure (Exit.Failure (Cause.Die err))
 
 -- | Await every fiber in the array and return their `Exit`s in
 -- | input order. None of the awaits unwind the caller's typed
@@ -383,7 +498,14 @@ awaitAll
   :: forall r e e' a
    . Array (Fiber e a)
   -> RIO r e' (Array (Exit e a))
-awaitAll = traverse await
+awaitAll fibs = mkRIO \_ -> traverse awaitOne fibs
+  where
+  awaitOne (Fiber f) = do
+    outcome <- Aff.attempt (Aff.joinFiber f.underlying)
+    pure case outcome of
+      Right (Right a) -> Exit.Success a
+      Right (Left v) -> Exit.Failure (Cause.Fail v)
+      Left err -> Exit.Failure (Cause.Die err)
 
 -- | Wait for every fiber in the array and combine their outcomes
 -- | into a single `Exit`. If every fiber succeeded, the result is
@@ -490,30 +612,12 @@ parTraverse
   -> Array a
   -> RIO r e (Array b)
 parTraverse f as = mkRIO \r -> do
-  failureRef <- liftEffect (Ref.new Nothing)
-  let
-    run a = do
-      res <- unRIO (f a) r
-      case res of
-        Right b -> pure b
-        Left v -> do
-          liftEffect
-            ( Ref.modify_
-                ( case _ of
-                    Nothing -> Just v
-                    existing -> existing
-                )
-                failureRef
-            )
-          throwError (Aff.error shortCircuitMessage)
-  outcome <- Aff.attempt (Parallel.parTraverse run as)
+  outcome <- Aff.attempt (Parallel.parTraverse (\a -> unsafeUnRIO (f a) r) as)
   case outcome of
     Right values -> pure values
-    Left err -> do
-      first <- liftEffect (Ref.read failureRef)
-      case first of
-        Just v -> rioFail v
-        Nothing -> throwError err
+    Left err -> case matchTypedFailure err of
+      Just v -> rioFail v
+      Nothing -> throwError err
 
 -- | The identity case of `parTraverse`: run an array of actions
 -- | concurrently and collect their results.
