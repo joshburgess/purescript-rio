@@ -159,6 +159,18 @@ jobs:
       - name: Build and run config-loader example
         run: npx spago run -p rio-example-config-loader
 
+      - name: Build batch-import example
+        run: npx spago build -p rio-example-batch-import
+
+      - name: Build production-app example
+        run: npx spago build -p rio-example-production-app
+
+      - name: Build showcase example
+        run: npx spago build -p rio-example-showcase
+
+      - name: Build typed-error-workflow example
+        run: npx spago build -p rio-example-typed-error-workflow
+
       - name: Build benchmark suite (including regression gate)
         run: npx spago build -p rio-benchmarks
 

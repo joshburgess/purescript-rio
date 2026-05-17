@@ -69,26 +69,34 @@ of work for a future version that chooses to take it on.
 ## The core type, restated
 
 ```purescript
-newtype RIO r e a = RIO (Record r -> Aff (Either (Variant e) a))
+newtype RIO r e a = RIO (Op r e a)
 ```
 
-`RIO` is a function from an environment record to an `Aff` that
-produces either a typed failure (a `Variant` over the error row
-`e`) or a success value of type `a`. Three things follow
-immediately:
+`RIO` wraps an opaque `Op`: an operation-list ADT interpreted
+by a hand-rolled step / resume machine in `RIO.Internal`. The
+interpreter drives synchronous binds entirely in a JS while
+loop and only crosses into `Aff` for true async work (FFI
+that completes on a callback, `Aff.delay`, fiber joins, and
+so on). At the edge, `unRIO m env :: Aff (Either (Variant e) a)`
+reifies the final outcome back as an `Aff`, where typed
+failures appear in the `Left` branch and successes in
+`Right`. Three things follow immediately:
 
-1. The runtime is `Aff`'s runtime. There is no separate `rio`
-   interpreter. `runRIO` reduces to `unRIO m env :: Aff (...)`
-   and hands the result to whatever runs `Aff` at the edge
+1. There *is* a separate `rio` interpreter; the synchronous
+   bind chain does not pay a per-bind `Aff` cost. But once any
+   step suspends, the rest of the work rides on `Aff`'s
+   scheduler. `runRIO` evaluates the program to a final `Aff`
+   value at the edge and hands that to whatever runs `Aff`
    (`launchAff_`, `Aff.runAff`, etc.).
 2. Typed errors are a userland encoding. The `Either (Variant e)`
    wrapper is not visible to `Aff`. `Aff`'s own error channel is
    a single untyped `Error` and is used by `rio` only for
    defects (the `Die` arm of `Cause`).
-3. Cancellation, scheduling, async waits, and bracketing are
-   `Aff`'s. `rio` adds vocabulary (typed names, structured
-   composition, `Scope`-based finalisers) but the underlying
-   mechanism is whatever `Aff` provides.
+3. Cancellation, async waits, and bracketing for the async
+   portion of a program are `Aff`'s. `rio` adds vocabulary
+   (typed names, structured composition, `Scope`-based
+   finalisers) but the underlying async mechanism is whatever
+   `Aff` provides.
 
 ## What `Aff` gives `rio` for free
 
@@ -321,8 +329,8 @@ without reconstruction. `Aff` cannot.
 
 ### 10. The `Channel` primitive is bounded by `Aff`
 
-`RIO.Channel` (added recently) is a minimal pull-based primitive
-that demonstrates the bedrock `Stream` and `Sink` specialise. It
+`RIO.Channel` is a minimal pull-based primitive that
+demonstrates the bedrock `Stream` and `Sink` specialise. It
 is deliberately small. A full ZIO-style `Channel` with native
 broadcasters, halt-when behaviour, and a parallel fan-out
 algebra would benefit enormously from a real scheduler and a

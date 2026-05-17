@@ -1,12 +1,11 @@
--- | Basic testing helpers for `RIO`.
+-- | Basic testing helpers for `RIO`: `mockService` for swapping a
+-- | service record into the environment, and `recording` for
+-- | capturing every call to a function-shaped service.
 -- |
--- | Phase 2.6 ships a small kit usable from Phase 2 onward, so tests in
--- | later phases do not get rewritten when the full testing story lands
--- | in Phase 7.
--- |
--- | The full toolkit (`TestClock`, `itRIO`, `purescript-spec`
--- | integration) is intentionally out of scope here and arrives in
--- | Phase 7.
+-- | The rest of the testing surface lives next to its subject:
+-- | `RIO.Test.Clock` (`TestClock`), `RIO.Test.Random`, `RIO.Test.HTTP`,
+-- | `RIO.Test.WebSocket`, `RIO.Test.Property` (`forAllRIO`), and
+-- | `RIO.Spec` (`itRIO` and the `purescript-spec` integration).
 module RIO.Test
   ( mockService
   , Recording

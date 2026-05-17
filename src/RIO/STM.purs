@@ -21,9 +21,10 @@
 -- | same `TRef` from being used in transactions with different
 -- | error rows.
 -- |
--- | What is *not* in this module: `TQueue`, `TMap`, `TSemaphore`,
--- | and other derived structures. They can be built on top of
--- | `TRef` plus the primitives here; we may add them as a follow-up.
+-- | Derived structures built on top of `TRef` plus the primitives
+-- | here ship in sibling modules: `RIO.STM.TQueue`, `RIO.STM.THub`,
+-- | `RIO.STM.TMap`, `RIO.STM.TArray`, `RIO.STM.TSemaphore`, and
+-- | `RIO.STM.TDeferred`.
 module RIO.STM
   ( STM
   , TRef

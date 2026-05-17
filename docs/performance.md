@@ -22,7 +22,7 @@ variance scenarios (the long tails are GC pauses).
 
 | Scenario                                  | Mean        | Min        | Notes                                |
 | ----------------------------------------- | ----------- | ---------- | ------------------------------------ |
-| `runRIO' (pure unit)` baseline            | ~265 ns     | ~210 ns    | fixed cost of `unRIO {} >>= ...`     |
+| `runRIO' (pure unit)` baseline            | ~265 ns     | ~210 ns    | fixed cost of one `runOp` entry      |
 | `Aff (pure unit)` baseline                | ~150 ns     | ~83 ns     | underlying `Aff` cost                |
 | Bind chain, 100 binds                     | ~17.6 μs    | ~7.3 μs    | ~90 to 175 ns per bind               |
 | Bind chain, 10 000 binds                  | ~936 μs     | ~784 μs    | ~90 ns per bind, amortised           |
@@ -33,21 +33,23 @@ variance scenarios (the long tails are GC pauses).
 
 ## Dominant costs
 
-### `bind` over `Aff`
+### `bind` through the Op interpreter
 
 The hottest path in any RIO program is the bind chain. Each
-`bind` peels the newtype, calls the underlying function with the
-environment record, runs the resulting `Aff`, and threads the
-`Either (Variant e) a` through. The amortised cost per bind is
-about 90 ns at 10 000 binds (the longer chain hides per-run
-overhead in the constant factor); at 100 binds the per-bind
-share rises into the 130 to 175 ns range because the fixed
-runner cost is more visible.
+`bind` appends a BIND `Op` onto the operation list; when the
+interpreter resumes, it walks the list in a tight while loop,
+applying each continuation against the environment record and
+threading the typed-error state through. Synchronous binds
+never cross into `Aff` at all; only true async steps do.
 
-In practice the dominant share of bind time is `Aff`'s own
-trampoline, not RIO's wrapper. A direct `Aff` pure-unit run
-costs about 150 ns; RIO adds about 100 ns on top to wrap and
-unwrap the `Either` and the environment record.
+The amortised cost per bind is about 90 ns at 10 000 binds
+(the longer chain hides per-run overhead in the constant
+factor); at 100 binds the per-bind share rises into the 130
+to 175 ns range because the fixed runner cost is more
+visible. For comparison, a direct `Aff` pure-unit run costs
+about 150 ns. The Op loop is competitive because synchronous
+binds skip the `Aff` trampoline entirely; the cost above is
+the JS while loop plus typed-error bookkeeping.
 
 ### Service lookup
 

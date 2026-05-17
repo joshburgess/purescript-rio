@@ -32,8 +32,9 @@
 -- |   final result is the leftmost typed failure. This makes
 -- |   `Par.ado` safe for fan-out where each branch should always
 -- |   be given a chance to run. For short-circuiting fan-out,
--- |   reach for `RIO.Concurrency.parPair` / `parTuple`, which
--- |   cancel the loser the moment one branch fails.
+-- |   reach for `RIO.Concurrency.zipPar` (two branches) or
+-- |   `RIO.Concurrency.parTraverse` (N branches), which cancel
+-- |   the remaining branches the moment one branch fails.
 -- |
 -- | * **Defects.** A defect (`Aff` exception) in any branch
 -- |   propagates; the other branches are interrupted by the

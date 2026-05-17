@@ -7,13 +7,15 @@
 -- | free encoding, so traces stay readable and there is no fusion
 -- | machinery to reason about.
 -- |
--- | This is intentionally narrower than ZStream / Effect Stream:
--- | one input channel, no sinks, no parallel combinators, no
--- | resource-safe finalization beyond what the underlying `RIO r e`
--- | actions already give you. It is enough to demonstrate that
--- | streaming fits the framework cleanly, and to use in places
--- | like "pull rows from a Postgres cursor and write JSON to
--- | stdout" without rewriting `for_` over an `Array`.
+-- | This module is the base pull layer: one input channel,
+-- | direct-recursion combinators, no fusion machinery. Composable
+-- | consumers live in `RIO.Sink`; parallel combinators (merge,
+-- | broadcast, partition) live in `RIO.Stream.Par`; dynamic
+-- | broadcast over a `RIO.Hub` lives in `RIO.Stream.Concurrent`;
+-- | resource-acquiring single-element streams live in
+-- | `RIO.Stream.Resource`. The shape here is enough on its own for
+-- | "pull rows from a Postgres cursor and write JSON to stdout"
+-- | without rewriting `for_` over an `Array`.
 -- |
 -- | ```purescript
 -- | -- pull every row out of a query result, transform, drain

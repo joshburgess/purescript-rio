@@ -9,6 +9,49 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ## [Unreleased]
 
+### Changed
+
+- Docstring drift cleanup across five modules whose module-level
+  comments still described pre-Phase-7 state:
+  - `RIO.STM`: removed the "not in this module: TQueue / TMap /
+    TSemaphore" paragraph and replaced it with a pointer to the
+    sibling modules where each derived structure now lives.
+  - `RIO.Stream`: dropped the "no sinks, no parallel combinators,
+    no resource-safe finalization" disclaimer; pointed readers
+    at `RIO.Sink`, `RIO.Stream.Par`, `RIO.Stream.Concurrent`,
+    and `RIO.Stream.Resource` for the fuller picture.
+  - `RIO.Sink`: the link to `docs/sink-design.md` now describes
+    "how `Sink` relates to `RIO.Channel`" instead of "why no
+    Channel" (Channel is shipped).
+  - `RIO.Test`: dropped the "Phase 2.6 / Phase 7" forward
+    reference and pointed at the shipped sibling modules
+    (`RIO.Test.Clock`, `RIO.Test.Random`, `RIO.Test.HTTP`,
+    `RIO.Test.WebSocket`, `RIO.Test.Property`, `RIO.Spec`).
+  - `RIO.Concurrency.Par`: replaced the dangling
+    `parPair` / `parTuple` reference with the actual
+    short-circuiting fan-out combinators
+    (`RIO.Concurrency.zipPar` and `parTraverse`).
+
+- `docs/aff-constraints.md`: the "core type, restated" section
+  now reflects the Op-encoded interpreter. The old `RIO r e a =
+  Record r -> Aff (Either ...)` definition and the "there is no
+  separate rio interpreter" claim are replaced with an accurate
+  description of `Op` and the synchronous-bind loop that skips
+  `Aff` entirely. Also removed a stray "added recently"
+  qualifier from the `RIO.Channel` section.
+
+- `docs/performance.md`: rewrote the "`bind` over `Aff`" section
+  to describe the Op interpreter (synchronous binds run in a JS
+  while loop and never enter `Aff`) and fixed the headline table
+  note that still referenced `unRIO {} >>= ...`.
+
+- `.github/workflows/ci.yml`: added build steps for four
+  previously-uncovered examples (`batch-import`,
+  `production-app`, `showcase`, `typed-error-workflow`) so they
+  cannot rot silently. The other examples either already had a
+  CI step or are covered by a `run` step that builds them
+  transitively.
+
 ### Added
 
 - Direct contract specs for two previously test-bare modules:

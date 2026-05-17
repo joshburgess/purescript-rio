@@ -25,7 +25,8 @@
 -- |
 -- | User-facing reference: `docs/13-streams.md` ("Composable
 -- | consumers"). Design rationale (why `Need k finish`, why
--- | single-fiber `zipPar`, why no Channel): `docs/sink-design.md`.
+-- | single-fiber `zipPar`, how `Sink` relates to `RIO.Channel`):
+-- | `docs/sink-design.md`.
 module RIO.Sink
   ( Sink(..)
   , Step(..)
