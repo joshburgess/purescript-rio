@@ -45,6 +45,11 @@ jobs:
       - name: Build (main package)
         run: npx spago build -p rio
 
+      - name: Debug purs graph (rio package)
+        run: |
+          echo "==== purs graph stderr capture ===="
+          npx purs graph $(npx spago sources -p rio 2>/dev/null | tr '\n' ' ') 2>&1 1>/dev/null || echo "purs graph exited $?"
+
       - name: Test (main package)
         run: npx spago test -p rio
 
