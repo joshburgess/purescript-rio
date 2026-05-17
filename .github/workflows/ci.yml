@@ -45,35 +45,14 @@ jobs:
       - name: Build (main package)
         run: npx spago build -p rio
 
-      - name: Debug purs graph (replicate spago invocation)
+      # `spago test -p rio` invokes `purs graph` across the entire workspace,
+      # so every workspace sibling's transitive deps must be present in
+      # .spago/p before the test step runs. Fetch them all upfront.
+      - name: Fetch deps for all workspace packages
         run: |
-          set +e
-          # Collect the exact same globs spago uses: every dep in .spago/p plus
-          # every workspace package source dir, plus our test dir.
-          set -f
-          ARGS=".spago/BuildInfo.purs"
-          for d in .spago/p/*/; do
-            ARGS="$ARGS ${d}src/**/*.purs"
+          for p in rio-http rio-node rio-otel rio-postgres rio-postgres-json rio-postgres-migrate rio-config-file; do
+            npx spago install -p "$p"
           done
-          for w in rio-config-file rio-http rio-node rio-otel rio-postgres rio-postgres-migrate; do
-            ARGS="$ARGS ${w}/src/**/*.purs"
-          done
-          ARGS="$ARGS src/**/*.purs test/**/*.purs"
-          echo "==== arg count (chars) ===="
-          echo "${#ARGS}"
-          echo "==== first 200 chars of ARGS ===="
-          echo "${ARGS:0:200}"
-          echo "==== running purs graph (literal globs, like spago) ===="
-          npx purs graph $ARGS > /tmp/graph.out 2> /tmp/graph.err
-          rc=$?
-          set +f
-          echo "purs graph exit: $rc"
-          echo "==== stdout size ===="
-          wc -c /tmp/graph.out
-          echo "==== stderr (full) ===="
-          cat /tmp/graph.err
-          echo "==== stderr size ===="
-          wc -c /tmp/graph.err
 
       - name: Test (main package)
         run: npx spago test -p rio
