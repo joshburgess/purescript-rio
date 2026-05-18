@@ -33,26 +33,6 @@ wins) and replacing `Row.Cons` with a row-list walk plus
 typed-error rows, the residual jargon stays. Tracked in
 `compile-fail/FINDINGS.md`.
 
-### Full `Channel` algebra
-
-`RIO.Channel` ships the minimal pull-based primitive
-(`fromStream` / `fromSink` bridges, `pipe`, `run`). The broader
-combinator set that ZIO's `ZChannel` exposes (broadcasters,
-halt-when, parallel fan-out) currently lives on the concrete
-`Stream` / `Sink` types where it's used today. The threshold for
-promoting those combinators onto `Channel` is a concrete use case
-that the current `Stream.mapM` / `Stream.flatMap` / `Sink.andThen` /
-`Channel.pipe` set cannot already express.
-
-### Cause-aware core combinators
-
-The existing `acquireRelease` / `race` keep their non-Cause shapes
-on purpose so users only pay for cause-tree construction when they
-explicitly ask for it (via `acquireReleaseCause` / `raceCause`). If
-that split ever feels wrong, the migration is mechanical: switch
-the core implementations over to the `*Cause` variants and surface
-the cause through a new service row, the way ZIO and Effect do.
-
 ### Config rotation triggers
 
 `RIO.Config.Rotating` ships `newRotating`, `readRotating`,

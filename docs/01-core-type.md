@@ -5,11 +5,19 @@ of required services (the **R**eader environment), a row of typed failures
 (the error channel), and asynchronous **IO** running on top of `Aff`.
 
 ```purescript
-newtype RIO r e a = RIO (Record r -> Aff (Either (Variant e) a))
+newtype RIO r e a = RIO (Op r e a)
 ```
 
+`Op r e a` is an instruction tree run by a step / resume interpreter
+in `RIO.Internal`. Semantically a `RIO r e a` is the same as
+`Record r -> Aff (Either (Variant e) a)`: given an environment of
+services in row `r`, it performs `Aff` work that either fails with a
+tagged error in row `e` or produces a value of type `a`. The
+instruction-tree form lets synchronous binds stay in a tight JS while
+loop and only cross into `Aff` for true async work.
+
 This document walks through what each parameter means in practice and
-compares the shape to its closest cousins in ZIO (Scala) and Effect-TS
+compares the shape to its closest cousins in ZIO (Scala) and Effect
 (TypeScript).
 
 ## The three parameters
@@ -65,24 +73,26 @@ Nothing surprising. `a` is whatever you produce on the happy path.
 
 ## How it composes
 
-The newtype unwraps to `Record r -> Aff (Either (Variant e) a)`. That
-shape determines all the typeclass instances:
+The newtype wraps `Op r e a`, but the boundary form
+`unRIO m env :: Aff (Either (Variant e) a)` is what determines the
+observable semantics:
 
   * `pure a` ignores the environment and produces `Right a`.
   * `bind` runs the first action, short-circuits on `Left`, otherwise
-    threads the environment through the continuation.
+    threads the environment through the continuation. Synchronous
+    binds stay in the interpreter's inner loop and never cross into
+    `Aff`.
   * `liftEffect` (from `Effect.Class`) and `liftAff` (from
     `Effect.Aff.Class`) ignore the environment and produce `Right`, so
     effects raised through them never become typed failures. Uncaught
-    runtime exceptions surface as `Aff` defects, exposed by `sandbox`
-    (Phase 3.3).
+    runtime exceptions surface as `Aff` defects, exposed by `sandbox`.
 
-There is nothing exotic here: it is `ReaderT (Record r) (ExceptT (Variant e) Aff)`
-written as a newtype for better inference and a smaller error-message
-footprint. The row-typed environment and error channel are what make the
-shape carry more information than the bare transformer stack would.
+Semantically this is the same algebra as
+`ReaderT (Record r) (ExceptT (Variant e) Aff)`; the `Op` instruction
+tree is an implementation detail that lets synchronous binds stay in
+a tight loop rather than thread through `Aff`'s callback chain.
 
-## Comparison with ZIO and Effect-TS
+## Comparison with ZIO and Effect
 
 | Concept                    | RIO (PureScript)                       | ZIO (Scala)               | Effect (TypeScript)         |
 |---                         |---                                     |---                        |---                          |

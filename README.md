@@ -5,12 +5,18 @@ environment, typed errors, resource safety, layers, and
 structural concurrency, all sitting on top of `Aff`.
 
 ```purescript
-newtype RIO r e a = RIO (Record r -> Aff (Either (Variant e) a))
+newtype RIO r e a = RIO (Op r e a)
 ```
 
 - `r` is a **row of services** the computation needs.
 - `e` is a **row of typed failures** it may raise.
 - `a` is the **success value** on the happy path.
+
+`Op r e a` is an instruction tree driven by a hand-rolled step /
+resume interpreter in `RIO.Internal`. Synchronous binds stay in a
+tight JS while loop and only true async work crosses into `Aff`.
+At the boundary, `unRIO m env :: Aff (Either (Variant e) a)`
+reifies the final outcome, with typed failures in the `Left` branch.
 
 Both rows are open by default, so requirements aggregate
 automatically on composition and shrink as services are
