@@ -12,11 +12,31 @@ newtype RIO r e a = RIO (Op r e a)
 - `e` is a **row of typed failures** it may raise.
 - `a` is the **success value** on the happy path.
 
-`Op r e a` is an instruction tree driven by a hand-rolled step /
-resume interpreter in `RIO.Internal`. Synchronous binds stay in a
-tight JS while loop and only true async work crosses into `Aff`.
-At the boundary, `unRIO m env :: Aff (Either (Variant e) a)`
-reifies the final outcome, with typed failures in the `Left` branch.
+`Op r e a` is foreign-imported (runtime values are tagged JS objects
+dispatched in a tight loop by the step / resume interpreter in
+`RIO.Internal`), but it stands in for this ADT:
+
+```purescript
+data Op r e a
+  = Pure     a
+  | Sync     (Effect a)                          -- liftEffect
+  | Async    (Aff a)                             -- liftAff
+  | Lift     (Record r -> Aff a)                 -- env-aware Aff bridge
+  | SyncLift (Record r -> Effect a)              -- env-aware Effect bridge
+  | Ask                                          -- a ~ Record r
+  | Fail     (Variant e)
+  | Bind     (Op r e x)              (x -> Op r e a)     -- existential x
+  | Catch    String                  (x -> Op r e a) (Op r e a)
+  | CatchAll (Variant e -> Op r e a) (Op r e a)
+  | Local    (Record r -> Record r') (Op r' e a)          -- existential r'
+```
+
+Library combinators build these through smart-constructor FFI
+factories so users never see `Op` directly. Synchronous binds stay
+in the interpreter's inner loop and only true async work crosses
+into `Aff`; at the boundary,
+`unRIO m env :: Aff (Either (Variant e) a)` reifies the final
+outcome, with typed failures in the `Left` branch.
 
 Both rows are open by default, so requirements aggregate
 automatically on composition and shrink as services are
