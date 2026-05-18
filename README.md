@@ -18,17 +18,17 @@ dispatched in a tight loop by the step / resume interpreter in
 
 ```purescript
 data Op r e a
-  = Pure     a
-  | Sync     (Effect a)                          -- liftEffect
-  | Async    (Aff a)                             -- liftAff
-  | Lift     (Record r -> Aff a)                 -- env-aware Aff bridge
+  = Pure a
+  | Sync (Effect a)                              -- liftEffect
+  | Async (Aff a)                                -- liftAff
+  | Lift (Record r -> Aff a)                     -- env-aware Aff bridge
   | SyncLift (Record r -> Effect a)              -- env-aware Effect bridge
   | Ask                                          -- a ~ Record r
-  | Fail     (Variant e)
-  | Bind     (Op r e x)              (x -> Op r e a)     -- existential x
-  | Catch    String                  (x -> Op r e a) (Op r e a)
+  | Fail (Variant e)
+  | Bind (Op r e x) (x -> Op r e a)              -- existential x
+  | Catch String (x -> Op r e a) (Op r e a)
   | CatchAll (Variant e -> Op r e a) (Op r e a)
-  | Local    (Record r -> Record r') (Op r' e a)          -- existential r'
+  | Local (Record r -> Record r') (Op r' e a)    -- existential r'
 ```
 
 Library combinators build these through smart-constructor FFI
