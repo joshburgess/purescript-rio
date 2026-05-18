@@ -1,205 +1,82 @@
-# Future Work: Gaps vs ZIO / Effect-TS
+# Future Work: Gaps vs ZIO / Effect
 
-A focused inventory of what's still missing from `purescript-rio`
-compared to ZIO and Effect-TS, oriented around "what would convince
-a skeptical reader that this idea is real and usable," not "ship the
-entire ecosystem."
+Potential future work for `purescript-rio`. The core demonstration
+is complete; what remains here is additive, deferred pending a
+concrete use case, or pending upstream constraints.
 
-## What we already have
+## Open items
 
-Confirmed in `src/RIO/` as of the last review:
+### `rio-aws` integration package
 
-- Core: `RIO r e a` newtype, env rows, error rows (Variant)
-- Catch combinators: `catchTag`, `catchAll`, `mapError`, `sandbox`,
-  `unsandbox`, `die`, `rethrow`
-- Resource safety: `acquireRelease`, `Scope`, scoped layers
-- Layers: `Layer rIn e rOut`, composition, `provideLayer`
-- Concurrency primitives: `Concurrency.Par`, `Deferred`, parallel
-  combinators, `Fiber`-style fork via `Aff`
-- STM: `TRef` (with a `TVar` alias for muscle memory), `THub`,
-  `TMap`, `TQueue`, `TSemaphore`, plus the combinator set
-  (`atomically`, `retry`, `check`, `orElse`, `failSTM`)
-- Async (non-STM) primitives: `RIO.Queue`, `RIO.Hub`, `RIO.Semaphore`
-- Schedule (retry / repeat) with combinator-style policy values
-- Streams: `RIO.Stream` (pull-based, with map, filter, take, drop,
-  concat, flatMap, mapM, unfoldM, repeatM, fold runners);
-  `RIO.Stream.Par`; `RIO.Stream.Resource`; `RIO.Sink`;
-  `RIO.Channel` (the minimal unified producer / consumer /
-  transducer primitive that Stream and Sink specialise)
-- Cause tree: `RIO.Cause` (parallel + sequential failure trees,
-  `bothPar`, `prettyCause` renderer)
-- Logger, Metrics, Tracer (with `Test.*` doubles for each)
-- Clock + `TestClock`, Random + `TestRandom`, Config
-- Spec integration helpers
-- Adapters: `rio-http`, `rio-otel`, `rio-postgres` (with Notify,
-  prepared statements, pool stats, migrate, json), `rio-node`
-  (Buffer, ChildProcess, EventEmitter, FileSystem, HTTP, HTTP2,
-  Net, OS, Path, Process, ReadLine, Shutdown, Stream, URL)
-- Examples: `logger`, `notify`, `otel-demo`, `todo-api`,
-  `worker-pool` (fan-out + Semaphore + Schedule retry + Metrics +
-  Tracer), `stream-pipeline` (mergeAll + broadcast),
-  `sink-analytics` (single-pass zipPar aggregation over an HTTP
-  request log), and `config-loader` (typed configuration from a
-  `.env` file via `rio-config-file`)
+A typed wrapper around the AWS SDK v3 client surface, exposing
+services (S3, SQS, DynamoDB, etc.) as RIO service rows with
+`Cause`-aware error variants. Equivalent in scope to early ZIO AWS
+or `@effect/aws-client`. The surface is large (one service row per
+client) and the work is additive rather than core demonstration
+material.
 
-That covers most of what an "effect system" needs to be more than a
-toy. The gaps below are about what's still visibly missing to
-someone comparing surface area against ZIO / Effect-TS.
+### Friendlier missing-tag error for `catchTag`
 
-## Shipped since the first pass of this document
+The payload-type-mismatch case (case 03) was polished in
+`RIO.Error` via a row-list-keyed `FindErrorTag` / `CatchableErrorTag`
+walk, promoting it from ACCEPTABLE-NOISY to GOOD. The missing-tag
+case (case 04) still surfaces the underlying `Prim.Row.Cons`
+row-mismatch because the constraint required for the residual-row
+calculation fires its error first at the use site, shadowing the
+custom Fail attached to `FindErrorTag`'s `Nil` instance. Two
+restructures were investigated and ruled out: folding `Row.Cons`
+inside the `CatchableErrorTag` instance head (the mismatch still
+wins) and replacing `Row.Cons` with a row-list walk plus
+`FromRowList` rebuild (regresses open-row call sites because
+`RowToList` is closed-only). Pending an upstream change to
+`Prim.Row.Cons` error reporting or a different encoding of
+typed-error rows, the residual jargon stays. Tracked in
+`compile-fail/FINDINGS.md`.
 
-The Tier 1 + Tier 2 items from the original review have all landed.
-See `src/RIO/Stream.purs`, `src/RIO/Queue.purs`, `src/RIO/Hub.purs`,
-`src/RIO/Semaphore.purs`, `src/RIO/Random.purs`,
-`src/RIO/Test/Random.purs`, `src/RIO/Config.purs`,
-`src/RIO/Cause.purs`, and `examples/worker-pool/`.
+### Full `Channel` algebra
 
-## Remaining gaps
+`RIO.Channel` ships the minimal pull-based primitive
+(`fromStream` / `fromSink` bridges, `pipe`, `run`). The broader
+combinator set that ZIO's `ZChannel` exposes (broadcasters,
+halt-when, parallel fan-out) currently lives on the concrete
+`Stream` / `Sink` types where it's used today. The threshold for
+promoting those combinators onto `Channel` is a concrete use case
+that the current `Stream.mapM` / `Stream.flatMap` / `Sink.andThen` /
+`Channel.pipe` set cannot already express.
 
-The items below would be the natural next layer once the core
-demonstration has had time to settle.
+### Cause-aware core combinators
 
-### Stream extensions
+The existing `acquireRelease` / `race` keep their non-Cause shapes
+on purpose so users only pay for cause-tree construction when they
+explicitly ask for it (via `acquireReleaseCause` / `raceCause`). If
+that split ever feels wrong, the migration is mechanical: switch
+the core implementations over to the `*Cause` variants and surface
+the cause through a new service row, the way ZIO and Effect do.
 
-`RIO.Stream.Par` ships the parallel combinators:
+### Config rotation triggers
 
-- `mergeAll` / `merge` / `mergeMap` fan in N producers onto a
-  shared bounded queue; first failure shuts everything down
-- `broadcast` fans one upstream out to N consumer streams over
-  per-consumer bounded queues (backpressure end-to-end)
-- `partition` routes each upstream element to exactly one of N
-  buckets via a key function
-
-`RIO.Stream.Resource` adds `bracketStream`, a single-element
-resource-acquiring stream whose release is registered with the
-enclosing `scoped` block.
-
-`RIO.Sink` ships the full design from `docs/sink-design.md`:
-primitives (`drain`, `head`, `last`, `count`, `collect`,
-`foldL`, `foldM`), short-circuiting sinks (`take`, `find`,
-`any`, `all`), combinators (`mapResult`, `mapInput`,
-`filterIn`, `andThen`, `zipPar`, `zipParWith`), and a
-`runSink` runner.
-
-`RIO.Channel` ships a minimal pull-based `Channel r e i o d`
-primitive: `fromStream` / `fromSink` bridges, `pipe`
-(end-to-end composition), and `run` (drain a closed pipeline).
-The combinators that the larger ZIO `ZChannel` surface offers
-(broadcasters, halt-when, parallel fan-out) stay on the
-concrete `Stream` / `Sink` types where they live today. The
-threshold for promoting those combinators onto `Channel` is a
-concrete use case that the current `Stream.mapM` /
-`Stream.flatMap` / `Sink.andThen` / `Channel.pipe` set cannot
-already express.
-
-### Cause integration
-
-`RIO.Cause` now ships `Fail` / `Die` / `Parallel` / `Sequential`
-plus the combinator set:
-
-- `attemptCause` reifies any outcome as `Either (Cause e) a`
-- `bothPar` collects two parallel outcomes
-- `parTraverseCause` / `parSequenceCause` collect every failure
-  from N parallel branches into a left-leaning `Parallel` tree
-- `raceCause` waits for the first success and combines both
-  failures into a `Parallel` cause when both sides fail
-- `acquireReleaseCause` records `Sequential (body, release)` when
-  the body and the finalizer both fail
-- `prettyCause` renders the tree; `prettyCauseWithStack` adds the
-  JS stack underneath each `Die` leaf when one is available
-
-`worker-pool` demonstrates `parTraverseCause` + `prettyCause` end
-to end.
-
-What's left here is mostly a design call rather than missing
-plumbing: the existing `acquireRelease` / `race` keep their
-non-Cause shapes on purpose so users only pay for cause-tree
-construction when they explicitly ask for it. If that ever feels
-wrong, the migration is mechanical: switch the implementations
-over to the `*Cause` variants and surface the cause through a new
-service row, the way ZIO and Effect-TS do.
-
-### Config sources
-
-The `rio-config-file` adapter ships:
-
-- `dotenvFileSource` reads a `.env`-style file (with `export `
-  prefixes, double- and single-quoted values, trailing
-  comments, and 1-based parse-error line numbers)
-- `jsonFileSource` reads a JSON file and flattens nested
-  objects into `_`-joined keys, matching the way
-  `RIO.Config.nested` qualifies keys; nulls drop, arrays are
-  rejected with a path-aware shape error
-
-`RIO.Config.Rotating` ships the refreshable-cell story:
-`newRotating`, `readRotating`, `writeRotating`, and a
-`withRotation` helper that bundles a loader's first run with
-an on-demand `refresh` action. Polling / signal-triggered
-rotation is left to the caller.
-
-This section has no open items now.
+`RIO.Config.Rotating` ships `newRotating`, `readRotating`,
+`writeRotating`, and `withRotation`. Polling / signal-triggered
+rotation is left to the caller; a polling helper or signal-based
+trigger could land if a clear pattern emerges from real use.
 
 ## Out of scope for the core demonstration
 
-These are real features in ZIO / Effect-TS but adding any of them
+These are real features in ZIO / Effect but adding any of them
 would weaken the message rather than strengthen it. They're
 non-goals for the "is this real" milestone.
 
-- Full `ZStream` parity (sinks, parallel streams, transducers)
+- Full `ZStream` parity (sinks, parallel streams, transducers
+  beyond what `RIO.Stream` / `RIO.Stream.Par` / `RIO.Sink` /
+  `RIO.Channel` already cover)
 - Kafka / Redis / MongoDB adapters
-- Deeper transactional STM features beyond what's already
-  shipped (`atomically`, `retry`, `check`, `orElse`, `failSTM`),
-  e.g. nested transactions. (`TVar` ships as an alias for `TRef`
-  for muscle memory; there is no separate distinct type.)
+- Deeper transactional STM features beyond what's already shipped
+  (`atomically`, `retry`, `check`, `orElse`, `failSTM`), e.g.
+  nested transactions. (`TVar` ships as an alias for `TRef` for
+  muscle memory; there is no separate distinct type.)
 - A custom runtime / fiber supervisor beyond what `Aff` provides
 - A web framework on top of `rio-http` (HTTPurple is enough for the
   examples)
 - Cron / scheduled-job adapter (Schedule covers backoff; cron is a
   separate concern)
 - Auto-derived persistent storage / ORM features
-
-## Other open items
-
-These were tracked in the original phase plan and are still
-open. They are listed roughly by impact, but none are blockers
-on the core demonstration.
-
-- **Friendlier missing-tag error for `catchTag`.** The
-  payload-type-mismatch case (case 03) was polished in `RIO.Error`
-  via a row-list-keyed `FindErrorTag` / `CatchableErrorTag` walk,
-  promoting it from ACCEPTABLE-NOISY to GOOD. The missing-tag
-  case (case 04) still surfaces the underlying `Prim.Row.Cons`
-  row-mismatch because the constraint required for the
-  residual-row calculation fires its error first at the use
-  site, shadowing the custom Fail attached to `FindErrorTag`'s
-  `Nil` instance. Two restructures were investigated and ruled
-  out: folding `Row.Cons` inside the `CatchableErrorTag` instance
-  head (the mismatch still wins) and replacing `Row.Cons` with a
-  row-list walk plus `FromRowList` rebuild (regresses open-row
-  call sites because `RowToList` is closed-only). Pending an
-  upstream change to `Prim.Row.Cons` error reporting or a
-  different encoding of typed-error rows, the residual jargon
-  stays. Tracked in `compile-fail/FINDINGS.md`.
-- **`rio-aws` integration package.** A typed wrapper around the
-  AWS SDK v3 client surface, exposing services (S3, SQS,
-  DynamoDB, etc.) as RIO service rows with `Cause`-aware error
-  variants. Equivalent in scope to early ZIO AWS or
-  `@effect/aws-client`. Deferred to its own scope: the surface
-  is large (one service row per client) and the work is
-  additive rather than core demonstration material.
-## Recommended priority order
-
-With `RIO.Sink` shipped (primitives, short-circuiting sinks,
-combinators, `zipPar`, `runSink`) and `RIO.Config.Rotating`
-covering the refreshable-cell story, every named gap in the
-core surface is closed. `rio-node` has also landed (Buffer,
-ChildProcess, EventEmitter, FileSystem, HTTP, HTTP2, Net, OS,
-Path, Process, ReadLine, Shutdown, Stream, URL), closing the
-Node-platform adapter gap. What remains is the items above
-plus the design call on a full `Channel` algebra, intentionally
-deferred: `Stream.mapM` / `Stream.flatMap` / `Sink.andThen`
-already cover the common transducer cases, and a Channel layer
-should be driven by a real use case the current API cannot
-express rather than by surface-area parity. `rio-aws` is
-scoped, additive work that can land any time on its own
-schedule.
