@@ -230,7 +230,7 @@ program
   :: forall r
    . RIO r (config :: ConfigError) AppConfig
 program = do
-  src <- liftEffect (liftAff envSource)
+  src <- liftEffect envSource
   load (Proxy :: _ "config") src appConfig
 ```
 

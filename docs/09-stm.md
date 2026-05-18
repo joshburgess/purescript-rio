@@ -179,9 +179,9 @@ confirms the final count is exactly 50.
 - **`Deferred`**: when one fiber needs to hand off *one* value
   to another fiber as a write-once cell. Not for ongoing state.
 
-## Derived structures: `TQueue`, `TMap`, `TSemaphore`, `THub`
+## Derived structures: `TQueue`, `TMap`, `TSemaphore`, `THub`, `TArray`, `TDeferred`
 
-Three derived structures ship in submodules. Each is a thin
+Six derived structures ship in submodules. Each is a thin
 wrapper around a single `TRef` plus the primitives above; the
 implementations are short enough to read in one sitting if you
 want to see how they compose.
@@ -331,12 +331,50 @@ paced by the slowest consumer, `Sliding` / `Dropping` if you
 want the producer to outrun a slow consumer at the cost of
 losing messages, and `Unbounded` if buffer growth is fine.
 
+### `RIO.STM.TArray`
+
+A fixed-length transactional array. Reads and writes are
+indexed and stay atomic at the per-cell granularity.
+
+```purescript
+import RIO.STM (atomically)
+import RIO.STM.TArray (modifyTArray, newTArray, readTArray)
+
+example = do
+  arr <- atomically (newTArray 4 0)
+  _ <- atomically (modifyTArray 2 (_ + 1) arr)
+  atomically (readTArray 2 arr)  -- Just 1
+```
+
+Surface: `newTArray`, `lengthTArray`, `readTArray`,
+`writeTArray`, `modifyTArray`. The backing store is a single
+`TRef (Array a)`; out-of-range indices return `Nothing` / `false`
+rather than retrying.
+
+### `RIO.STM.TDeferred`
+
+The transactional counterpart to `RIO.Deferred`. A `TDeferred`
+is a write-once cell whose await composes inside `atomically`
+with other STM operations, so you can wait on the cell *and*
+drain a queue (or check a flag) in a single transaction.
+
+```purescript
+import RIO.STM (atomically)
+import RIO.STM.TDeferred (awaitTDeferred, makeTDeferred, succeedTDeferred)
+
+example = do
+  ready <- atomically makeTDeferred
+  _ <- fork (atomically (succeedTDeferred ready unit))
+  atomically (awaitTDeferred ready)  -- retries until succeed
+```
+
+Surface: `makeTDeferred`, `succeedTDeferred`, `failTDeferred`,
+`awaitTDeferred`, `tryAwaitTDeferred`, `pollTDeferred`. Like
+`RIO.Deferred`, fills after the first are no-ops; awaits after
+the fill see the same value.
+
 ## What `RIO.STM` does not give you yet
 
-- **`TArray`.** A simple `TRef (Array a)` covers most callers;
-  if you need indexed reads or writes to be atomic at a
-  finer granularity than "the whole array," open an issue with
-  the use case.
 - **Multi-transaction composition.** Each `atomically` is its
   own transaction; there is no way to span one transaction
   across two `atomically` calls.
@@ -354,7 +392,9 @@ losing messages, and `Unbounded` if buffer growth is fine.
 
 - `src/RIO/STM.purs`: the type, primitives, and `atomically`.
 - `src/RIO/STM/TQueue.purs`, `src/RIO/STM/TMap.purs`,
-  `src/RIO/STM/TSemaphore.purs`: the derived structures.
+  `src/RIO/STM/TSemaphore.purs`, `src/RIO/STM/THub.purs`,
+  `src/RIO/STM/TArray.purs`, `src/RIO/STM/TDeferred.purs`: the
+  derived structures.
 - `test/Test/RIO/STMSpec.purs`: tests for commit / abort,
   staged-write visibility, `failSTM` abort + write discard,
   `retry` wakeup, `orElse` fallthrough, and 50-fiber parallel

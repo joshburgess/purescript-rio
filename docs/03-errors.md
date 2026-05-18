@@ -236,7 +236,12 @@ system won't catch.
 
 - Source: [`src/RIO/Error.purs`](../src/RIO/Error.purs).
 - Spec coverage:
-  [`test/Test/RIO/ErrorSpec.purs`](../test/Test/RIO/ErrorSpec.purs).
+  [`test/Test/RIO/ErrorHandlingSpec.purs`](../test/Test/RIO/ErrorHandlingSpec.purs)
+  pins `catchTag` / `catchAll` / `mapError` / `rethrow` / `sandbox`;
+  [`test/Test/RIO/FailSpec.purs`](../test/Test/RIO/FailSpec.purs)
+  covers `fail` and `die`; the [`test/Test/RIO/Error/`](../test/Test/RIO/Error/)
+  subdirectory adds `catchSome`, `orElse`, `refine`, and `tap`
+  combinator coverage.
 - Defect channel and the `Cause` tree it lands in:
   [`docs/14-causes.md`](./14-causes.md).
 - Worked example:

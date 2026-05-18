@@ -92,7 +92,7 @@ preserves that order so tests can assert on it.
   starts at 0 and advances by 1 on every `startSpan` / `endSpan`,
   so tests can assert on the start/end order without depending
   on wall-clock timing.
-- `RIO.Tracer.OTel.makeOTelTracer` (from the `rio-otel`
+- `RIO.Tracer.OTel.Adapter.makeOTelTracer` (from the `rio-otel`
   package): forwards every span lifecycle, attribute write,
   and parent / child relationship to an `@opentelemetry/api`
   tracer. Install an OpenTelemetry SDK (`sdk-node`,
