@@ -1,6 +1,6 @@
 # rio
 
-A ZIO / Effect-TS style effect type for PureScript: typed
+A ZIO / Effect style effect type for PureScript: typed
 environment, typed errors, resource safety, layers, and
 structural concurrency, all sitting on top of `Aff`.
 
@@ -30,7 +30,7 @@ provided and failures are handled.
 
 ## Why
 
-If you've used ZIO in Scala or Effect-TS in TypeScript, you
+If you've used ZIO in Scala or Effect in TypeScript, you
 already know the shape. PureScript's row types let the same
 three-channel design feel native: the requirements channel is
 a record row, the error channel is a `Variant` row, and the
@@ -141,7 +141,7 @@ or point your `spago.yaml` at the git remote directly.
   with runners `repeat`, `retry`, `retryOrElse` that sleep through
   `Clock` so the virtual-time test clock can drive them.
 - `RIO.STM`: software-transactional memory. `TRef` (with a
-  `TVar` alias for `ZIO`/`Effect-TS` muscle memory), `STM e a`,
+  `TVar` alias for `ZIO`/`Effect` muscle memory), `STM e a`,
   `newTRef` / `readTRef` / `writeTRef` / `modifyTRef`, `retry` /
   `check`, `orElse`, `failSTM`, and `atomically`. Single-event-loop
   atomicity: no version checks, no spinning.
@@ -183,7 +183,7 @@ or point your `spago.yaml` at the git remote directly.
   bridge into existing pipelines; `pipe` (`upstream >>>
   downstream`) and `run` compose and execute a closed pipeline.
   The Channel layer is the bedrock primitive in ZIO and
-  Effect-TS, exposed here so users can write stream-to-stream
+  Effect, exposed here so users can write stream-to-stream
   transducers as first-class values when `Stream.mapM` /
   `Stream.flatMap` / `Sink.andThen` are not enough.
 - `RIO.Tracer`: spans with `withSpan` and `addAttribute`. Implicit
@@ -253,7 +253,7 @@ Walkthrough docs:
 - [`docs/12-logging.md`](./docs/12-logging.md): structured
   logging via `RIO.Logger`, scoped annotations with
   `withFields`, the shipped backends, and the comparison to
-  ZIO `ZLogger` / Effect-TS `Effect.logAnnotations`.
+  ZIO `ZLogger` / Effect `Effect.logAnnotations`.
 - [`docs/13-streams.md`](./docs/13-streams.md): pull-based
   `RIO.Stream`, parallel combinators in `RIO.Stream.Par`
   (`mergeAll`, `broadcast`, `partition`), and resource-safe
