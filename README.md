@@ -64,7 +64,7 @@ automatically on composition and shrink as services are
 provided and failures are handled.
 
 > **Before you commit**, read
-> [`docs/aff-constraints.md`](./docs/aff-constraints.md). `rio`
+> [`docs/aff-constraints.md`](./docs/aff-constraints.md). `purescript-rio`
 > sits on top of `Effect.Aff`; that is a deliberate choice and a
 > hard upper bound. The doc spells out what the bound looks like
 > in practice (typed errors as wrapping, no fiber identity or
@@ -72,7 +72,7 @@ provided and failures are handled.
 > rather than per-fiber state, virtual time via `Clock`
 > discipline, and so on) and what a future custom fiber runtime
 > would have to provide to escape it. It is the most useful
-> single page in this repository if you are evaluating `rio` for
+> single page in this repository if you are evaluating `purescript-rio` for
 > production.
 
 ## Why
@@ -132,7 +132,7 @@ render.
 
 ## Install
 
-`rio` is not yet published to the PureScript registry. To try it
+`purescript-rio` is not yet published to the PureScript registry. To try it
 out, clone the repository and use it as a local workspace package,
 or point your `spago.yaml` at the git remote directly.
 
@@ -262,10 +262,10 @@ or point your `spago.yaml` at the git remote directly.
 Foundational reading:
 
 - [`docs/aff-constraints.md`](./docs/aff-constraints.md): the
-  hard constraint that `rio` is built on `Effect.Aff`, what that
+  hard constraint that `purescript-rio` is built on `Effect.Aff`, what that
   gives us for free, what it cannot give us, and what a future
   custom fiber runtime would have to provide to lift each
-  ceiling. Read this before adopting `rio` for anything
+  ceiling. Read this before adopting `purescript-rio` for anything
   load-bearing.
 
 Walkthrough docs:
