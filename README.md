@@ -31,10 +31,31 @@ data Op r e a
   | Local (Record r -> Record r') (Op r' e a)    -- existential r'
 ```
 
-Library combinators build these through smart-constructor FFI
-factories so users never see `Op` directly. Synchronous binds stay
-in the interpreter's inner loop and only true async work crosses
-into `Aff`; at the boundary,
+`Op` is not declared as a PureScript `data` type. It's
+`foreign import data Op` in `RIO.Internal`, with smart-constructor
+FFI factories that build the runtime values directly. This is a
+performance choice:
+
+- **Jump-table dispatch.** The tags are small integers (`PURE = 0`,
+  `SYNC = 1`, `BIND = 2`, ...). The interpreter's hot loop is a
+  `switch (state.current.tag)` on those integers, which V8 compiles
+  to a single indirect jump rather than a chain of branch tests. A
+  PureScript ADT would dispatch on the compiler's tagged-object
+  shape, which is slower.
+- **In-place state mutation.** The interpreter mutates `state.stack`,
+  `state.envs`, `state.catches`, and `state.current` every step, and
+  reuses a singleton `ASK_NODE` for every `ask` so there's zero
+  allocation. PS ADT values are nominally immutable; doing this
+  through them would require `unsafeCoerce` at every site.
+- **Field layout control.** The JS objects (`{ tag, value }`,
+  `{ tag, m, k }`, `{ tag, fn }`) are designed so the interpreter
+  reads fields by name rather than through PS's positional
+  `value0` / `value1` projections.
+
+Users never construct or pattern-match on `Op`. Library combinators
+build these through the FFI factories; the `RIO` newtype hides the
+wrapper. Synchronous binds stay in the interpreter's inner loop and
+only true async work crosses into `Aff`; at the boundary,
 `unRIO m env :: Aff (Either (Variant e) a)` reifies the final
 outcome, with typed failures in the `Left` branch.
 
