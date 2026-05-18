@@ -184,7 +184,7 @@ scoped do
 The release runs on every termination path: success,
 typed-failure, defect, interruption. This is the same guarantee
 ZIO provides, implemented on top of `Effect.Aff.bracket`. See
-`docs/05-resources.md` and the Phase 0.5 spike at
+`docs/05-resources.md` and
 `spikes/aff-interruption/FINDINGS.md` for the underlying `Aff`
 guarantees.
 
@@ -267,13 +267,10 @@ small "record every call into a `Ref`" helper for assertions
 on service interactions. `RIO.Test.Clock.newTestClock` is the
 direct counterpart of ZIO's `TestClock`: virtual time, an
 explicit `advance` controller, deterministic across forks. See
-`docs/07-testing.md` and the worked example at
-`spikes/phase-7-review/`.
+`docs/07-testing.md` for the full surface.
 
 ## Things ZIO has that RIO does not (yet)
 
-- **Streaming** (`ZStream`). No analogue yet; would live in a
-  separate `rio-streams` package.
 - **`Fiber.children`, `ZIO.descriptor`, full supervisor model.**
   Out of scope; `docs/06-concurrency.md` calls these out under
   "what RIO does not give you". `forkScoped` covers the

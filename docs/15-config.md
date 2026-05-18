@@ -6,7 +6,7 @@ untyped source of strings* (process env, a JSON blob, a `Map`).
 Primitive descriptors read one key; combinators decorate them
 with structure; `Applicative` composes them into a record.
 
-The interface is patterned after Effect-TS's `Config` and ZIO's
+The interface is patterned after Effect's `Config` and ZIO's
 `Config`. The headline feature is that errors collect rather
 than short-circuit: if `PORT` is unparseable and `DATABASE_URL`
 is missing, one load reports both.
@@ -277,9 +277,9 @@ The module imposes no rotation policy: polling, signal
 handling, or any other trigger is the caller's call. The
 service is just an atomic cell with a built-in loader hook.
 
-## Comparison with ZIO / Effect-TS
+## Comparison with ZIO / Effect
 
-| Concept                | ZIO                       | Effect-TS                 | `purescript-rio`       |
+| Concept                | ZIO                       | Effect                 | `purescript-rio`       |
 | ---------------------- | ------------------------- | ------------------------- | ---------------------- |
 | Descriptor type        | `Config[A]`               | `Config<A>`               | `Config a`             |
 | Primitive read         | `Config.string` / `int`   | `Config.string` / `int`   | `string` / `int` / ... |
@@ -292,7 +292,7 @@ service is just an atomic cell with a built-in loader hook.
 | Error accumulation     | `Multi`                   | `Cause.Parallel`          | `Multi`                |
 | Refreshable cell       | (manual via `Ref`)        | (manual via `Ref`)        | `RIO.Config.Rotating`  |
 
-The error-accumulation behavior matches Effect-TS exactly; ZIO
+The error-accumulation behavior matches Effect exactly; ZIO
 1.x used a slightly different shape that's since aligned with
 the "collect everything" default in 2.x.
 

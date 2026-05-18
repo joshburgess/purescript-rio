@@ -37,7 +37,7 @@ previous annotation set (typically empty, or whatever an outer
 `withFields` had set) is restored.
 
 This is the same pattern as ZIO `ZLogger.withAnnotations` and
-Effect-TS `Effect.logAnnotations`: snapshot a few correlation
+Effect `Effect.logAnnotations`: snapshot a few correlation
 values at the top of a request, log freely throughout, and let
 the ambient fields flow into every emitted line.
 
@@ -191,9 +191,9 @@ fibers, capture the relevant values explicitly at the fork
 point and pass them as arguments. See `docs/11-fiber-local.md`
 for the same discussion in the `RIO.Local` setting.
 
-## Comparison to ZIO and Effect-TS
+## Comparison to ZIO and Effect
 
-| Concept                | RIO                                 | ZIO                                  | Effect-TS                          |
+| Concept                | RIO                                 | ZIO                                  | Effect                          |
 | ---------------------- | ----------------------------------- | ------------------------------------ | ---------------------------------- |
 | Emit at a level        | `logInfo "msg"`                     | `ZIO.logInfo("msg")`                 | `Effect.logInfo("msg")`            |
 | Scoped fields          | `withFields [ ... ] action`         | `ZIO.logAnnotate("k", "v") *> ...`   | `Effect.annotateLogs("k", "v")`    |

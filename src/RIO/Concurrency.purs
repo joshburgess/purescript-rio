@@ -9,7 +9,8 @@
 -- |
 -- | All of this is a thin wrapper over `Effect.Aff.forkAff` /
 -- | `killFiber` / `joinFiber`; the underlying cancellation
--- | guarantees come from the Phase 0.5 spike (scenarios S1, S3).
+-- | guarantees are documented in `spikes/aff-interruption/FINDINGS.md`
+-- | (scenarios S1, S3).
 module RIO.Concurrency
   ( Fiber(..)
   , FiberId(..)
@@ -387,12 +388,12 @@ joinAll fibs = mkRIO \_ -> traverse joinOne fibs
 -- | Sends a kill exception to the fiber. Pending `Aff.delay`s and
 -- | other awaiting points abort promptly; a tight synchronous loop
 -- | with no async boundary will not be preempted until it yields
--- | (see the Phase 0.5 spike's S2 / S2b for the canonical
--- | cooperative-cancellation caveat).
+-- | (see `spikes/aff-interruption/FINDINGS.md` scenarios S2 / S2b
+-- | for the canonical cooperative-cancellation caveat).
 -- |
 -- | Resources held by the fiber via `RIO.Resource.acquireRelease`
 -- | or `Scope` are released; the release path runs uninterruptibly
--- | (Phase 0.5 scenario S3).
+-- | (`spikes/aff-interruption/FINDINGS.md` scenario S3).
 -- |
 -- | This is infallible from the caller's perspective. Killing an
 -- | already-completed or already-killed fiber is a no-op. The
@@ -1064,7 +1065,8 @@ filterPar pred as = do
 -- | Typed failures from the action surface unchanged on the parent's
 -- | row (the timeout never converts an error into a `Nothing`). If
 -- | the action holds resources via `acquireRelease` or `Scope`,
--- | they're released as part of the interrupt (Phase 0.5 S3).
+-- | they're released as part of the interrupt
+-- | (`spikes/aff-interruption/FINDINGS.md` scenario S3).
 -- |
 -- | ```purescript
 -- | -- treat anything slower than 500ms as a miss

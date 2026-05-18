@@ -7,16 +7,15 @@ vertically (`andThen`, infix `>>>`) and horizontally (`combine`,
 infix `<+>`); they may register finalizers in the surrounding
 scope so resources are released when the providing scope exits.
 
-Phase 4 shipped resource safety (`acquireRelease`, `Scope`,
-`scoped`). Phase 5 builds on that: every layer runs inside a
-`Scope` so resource-owning layers are safe by construction.
-This document covers:
+Layers build on RIO's resource safety (`acquireRelease`, `Scope`,
+`scoped`): every layer runs inside a `Scope` so resource-owning
+layers are safe by construction. This document covers:
 
 1. Constructing layers (`fromRecord`, `fromRIO`).
 2. Composing them (`andThen`, `combine`, `passthrough`).
 3. Running them (`buildLayer`, `provideLayer`).
 4. The failure model (the `Union` constraint on the error row).
-5. How layers interact with `Scope` (Phase 5.4).
+5. How layers interact with `Scope`.
 
 The source is `src/RIO/Layer.purs`. The qualified-do sugar for
 resources, frequently used inside layer bodies, is
@@ -162,8 +161,7 @@ main = launchAff_ do
 
 The `Union e e' eOut` constraint unifies the layer's typed
 failures and the program's typed failures into one output error
-row. This is the shape Phase 0.4's row-inference spike
-recommended re-confirming in 5.3; it works as predicted.
+row.
 
 ## The failure model
 
@@ -183,7 +181,7 @@ Defects (`die`, JavaScript exceptions, fiber kills) flow
 through `Aff` and are observable via `RIO.Error.sandbox` at the
 call site; they bypass the typed `Variant` channel by design.
 
-## Resource-safe layers (Phase 5.4)
+## Resource-safe layers
 
 A layer that opens a resource is built with `fromRIO` plus
 `addFinalizer`:
@@ -211,9 +209,9 @@ finalizer is registered, and the layer's typed failure
 propagates. The matching mental model is the same as
 `acquireRelease`: nothing was opened, so nothing needs closing.
 
-## Comparison with ZIO / Effect-TS
+## Comparison with ZIO / Effect
 
-| Concept                  | ZIO                     | Effect-TS               | `purescript-rio`            |
+| Concept                  | ZIO                     | Effect               | `purescript-rio`            |
 | ------------------------ | ----------------------- | ----------------------- | --------------------------- |
 | Layer type               | `ZLayer[RIn, E, ROut]`  | `Layer<RIn, E, ROut>`   | `Layer rIn e rOut`          |
 | Build from value         | `ZLayer.succeed`        | `Layer.succeed`         | `fromRecord`                |

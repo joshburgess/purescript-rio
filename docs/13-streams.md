@@ -205,7 +205,7 @@ This is the scope-as-lifetime model ZIO uses; `ZStream`
 requires `Scope` in its environment row when the stream owns
 resources.
 
-## Comparison to ZStream / Effect-TS
+## Comparison to ZStream / Effect
 
 The shape is intentionally smaller than ZIO's `ZStream`:
 

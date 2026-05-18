@@ -1,4 +1,4 @@
--- | A minimal logger service for the Phase 2.4 example.
+-- | A minimal logger service example.
 -- |
 -- | The service is a record of `Aff`-valued operations. Each smart
 -- | constructor (`info` / `warn` / `err`) reads the record from the

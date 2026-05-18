@@ -234,11 +234,11 @@ live alongside them rather than replacing them, on purpose:
   desired default), the migration is mechanical: switch the
   implementations over to the `*Cause` variants and surface
   the cause through a new service row, the way ZIO and
-  Effect-TS do.
+  Effect do.
 
-## Comparison with ZIO / Effect-TS
+## Comparison with ZIO / Effect
 
-| Concept                  | ZIO                            | Effect-TS                  | `purescript-rio`             |
+| Concept                  | ZIO                            | Effect                  | `purescript-rio`             |
 | ------------------------ | ------------------------------ | -------------------------- | ---------------------------- |
 | Cause data type          | `Cause[E]`                     | `Cause<E>`                 | `Cause e`                    |
 | Typed failure leaf       | `Cause.Fail`                   | `Cause.Fail`               | `Fail (Variant e)`           |

@@ -1,6 +1,6 @@
 # Concurrency
 
-Phase 6 adds fork-based concurrency to `RIO`: a `Fiber` type, the
+`RIO`'s fork-based concurrency surface is a `Fiber` type, the
 `fork` / `join` / `interrupt` primitives, parallel combinators
 (`parTraverse`, `parSequence`, `zipPar`), and racing (`race`,
 `raceAll`). Everything is built directly on `Effect.Aff`. This
@@ -30,7 +30,7 @@ scenario by scenario.
   which gives the runtime a chance to deliver the kill. Scenario
   **S2b** confirms the kill lands after the first yield. This is
   the same cooperative-cancellation caveat that exists in ZIO and
-  Effect-TS.
+  Effect.
 - If `fib` has already completed, interrupt is a no-op. Subsequent
   `join`s return the cached result. This is scenario **S4**.
 
@@ -103,10 +103,10 @@ continuation on the macrotask queue, which gives any pending kill a
 chance to run first. The spike's S2b shows the kill lands within
 ~50 yield points when yielding every 100 iterations.
 
-We are not adding a `RIO.yield` primitive in Phase 6 because
+There is no `RIO.yield` primitive because
 `liftAff (delay (Milliseconds 0.0))` is short, explicit, and exposes
-exactly what's happening at the `Aff` layer. If a future phase finds
-ergonomic value in a named helper we can introduce one then.
+exactly what's happening at the `Aff` layer. A named helper can be
+introduced later if the ergonomic case for one emerges.
 
 ## How `race` interacts with resources
 
@@ -138,7 +138,7 @@ better served by explicit `fork`.
 
 - If any branch returns `Left v`, the **first** such failure
   cancels every sibling fiber and is what the combinator returns.
-  This matches ZIO `foreachPar` and Effect-TS `forEach` with
+  This matches ZIO `foreachPar` and Effect `forEach` with
   `concurrency: "unbounded"`.
 - "First" means observation order, not array index: whichever
   branch's `Left` is captured into the shared first-failure ref

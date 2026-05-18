@@ -1,14 +1,14 @@
 # Testing RIO Programs
 
-Phase 7 rounds out the testing story that started in Phase 2.6.
-`mockService` and `recording` ship from the beginning so service
-tests work without rewrites. Phase 7 adds:
+RIO's testing surface covers:
 
-1. `RIO.Clock` and `RIO.Test.Clock`: a `Clock` service plus a virtual
+1. `RIO.Test`: `mockService` and `recording` for replacing one
+   service with a stub and capturing call sequences.
+2. `RIO.Clock` and `RIO.Test.Clock`: a `Clock` service plus a virtual
    clock you advance manually.
-2. `RIO.Spec`: `purescript-spec` integration helpers (`itRIO`,
+3. `RIO.Spec`: `purescript-spec` integration helpers (`itRIO`,
    `itRIO_`, `runSpecRIO`).
-3. Patterns: how to structure tests for layered programs, when to
+4. Patterns: how to structure tests for layered programs, when to
    reach for which helper.
 
 This doc walks each piece end to end. The examples are drawn from
@@ -152,22 +152,21 @@ A one-line helper that fails the test on `Left` would need a `Show
 For programs built from layers (`docs/04-layers.md`),
 the test setup is the same as for any service: build the layer in
 the test body, run the program with `provideLayer`, assert on side
-effects via `recording` or `Ref`. The Phase 5 review at
-`spikes/phase-5-review/` walks one such six-service application;
-its assertions are byte-for-byte event logs read out of a `Ref`
-that each layer's mock implementation writes to.
+effects via `recording` or `Ref`. The end-to-end review fixtures
+under `spikes/phase-5-review/` walk one such six-service
+application; their assertions are byte-for-byte event logs read
+out of a `Ref` that each layer's mock implementation writes to.
 
 A useful structuring tip: keep the layer wiring in a helper at the
 top of the test file, then write each test body against the
 service surface only. The test file ends up looking the same
-whether the layer is mocked or live, which is the property the
-build plan's Phase 7 review cycle exercises.
+whether the layer is mocked or live.
 
-## What's not in Phase 7
+## What's not in the testing surface
 
-- **Property tests via `purescript-quickcheck`.** The Phase 1 law
-  checks are sampled, not generated. Generators that drive `Aff`
-  programs are a future candidate.
+- **Property tests via `purescript-quickcheck`.** The law checks
+  in the test suite are sampled, not generated. Generators that
+  drive `Aff` programs are a future candidate.
 - **Snapshot testing.** No built-in support; if you need it, write
   the snapshot to a file from `Aff` and diff in the assertion.
 - **Test isolation per fiber.** Per-test isolation is best handled

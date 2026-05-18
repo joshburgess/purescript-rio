@@ -1,11 +1,10 @@
 -- | Typed-error primitives for `RIO`.
 -- |
--- | Phase 1.3 ships the raising side (`fail`). Phase 3.1 adds `catchTag`,
--- | which handles one tagged failure and shrinks the error row. Phase 3.2
--- | adds `catchAll` and `mapError`, which replace the row in bulk.
--- | Phase 3.3 adds the defect primitives (`die`, `sandbox`, `unsandbox`),
--- | distinguishing typed failures (in the row) from `Aff` exceptions
--- | (defects).
+-- | `fail` is the raising side. `catchTag` handles one tagged failure
+-- | and shrinks the error row; `catchAll` and `mapError` replace the
+-- | row in bulk. `die`, `sandbox`, and `unsandbox` are the defect
+-- | primitives, distinguishing typed failures (in the row) from
+-- | `Aff` exceptions (defects).
 module RIO.Error
   ( absolve
   , catchAll
@@ -120,7 +119,7 @@ instance catchableErrorTag ::
 
 -- | Raise a typed failure tagged with the symbol `sym`. The tag and its
 -- | payload type are added to the inferred error row, where they can be
--- | caught later by `catchTag` (Phase 3) or surfaced via `runRIO`.
+-- | caught later by `catchTag` or surfaced via `runRIO`.
 -- |
 -- | ```purescript
 -- | -- Inferred type:

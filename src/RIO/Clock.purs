@@ -1,10 +1,9 @@
 -- | A `Clock` service plus a live implementation.
 -- |
--- | Phase 7.1 introduces the service in production code (rather than
--- | hiding it in a testing module) so application programs can `ask`
--- | for time and `sleep` through the same row machinery they use for
--- | every other service. The mock implementation lives in
--- | `RIO.Test.Clock`.
+-- | The service lives in production code (rather than only in a
+-- | testing module) so application programs can `ask` for time and
+-- | `sleep` through the same row machinery they use for every other
+-- | service. The mock implementation lives in `RIO.Test.Clock`.
 -- |
 -- | Two operations: `now` returns the current wall-clock time in
 -- | milliseconds since the Unix epoch, and `sleep ms` suspends the
@@ -138,7 +137,8 @@ nowParts = do
 -- |
 -- | Under `liveClock` this delegates to `Effect.Aff.delay`, which is
 -- | cancellable: an `interrupt` on the fiber will abort the sleep at
--- | the next event-loop tick (see the Phase 0.5 spike's S1).
+-- | the next event-loop tick (see `spikes/aff-interruption/FINDINGS.md`,
+-- | scenario S1).
 -- |
 -- | ```purescript
 -- | pollEvery :: forall r e. Milliseconds -> RIO r e Unit -> RIO (clock :: Clock | r) e Unit

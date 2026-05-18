@@ -5,7 +5,7 @@
 runs it as an `RIO` action that either commits every staged
 write at once or applies none.
 
-The shape mirrors ZIO `STM` / Effect-TS `STM`:
+The shape mirrors ZIO `STM` / Effect `STM`:
 
 - `TRef a`: a transactional reference, the unit of shared state.
 - `STM e a`: the transaction monad. Reads, writes, and decisions

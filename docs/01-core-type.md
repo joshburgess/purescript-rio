@@ -40,8 +40,8 @@ readPort = do
 
 The row is open by default: requirements accumulate automatically when
 you sequence computations that need different services, and shrink as
-those services are supplied with `provide`. (`ask`, `asks`, `provide`
-arrive in Phase 2; the row machinery itself is already in place.)
+those services are supplied with `provide`. See
+[`02-services.md`](./02-services.md) for the service-row machinery.
 
 When the row is empty (`r = ()`), the computation needs nothing from its
 environment and can be handed to `runRIO` directly.
@@ -61,7 +61,7 @@ notFound id = fail (Proxy :: Proxy "notFound") { id }
 
 Two effects that can fail with different sets of tags compose into one
 whose failure row is the union; no shared error supertype is required.
-Catching a tag (Phase 3) removes it from the row, so the type tells you
+Catching a tag with `catchTag` removes it from the row, so the type tells you
 which failures are still possible at any point in the program.
 
 The success type `a` is independent of the failure row, and a `fail`
@@ -119,15 +119,16 @@ Two practical differences are worth flagging:
     row-shaped, not intersection-shaped.
   * **`Aff` is cooperative.** PureScript's `Aff` does not preempt
     synchronous bind chains; the
-    [Phase 0.5 spike](../spikes/aff-interruption/FINDINGS.md) covers
+    [aff-interruption spike](../spikes/aff-interruption/FINDINGS.md) covers
     exactly what is and isn't guaranteed. ZIO and Effect both have the
     same cooperative property; the difference is what their `yieldNow`
     primitive is called.
 
 ## A worked example
 
-This is the smallest interesting program at the level Phase 1 supports.
-Nothing here uses `ask` or `catchTag`; those are Phase 2 and Phase 3.
+This is the smallest interesting program using only the core type.
+Nothing here uses `ask` or `catchTag`; those are covered in
+[`02-services.md`](./02-services.md) and [`03-errors.md`](./03-errors.md).
 
 ```purescript
 module Example where
@@ -166,16 +167,19 @@ main = launchAff_ do
 The inferred type of the do-block is
 `RIO () (notFound :: { id :: Int }) String`; PureScript figures the row
 out from the body. The `Left` branch carries a `Variant` you can pattern
-match with `Variant.on` (Phase 3 adds `catchTag` to do this in a
-type-narrowing way inside the monad).
+match with `Variant.on`; `catchTag` does the same job in a
+type-narrowing way inside the monad.
 
 ## What's next
 
-  * Phase 2 adds `ask` / `asks` / `provide` and the service pattern.
-  * Phase 3 adds `catchTag` / `catchAll` / `mapError` and the
-    typed/defect split.
-  * Phase 4 adds resource safety (`acquireRelease`, `scoped`).
-  * Phase 6 adds concurrency primitives (`fork`, `join`, `race`).
+  * [`02-services.md`](./02-services.md): `ask` / `asks` / `provide`
+    and the service pattern.
+  * [`03-errors.md`](./03-errors.md): `catchTag` / `catchAll` /
+    `mapError` and the typed/defect split.
+  * [`05-resources.md`](./05-resources.md): resource safety
+    (`acquireRelease`, `scoped`).
+  * [`06-concurrency.md`](./06-concurrency.md): concurrency primitives
+    (`fork`, `join`, `race`).
 
 ## Pointers
 

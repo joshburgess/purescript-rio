@@ -1,14 +1,14 @@
 -- | Resource-safety primitives for `RIO`.
 -- |
--- | Phase 4.1 adds `acquireRelease`, the bracket-style primitive that
--- | guarantees a release action runs on every path: success, typed
--- | failure, defect, or fiber kill. Phase 4.2 adds `Scope` and
--- | `scoped` for LIFO finalizers.
+-- | `acquireRelease` is the bracket-style primitive that guarantees a
+-- | release action runs on every path: success, typed failure, defect,
+-- | or fiber kill. `Scope` and `scoped` give LIFO finalizers for
+-- | resources that share a lifetime.
 -- |
 -- | All of these build directly on `Effect.Aff.bracket`, whose release
--- | phase is uninterruptible by default (verified by the Phase 0.5
--- | spike). See `spikes/aff-interruption/FINDINGS.md` scenario S6 for
--- | the underlying evidence.
+-- | phase is uninterruptible by default. See
+-- | `spikes/aff-interruption/FINDINGS.md` scenario S6 for the
+-- | underlying evidence.
 module RIO.Resource
   ( acquireRelease
   , bracket

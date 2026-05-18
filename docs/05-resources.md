@@ -1,10 +1,10 @@
 # Resources
 
-Phase 4 adds the resource-safety primitives to `RIO`:
-`acquireRelease`, `ensuring`, and `Scope` / `scoped`. These all
-build on `Aff.bracket`, whose release phase is uninterruptible
-by default (verified in `spikes/aff-interruption/FINDINGS.md`,
-scenario S6). The guarantees they offer:
+RIO's resource-safety primitives are `acquireRelease`, `ensuring`,
+and `Scope` / `scoped`. These all build on `Aff.bracket`, whose
+release phase is uninterruptible by default (verified in
+`spikes/aff-interruption/FINDINGS.md`, scenario S6). The guarantees
+they offer:
 
 - The release of an acquired resource runs on every path:
   success, typed failure, defect (`die` or any `Aff`
@@ -207,13 +207,13 @@ Every primitive in this module sits on `Aff.bracket` or
   default is "release runs to completion".
 
 The full evidence for these guarantees is
-`spikes/aff-interruption/FINDINGS.md`, scenarios S5 and S6.
-Phase 4's design is what those scenarios were written to
-support.
+`spikes/aff-interruption/FINDINGS.md`, scenarios S5 and S6. The
+design of `acquireRelease` and `Scope` is what those scenarios
+were written to support.
 
-## Comparison with ZIO / Effect-TS
+## Comparison with ZIO / Effect
 
-| Concept             | ZIO                                | Effect-TS               | `purescript-rio`     |
+| Concept             | ZIO                                | Effect               | `purescript-rio`     |
 | ------------------- | ---------------------------------- | ----------------------- | -------------------- |
 | Bracket             | `ZIO.acquireRelease`               | `Effect.acquireRelease` | `acquireRelease`     |
 | Finally             | `ZIO.ensuring`                     | `Effect.ensuring`       | `ensuring`           |

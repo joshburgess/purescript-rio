@@ -1,7 +1,7 @@
 -- | `purescript-spec` integration helpers for `RIO`.
 -- |
--- | Phase 7.2 adds two small adapters so an `RIO` program slots
--- | directly into a `Spec` suite without per-test boilerplate:
+-- | Two small adapters slot an `RIO` program directly into a
+-- | `Spec` suite without per-test boilerplate:
 -- |
 -- |   * `itRIO` runs a fully-handled `RIO () () Unit` program as
 -- |     a test body. Defects raised inside the program surface as

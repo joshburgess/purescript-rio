@@ -13,7 +13,7 @@ sections below spell out what the bound looks like in practice and
 where a future `rio` (or a fork) would have to replace `Aff` with
 a custom fiber runtime to escape it.
 
-If you have used ZIO in Scala or Effect-TS in TypeScript, you
+If you have used ZIO in Scala or Effect in TypeScript, you
 will recognise most of these ceilings: those libraries hit them
 too, but they solve them by shipping their own fiber runtime
 rather than reusing a host effect type.
@@ -21,7 +21,7 @@ rather than reusing a host effect type.
 ## Why `Aff`?
 
 `rio` started as a prototype to answer a specific question: can
-PureScript's row types and `Variant` carry the ZIO / Effect-TS
+PureScript's row types and `Variant` carry the ZIO / Effect
 three-channel design (typed requirements, typed errors, typed
 success) cleanly enough to be usable in a real codebase? The
 answer turned out to be yes, and most of the surface in this
@@ -59,7 +59,7 @@ prototype. The reasoning was:
   of bespoke scheduling would save it. Starting with `Aff` made
   the design question separable from the runtime question.
 
-So this is a proof of concept that the ZIO / Effect-TS pattern
+So this is a proof of concept that the ZIO / Effect pattern
 ports to PureScript, demonstrated with a real surface, real
 tests, and real example services, while explicitly deferring
 the "own the runtime" question. The constraints documented
@@ -159,7 +159,7 @@ mistakes from new primitives.
 ZIO's `Cause` is observed directly by the runtime: every fiber
 death, every interrupt, every parallel join produces a `Cause`
 node without any user instrumentation. `Effect.Cause` is the
-same in Effect-TS.
+same in Effect.
 
 `rio`'s `RIO.Cause` is a userland reification. `attemptCause`,
 `parTraverseCause`, `raceCause`, and friends manually walk the
@@ -404,7 +404,7 @@ roadmap, not a current feature list.
   the host JS stack.
 
 That is a substantial undertaking. ZIO has spent years on its
-runtime; Effect-TS has rebuilt large parts of theirs more than
+runtime; Effect has rebuilt large parts of theirs more than
 once. Reusing `Aff` is the pragmatic choice while `rio` proves
 its surface and gathers users. Replacing `Aff` is the eventual
 escape hatch if the ceiling starts to bite.
@@ -430,7 +430,7 @@ honest summary:
   on a third-party `Aff` library that sleeps internally, your
   test clock will not catch it.
 - For typed-error ergonomics and service injection, you get the
-  full ZIO / Effect-TS feel; those are language-level features
+  full ZIO / Effect feel; those are language-level features
   carried by PureScript's row types, not runtime features, and
   they do not depend on `Aff` at all.
 - For cancellation correctness, prefer `acquireRelease` and
@@ -441,7 +441,7 @@ honest summary:
 In short: `rio` is `Aff` with a typed-services-and-errors front
 end and a structured-concurrency vocabulary. Treat the runtime
 ceiling above as the upper bound on what it can do, and the
-ZIO / Effect-TS feature set as the eventual target. The gap is
+ZIO / Effect feature set as the eventual target. The gap is
 the work a future custom runtime would close.
 
 ## Pointers

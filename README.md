@@ -1,4 +1,4 @@
-# rio
+# purescript-rio
 
 A ZIO / Effect style effect type for PureScript: typed
 environment, typed errors, resource safety, layers, and
@@ -321,7 +321,7 @@ Walkthrough docs:
 Migration guides for users coming from other ecosystems:
 
 - [`docs/migrating-from-zio.md`](./docs/migrating-from-zio.md)
-- [`docs/migrating-from-effect-ts.md`](./docs/migrating-from-effect-ts.md)
+- [`docs/migrating-from-effect.md`](./docs/migrating-from-effect.md)
 
 Worked examples:
 
@@ -365,6 +365,30 @@ Worked examples:
   `rio-config-file`, showing the `Config` DSL end-to-end with
   `dotenvFileSource`, `withDefault`, `Secret` redaction, and a
   `prettyConfigError` failure path.
+- [`examples/batch-import/`](./examples/batch-import/): a
+  row-typed pipeline that exercises `memoize` for a shared
+  config load, `validatePar` for error accumulation, `orElse`
+  for primary / backup lookups, `option` for soft-degraded
+  enrichment, and `foldRIO` to fold per-record outcomes into a
+  unified report.
+- [`examples/typed-error-workflow/`](./examples/typed-error-workflow/):
+  a flaky `userApi` survived via `RIO.Schedule.retry`, a
+  `RIO.CircuitBreaker` that fail-fasts after a streak, and
+  `catchTag` routing each remaining tag to a deliberate
+  outcome, all stitched through recording `Logger` and `Tracer`
+  backends.
+- [`examples/showcase/`](./examples/showcase/): wires `Schema`,
+  `Logger.withFields`, `Tracer`, a `mockSql` store, and
+  `HttpStream.fromChunks` into an in-process HTTP application
+  whose handler is driven with hand-built requests, dispatched
+  via `unRIO` so the example doubles as a server-framework
+  adapter sketch.
+- [`examples/production-app/`](./examples/production-app/):
+  the canonical long-running daemon wire-up: `Layer` for the
+  service graph, `Runtime` for the resolved environment,
+  `withSpan` per heartbeat, and `RIO.Node.Shutdown.withShutdown`
+  racing the worker against `SIGINT` / `SIGTERM` so layer
+  finalizers fire LIFO on exit.
 
 ## Build
 

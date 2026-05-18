@@ -36,7 +36,7 @@ examples/                    end-to-end example programs
 benchmarks/                  benchmark suite (workspace package)
 compile-fail/                negative tests for error-message quality
 rio-*/                       adapter / integration packages
-FUTURE_WORK.md               remaining open items relative to ZIO / Effect-TS
+FUTURE_WORK.md               remaining open items relative to ZIO / Effect
 ```
 
 ## Submitting a change
@@ -100,7 +100,7 @@ A PR is ready for review when:
 - API docstrings are required for every public binding (see "Definition of
   Done" below). One example per docstring.
 - The migration guides (`docs/migrating-from-zio.md`,
-  `docs/migrating-from-effect-ts.md`) are intentionally code-snippet-heavy.
+  `docs/migrating-from-effect.md`) are intentionally code-snippet-heavy.
   Add new snippets there when an idiom doesn't already have a 1:1 mapping.
 - The constraints doc (`docs/aff-constraints.md`) is the canonical
   statement of the `Aff` runtime ceiling. Update it if a change either
@@ -137,4 +137,4 @@ tag you see as a snapshot rather than a stability promise.
 
 Open a GitHub issue using one of the templates (when they exist). For now,
 free-form is fine. If your issue is about a remaining gap relative to
-ZIO / Effect-TS, see `FUTURE_WORK.md` for the live list.
+ZIO / Effect, see `FUTURE_WORK.md` for the live list.

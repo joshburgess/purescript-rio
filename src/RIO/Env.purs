@@ -1,7 +1,7 @@
 -- | Environment-row primitives for `RIO`.
 -- |
--- | Phase 2.1 ships the reading side (`ask`, `asks`). Phase 2.2 adds
--- | `provide` for supplying a single service.
+-- | `ask` / `asks` are the reading side; `provide` / `provideAll`
+-- | supply services into the environment row.
 module RIO.Env
   ( ask
   , asks
@@ -71,11 +71,12 @@ asks sym f = map f (ask sym)
 -- | result = provide (Proxy :: Proxy "logger") myLogger inner
 -- | ```
 -- |
--- | The original API draft also carried a `Lacks sym r'` constraint;
--- | the Phase 0.4 spike's findings (LE-1) recommended dropping it for
--- | better inference and shorter error messages. The internal insertion
--- | is performed by `unsafeSet`, which is safe under the `Cons` relation
--- | because `r'` is the row `r` minus `sym` by construction.
+-- | An earlier API draft also carried a `Lacks sym r'` constraint; it
+-- | was dropped after the row-inference spike found that omitting it
+-- | gave better inference and shorter error messages. The internal
+-- | insertion is performed by `unsafeSet`, which is safe under the
+-- | `Cons` relation because `r'` is the row `r` minus `sym` by
+-- | construction.
 provide
   :: forall sym a r' r e b
    . IsSymbol sym

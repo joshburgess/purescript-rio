@@ -1,7 +1,8 @@
 # Errors and Error Narrowing
 
-Phase 1.3 shipped `fail`, the raising side of the typed-error channel.
-Phase 3 adds the handling side. This document covers:
+`fail` is the raising side of the typed-error channel;
+`catchTag` / `catchAll` / `mapError` / `rethrow` are the handling
+side. This document covers:
 
 1. The four shapes of handler: `catchTag`, `catchAll`, `mapError`, and
    `rethrow`.

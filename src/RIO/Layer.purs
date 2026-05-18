@@ -5,10 +5,6 @@
 -- | they may register finalizers in the surrounding scope so resources
 -- | are released when the providing scope exits.
 -- |
--- | Phase 5.1 introduced the type and `buildLayer`. Phase 5.2 adds
--- | `andThen` / `combine` (and their operator aliases). The
--- | user-facing combinator `provideLayer` lands in Phase 5.3.
--- |
 -- | The infix `(>>>)` shadows `Control.Semigroupoid.(>>>)` from
 -- | `Prelude` when both are imported. Hide one or use the named form
 -- | (`andThen`) when both are needed in the same module.
@@ -232,9 +228,8 @@ buildLayer (Layer rio) = unRIO (scoped rio) {}
 -- | (See `spikes/aff-interruption/FINDINGS.md` scenario S6 for the
 -- | underlying cancellation guarantee.)
 -- |
--- | The error-row union is the shape the Phase 0.4 row-inference
--- | spike recommended re-confirming in Phase 5.3; it works as
--- | predicted. The forward direction (`Variant e -> Variant eOut`)
+-- | The error-row union works as predicted by the row-inference
+-- | spike. The forward direction (`Variant e -> Variant eOut`)
 -- | is handled by `Data.Variant.expand` against the supplied
 -- | `Union e e' eOut`; the program-side direction (`Variant e' ->
 -- | Variant eOut`) is `unsafeCoerce` because PureScript's row

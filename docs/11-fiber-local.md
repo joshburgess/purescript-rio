@@ -32,7 +32,7 @@ handleRequest req = locally (asRequestId env) req.id do
 ```
 
 The shape mirrors ZIO's `FiberRef` and the `Context`-based
-fiber state in Effect-TS. The semantics on our `Aff`-based
+fiber state in Effect. The semantics on our `Aff`-based
 runtime differ; see "Inheritance and concurrency" below.
 
 ## API
@@ -128,9 +128,9 @@ locally tier "free" do
   -- back to "free", not the initial default
 ```
 
-## Comparison to ZIO and Effect-TS
+## Comparison to ZIO and Effect
 
-| Concept                    | RIO                            | ZIO                              | Effect-TS                          |
+| Concept                    | RIO                            | ZIO                              | Effect                          |
 | -------------------------- | ------------------------------ | -------------------------------- | ---------------------------------- |
 | Create a cell              | `newLocal value`               | `FiberRef.make(value)`           | `FiberRef.make(value)`             |
 | Read                       | `get fl`                       | `fl.get`                         | `FiberRef.get(fl)`                 |

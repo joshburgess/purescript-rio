@@ -1,6 +1,6 @@
 # Services and the Environment Row
 
-Phase 2 of RIO adds `ask` / `asks` for reading a service out of the
+RIO uses `ask` / `asks` for reading a service out of the
 environment, and `provide` / `provideAll` for supplying one. This
 document covers:
 
@@ -8,7 +8,7 @@ document covers:
 2. How `ask` and `provide` make the environment row grow and shrink.
 3. Two non-obvious traps to avoid.
 
-The Phase 2.4 example at `examples/logger/` is the running reference.
+The `examples/logger/` example is the running reference.
 
 ## The shape of a service
 
@@ -80,8 +80,8 @@ shrinks it to `()` in one step.
 The compiler does the bookkeeping. You do not write out the row of
 required services manually except in top-level signatures (and even
 there only when you want to fix the row's shape for documentation or
-to nail down inference; the Phase 0.4 spike confirmed the patterns
-here all infer cleanly without explicit annotations).
+to nail down inference; the row-inference spike confirmed the
+patterns here all infer cleanly without explicit annotations).
 
 ## Trap 1: don't make service operations polymorphic over `m`
 
@@ -156,7 +156,7 @@ both = do
 
 You did not have to write `logger :: Logger, db :: Database` yourself
 unless you wanted to nail down the top-level signature; the body alone
-would force inference into the same shape. The Phase 0.4 spike
+would force inference into the same shape. The row-inference spike
 documented exactly which composition patterns infer this cleanly and
 which need annotations; in summary, do-blocks always do, point-free
 compositions sometimes need help, and `provide` and `provideAll` both
@@ -165,10 +165,11 @@ exercised by the spike.
 
 ## What's next
 
-  * Phase 3 adds typed error handling: `catchTag`, `catchAll`, `mapError`.
-    The `e` row narrows on catch the same way the `r` row narrows on
-    `provide`.
-  * Phase 4 adds resource safety (`acquireRelease`, `scoped`).
+  * [`03-errors.md`](./03-errors.md): typed error handling via
+    `catchTag` / `catchAll` / `mapError`. The `e` row narrows on
+    catch the same way the `r` row narrows on `provide`.
+  * [`05-resources.md`](./05-resources.md): resource safety
+    (`acquireRelease`, `scoped`).
 
 ## Pointers
 

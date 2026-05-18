@@ -1,12 +1,10 @@
 -- | Internal definition of the `RIO` newtype.
 -- |
--- | Phase 5 replaces the original `Record r -> Aff a` closure encoding with
--- | an operation-list (ADT) encoding interpreted by a hand-rolled
--- | step / resume machine. The newtype now wraps an opaque `Op` whose
--- | constructors are tagged JS objects (see `Internal.js`). The hot path
--- | for synchronous binds runs entirely inside the FFI loop, paying no
--- | per-`bind` `Aff` cost; only true async work goes through the driver
--- | loop here.
+-- | The newtype wraps an opaque `Op` instruction tree interpreted by a
+-- | hand-rolled step / resume machine. The `Op` constructors are tagged
+-- | JS objects (see `Internal.js`). The hot path for synchronous binds
+-- | runs entirely inside the FFI loop, paying no per-`bind` `Aff` cost;
+-- | only true async work goes through the driver loop here.
 -- |
 -- | Two compatibility helpers preserve the throw-based contract that the
 -- | rest of the library was written against:

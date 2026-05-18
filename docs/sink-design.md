@@ -55,7 +55,7 @@ effectful-`finish` variant cleaner.
 
 ## Why `zipPar` is single-fiber
 
-ZIO and Effect-TS both expose a fan-out primitive that hands
+ZIO and Effect both expose a fan-out primitive that hands
 the same stream to N concurrent consumers, each on its own
 fiber, with backpressure between them. In this library that's
 already `RIO.Stream.Par.broadcast`.
