@@ -28,6 +28,7 @@ module RIO.Fiber.Stream
   , forEach
   , run
   , runCollect
+  , runSink
   , buffer
   , merge
   , mapPar
@@ -74,6 +75,7 @@ import RIO.Fiber.Schedule (Schedule)
 import RIO.Fiber.Schedule as Sch
 import RIO.Fiber.Scope (Scope)
 import RIO.Fiber.Scope as Scope
+import RIO.Fiber.Sink (Sink(..))
 import RIO.Fiber.STM as STM
 import RIO.Fiber.STM.TQueue (TQueue)
 import RIO.Fiber.STM.TQueue as TQ
@@ -190,6 +192,25 @@ run = forEach (\_ -> pure unit)
 -- | Pull every element into an array. Use only on bounded streams.
 runCollect :: forall r e a. Stream r e a -> RIO r e (Array a)
 runCollect = fold snoc []
+
+-- | Drive a `Sink` with this stream. The sink may terminate early
+-- | (via `Just o` from `step`), in which case the stream is not
+-- | pulled further. If the stream ends first, the sink's `done`
+-- | synthesises the final result from its accumulated state.
+runSink :: forall r e i o. Stream r e i -> Sink r e i o -> RIO r e o
+runSink stream0 (Sink mkLoop) = do
+  loop <- mkLoop
+  let
+    go (Stream pull) = do
+      s <- pull
+      case s of
+        Done -> loop.done
+        Yield i rest -> do
+          mOut <- loop.step i
+          case mOut of
+            Just o -> pure o
+            Nothing -> go rest
+  go stream0
 
 -- | Insert a bounded buffer of size `n` between producer and
 -- | consumer. The producer runs in a forked fiber that fills the

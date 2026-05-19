@@ -17,6 +17,7 @@ import Test.RIO.Fiber.ScheduleSpec as ScheduleSpec
 import Test.RIO.Fiber.ScopeSpec as ScopeSpec
 import Test.RIO.Fiber.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.Fiber.ServicesSpec as ServicesSpec
+import Test.RIO.Fiber.SinkSpec as SinkSpec
 import Test.RIO.Fiber.STMSpec as STMSpec
 import Test.RIO.Fiber.STM.TArraySpec as TArraySpec
 import Test.RIO.Fiber.STM.TChanSpec as TChanSpec
@@ -45,6 +46,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   PoolSpec.spec
   MetricsSpec.spec
   ServicesSpec.spec
+  SinkSpec.spec
   StreamSpec.spec
   STMSpec.spec
   TMVarSpec.spec
