@@ -109,6 +109,27 @@ function makeResult(mode, value) {
 
 const RESULT_INTERRUPT = { mode: M_INTERRUPT, value: null };
 
+// Lightweight stand-in for an already-completed Fiber. forkInline of
+// a PURE / SYNC body produces a child whose result is known before we
+// hand the handle to the parent; allocating a full Fiber object (14
+// fields + supervisor loop + a step() round-trip) just to satisfy a
+// later JOIN is wasteful. A `DoneFiber` exposes only the surface that
+// JOIN, _fiberIsDone, _fiberResult, _fiberObserve, and _fiberInterrupt
+// actually touch.
+function DoneFiber(result) {
+  this.queued = false;
+  this.status = F_DONE;
+  this.result = result;
+}
+DoneFiber.prototype.observe = function (cb) {
+  // Match Fiber.observe's "already done" branch: deliver the result
+  // immediately on the same call stack the joiner is on.
+  cb(this.result);
+};
+DoneFiber.prototype.interrupt = function () {
+  // Already complete; interruption is a no-op.
+};
+
 // Convert a fiber-completion result object into a Cause. Mirrors
 // `modeToCause` for the result-object shape used by observers.
 function resultToCause(r) {
@@ -335,6 +356,12 @@ function Fiber(op, env, frefs) {
   // act on it).
   this.mask = 0;
   this.canceller = null;
+  // True while this fiber is sitting in the run queue waiting for
+  // its first step. JOIN uses this to drive the target synchronously
+  // when the parent reaches the join before the microtask drains,
+  // collapsing the per-fork microtask hop on the fan-in path. Cleared
+  // by `_runDrain` (or by an inline-driving JOIN) before step().
+  this.queued = false;
   // Per-fiber state map keyed by FiberRef identity. We stay lazy:
   // the Map itself is not allocated until either the fiber or one
   // of its ancestors actually writes a FiberRef. `frefs === null`
@@ -514,15 +541,54 @@ Fiber.prototype.step = function () {
             continue;
           }
           if (innerTag === FORK) {
+            // PURE-bodied fork has no observable side effect, so the
+            // "child runs after parent's next op" invariant is
+            // preserved even if we settle the result eagerly. We still
+            // route through the full Fiber path when a supervisor is
+            // watching so onStart / onEnd stay consistent. SYNC bodies
+            // are NOT eligible: their effect must wait for the
+            // microtask drain.
+            const body = inner.op;
+            if (body._tag === PURE && _supervisors.length === 0) {
+              const stub = new DoneFiber(makeResult(M_OK, body.value));
+              this.current = op.next(stub);
+              continue;
+            }
             this.frefsOwn = false;
-            const child = new Fiber(inner.op, this.env, this.frefs);
+            const child = new Fiber(body, this.env, this.frefs);
             scheduleFiber(child);
             this.current = op.next(child);
             continue;
           }
           if (innerTag === FORK_INLINE) {
+            // Leaf-bodied forkInline: same DoneFiber shortcut as FORK
+            // above. Even without supervisors we keep the alloc step
+            // path so onStart / onEnd stay consistent.
+            const body = inner.op;
+            const bodyTag = body._tag;
+            if (_supervisors.length === 0) {
+              if (bodyTag === PURE) {
+                const stub = new DoneFiber(makeResult(M_OK, body.value));
+                this.current = op.next(stub);
+                continue;
+              }
+              if (bodyTag === SYNC) {
+                let v;
+                let m;
+                try {
+                  v = body.run();
+                  m = M_OK;
+                } catch (err) {
+                  v = err;
+                  m = M_DIE;
+                }
+                const stub = new DoneFiber(makeResult(m, v));
+                this.current = op.next(stub);
+                continue;
+              }
+            }
             this.frefsOwn = false;
-            const inlineChild = new Fiber(inner.op, this.env, this.frefs);
+            const inlineChild = new Fiber(body, this.env, this.frefs);
             inlineChild.step();
             this.current = op.next(inlineChild);
             continue;
@@ -537,6 +603,14 @@ Fiber.prototype.step = function () {
           }
           if (innerTag === JOIN) {
             const target = inner.fiber;
+            // If the target is sitting in the run queue waiting for
+            // its first step, drive it synchronously here. Sync-bodied
+            // children complete; async-bodied children suspend, and we
+            // fall through to the general suspending path.
+            if (target.queued) {
+              target.queued = false;
+              target.step();
+            }
             if (target.status === F_DONE) {
               const r = target.result;
               if (r.mode === M_OK) {
@@ -622,8 +696,17 @@ Fiber.prototype.step = function () {
         case FORK: {
           // Share the frefs map with the child; copy-on-write on the
           // next mutation by either side. See Fiber constructor.
+          // PURE bodies skip the Fiber + scheduleFiber path; SYNC
+          // bodies do not (their effect must wait for the drain so
+          // the parent's next op stays observable before they run).
+          const body = op.op;
+          if (body._tag === PURE && _supervisors.length === 0) {
+            this.value = new DoneFiber(makeResult(M_OK, body.value));
+            this.mode = M_OK;
+            break;
+          }
           this.frefsOwn = false;
-          const child = new Fiber(op.op, this.env, this.frefs);
+          const child = new Fiber(body, this.env, this.frefs);
           scheduleFiber(child);
           this.value = child;
           this.mode = M_OK;
@@ -632,9 +715,33 @@ Fiber.prototype.step = function () {
         case FORK_INLINE: {
           // Same as FORK but drive the child synchronously before we
           // continue. Sync-bodied children complete here; suspending
-          // children hand back a live handle just like FORK.
+          // children hand back a live handle just like FORK. Leaf
+          // bodies skip the Fiber alloc entirely.
+          const body = op.op;
+          const bodyTag = body._tag;
+          if (_supervisors.length === 0) {
+            if (bodyTag === PURE) {
+              this.value = new DoneFiber(makeResult(M_OK, body.value));
+              this.mode = M_OK;
+              break;
+            }
+            if (bodyTag === SYNC) {
+              let v;
+              let m;
+              try {
+                v = body.run();
+                m = M_OK;
+              } catch (err) {
+                v = err;
+                m = M_DIE;
+              }
+              this.value = new DoneFiber(makeResult(m, v));
+              this.mode = M_OK;
+              break;
+            }
+          }
           this.frefsOwn = false;
-          const inlineChild = new Fiber(op.op, this.env, this.frefs);
+          const inlineChild = new Fiber(body, this.env, this.frefs);
           inlineChild.step();
           this.value = inlineChild;
           this.mode = M_OK;
@@ -643,6 +750,10 @@ Fiber.prototype.step = function () {
         case JOIN: {
           const target = op.fiber;
           const self = this;
+          if (target.queued) {
+            target.queued = false;
+            target.step();
+          }
           if (target.status === F_DONE) {
             this._installResult(target.result);
             break;
@@ -976,20 +1087,44 @@ Fiber.prototype._resumeAsync = function (r) {
   this.step();
 };
 
-// Microtask scheduler. queueMicrotask is available in modern Node and
-// browsers; the setTimeout fallback covers ancient runtimes.
-const scheduleFiber =
+// Microtask scheduler. Batches every scheduled fiber into a single
+// drain so a fan-out of N fibers pays one queueMicrotask dispatch
+// instead of N. Fibers can also be drained inline by JOIN before the
+// drain runs (the `queued` flag is the rendezvous: whichever side
+// clears it first wins, the other side becomes a no-op).
+const _runQueue = [];
+let _drainScheduled = false;
+
+const _queueDrain =
   typeof queueMicrotask !== "undefined"
-    ? function (f) {
-        queueMicrotask(function () {
-          f.step();
-        });
-      }
-    : function (f) {
-        setTimeout(function () {
-          f.step();
-        }, 0);
-      };
+    ? function (cb) { queueMicrotask(cb); }
+    : function (cb) { setTimeout(cb, 0); };
+
+function _runDrain() {
+  _drainScheduled = false;
+  // Use an index walk: new fibers scheduled during a step() get
+  // appended to _runQueue and picked up in this same drain.
+  let i = 0;
+  while (i < _runQueue.length) {
+    const f = _runQueue[i];
+    i++;
+    if (f.queued) {
+      f.queued = false;
+      f.step();
+    }
+    // else: JOIN drove it inline; nothing to do.
+  }
+  _runQueue.length = 0;
+}
+
+function scheduleFiber(f) {
+  f.queued = true;
+  _runQueue.push(f);
+  if (!_drainScheduled) {
+    _drainScheduled = true;
+    _queueDrain(_runDrain);
+  }
+}
 
 // Top-level entry points -----------------------------------------------
 
