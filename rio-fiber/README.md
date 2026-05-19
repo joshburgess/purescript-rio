@@ -11,10 +11,13 @@ cancellation semantics shaped by `Effect.Aff`'s canceler protocol.
 
 `rio-fiber` replaces the `Aff` interpreter with a hand-rolled step
 loop and per-fiber state. The user-facing type is still
-`RIO r e a`; what changes is the runtime underneath. The trade-off
-is concrete: an extra ~2x on the fork hot path versus raw `Aff` in
-exchange for proper fibers, FiberRef, Cause, a TestClock, STM with
-event-loop atomicity, and the rest of the ZIO-shaped surface.
+`RIO r e a`; what changes is the runtime underneath. In exchange
+for that work you get proper fibers, FiberRef, Cause, a TestClock,
+STM with event-loop atomicity, and the rest of the ZIO-shaped
+surface, and the bind hot path is roughly 4x faster than `Aff` on
+the workspace benchmarks; `fork x16 + join each` sits at parity
+with `forkAff` once V8's JIT is warm (whichever variant the bench
+runs second wins; the first pays the JIT compile cost).
 
 This package is independent of the main `rio` package: it has its
 own `RIO.Fiber.Core` module, its own combinators, its own
@@ -146,8 +149,8 @@ parent's next op observes the world before the child runs; with
 | Failure model | Single `Variant e` or `Cause` reified at boundaries | First-class `Cause e` everywhere (Then/Both/Interrupt) |
 | Virtual time | `RIO.Test.Clock` simulated via `Clock` discipline | `TestClock` wakes sleeping fibers directly |
 | STM atomicity | One commit per event-loop turn (shared with `Aff` scheduling) | Same model, plus retry on `TVar` change without spinning |
-| Bind hot path | About 32 ns per `bind` in the workspace bench | About 18 ns per `bind` (BIND fuses common leaf ops in the step loop) |
-| Fork hot path | About the same as `forkAff` | About 2x slower; `forkInline` for sync-bodied children narrows it to roughly 1.5x |
+| Bind hot path | About 33 ns per `bind` in the workspace bench | About 10 ns per `bind` (BIND fuses common leaf ops in the step loop) |
+| Fork hot path | About the same as `forkAff` | At parity with `forkAff` on `fork x16 + join each` once V8 is warm; the bench variant that runs second wins by ~10% over the one that runs first because of JIT compile cost |
 
 Use `rio` for code that already lives on `Aff` and only needs the
 three-channel type. Use `rio-fiber` when you need any of the

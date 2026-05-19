@@ -262,23 +262,99 @@ or point your `spago.yaml` at the git remote directly.
 Everything above runs `RIO r e a` on top of `Effect.Aff`. That is
 a deliberate ceiling: it is what gives the package its small
 surface, fast bind path, and easy interop with the rest of the
-PureScript ecosystem, but `Aff` cannot give us fiber identity,
-per-fiber state, structural supervision, a `Cause` tree that
-distinguishes failure from defect from interrupt, or a test
-clock that drives sleeping fibers directly. The cost analysis is
-in [`docs/aff-constraints.md`](./docs/aff-constraints.md).
+PureScript ecosystem. The companion package `rio-fiber` is a
+separate interpreter for the same three-channel design with a
+hand-rolled step loop, and unlocks a set of capabilities that
+`Aff` (and therefore `Aff`-backed `RIO`) structurally cannot give
+us. The cost analysis for the `Aff` ceiling is in
+[`docs/aff-constraints.md`](./docs/aff-constraints.md).
 
-The companion package `rio-fiber` is a separate interpreter for
-the same three-channel design. It ships its own
-`RIO.Fiber.Core` plus a parallel `RIO.Fiber.*` namespace
-(Cause, Scope with `forkScoped` / `forkSupervised`, Ref as a real
-FiberRef, Stream / Sink / Pipe with `via`, STM, TestClock, the
-rest), and an `RIO.Fiber.Aff` bridge in both directions for
-interop with `Aff`-based code at the boundary. The trade-off is
-fork hot path overhead (about 2.3x raw `Aff`); the bind hot path
-is essentially the same. See
+### What `rio-fiber` does that `Aff` can't
+
+These are not "we haven't written them yet" features: each one is
+either impossible to add to `Aff` without rewriting its
+interpreter, or has been tried and found to be unworkable inside
+`Aff`'s canceler protocol.
+
+- **First-class `Cause e`.** Every failure carries a structured
+  cause tree (`Empty`, `Fail`, `Die`, `Interrupt`, `Then`, `Both`)
+  that distinguishes typed failures from defects from interrupts,
+  and composes sequential / parallel error trees losslessly. `Aff`
+  collapses everything into one error channel; you cannot ask
+  "was this failure also accompanied by an interrupt?" or "did
+  both branches of a `race` fail?".
+- **Numeric fiber identity + supervisor hooks.** Every fiber has a
+  stable id and the runtime exposes a registration point so an
+  observer can see every fiber start, end, and link. Tracing,
+  metrics, and structured logging are built on this. `Aff` has no
+  fiber id at all; you cannot correlate a span to a fiber.
+- **`FiberRef` with copy-on-write fork semantics.** Per-fiber
+  state that is copied to children on `fork` and shared until
+  either side mutates. This is what makes scoped log annotations,
+  span context inheritance, and trace propagation work without
+  threading them through every signature. `Aff`'s ambient state
+  (`Effect.Ref`) is process-global; forked fibers share it
+  whether you wanted that or not.
+- **Structured concurrency via `Scope`.** `forkScoped` ties a
+  child's lifetime to a scope; `forkSupervised` ties it to the
+  nearest `supervised` block via an ambient `FiberRef`. When the
+  scope closes (success, failure, or interrupt), every child is
+  interrupted and every finalizer runs in LIFO order. `Aff`
+  forks are detached by default and there is no protocol to
+  attach them to a parent's lifetime.
+- **A `TestClock` that actually drives sleeping fibers.**
+  `TestClock.advance n` finds every fiber that registered a
+  sleep with a deadline <= now+n and resumes it. Determ-
+  inistic simulation of timers, retries, debounces, and schedules
+  drops out for free. `Aff`'s simulated clock cannot wake a
+  fiber that is parked inside `Aff.delay`; the harness has to
+  fake the parked state itself.
+- **STM with event-loop atomicity.** `TVar` / `TMVar` / `TChan`
+  / `TQueue` / `TArray` with `atomically`, `retry`, `orElse`,
+  `check`. Commits are atomic across an entire event-loop turn,
+  so a transaction never observes another fiber's half-write.
+  `retry` parks the fiber on the set of `TVar`s it read and
+  resumes only when one of them changes; there is no version
+  check, no spinning, and no per-`TVar` lock. `Aff` cannot
+  express this transaction boundary at all.
+- **Bounded-concurrency parallel traversal.** `parTraverseN n` via
+  `Semaphore`, plus `Hub`, `Queue`, `Latch`, `Deferred`,
+  `Layer`, and `Pool` as proper first-class concurrent primit-
+  ives instead of ad-hoc `MVar` recipes.
+- **`Stream` / `Sink` / `Pipe` with structured concurrency.**
+  Pull-based streams with `mapPar`, `merge`, `broadcast`,
+  `share`, `throttle`, `debounce`, `timeoutPerPull`, plus
+  `Sink` and `Pipe` as composable terminals and transducers.
+  Each pulls under a real `Scope` so leaked producers are
+  interrupted automatically.
+- **`Schedule`-driven `repeat` / `retry`.** `recurs`, `spaced`,
+  `exponential`, `jittered`, `intersect`, `andThen`,
+  `whileInput`, all driven by the active `Clock` so the same
+  policy runs against real time in production and virtual time
+  in tests.
+- **Tracing / metrics / logging with span context propagation.**
+  `withSpan`, counter / gauge / histogram metrics, scoped log
+  annotations. Each ships a noop and at least one recording or
+  live backend, and child fibers inherit the active span by
+  virtue of `FiberRef` copy-on-write.
+- **An interruption model that distinguishes "asked to stop"
+  from "in the middle of stopping" from "finalizer running".**
+  `uninterruptible`, `ensuring`, and `bracket` compose at the
+  Cause layer, so a finalizer that itself fails is visible in
+  the resulting `Cause.Then`. `Aff`'s canceler protocol cannot
+  represent a finalizer-failed-while-cleaning-up scenario.
+
+The shared user-facing type is still `RIO r e a`. Programs are
+written against `RIO.Fiber.*` instead of `RIO.*`, and an
+`RIO.Fiber.Aff` bridge in both directions lets `rio-fiber`
+subroutines slot into an `Aff` program (or vice versa) at the
+boundary.
+
+On the workspace benchmarks the bind hot path is roughly 4x
+faster than `Aff`; `fork x16 + join each` is at parity with
+`forkAff` once V8's JIT is warm. See
 [`rio-fiber/README.md`](./rio-fiber/README.md) for the full
-surface and the comparison table.
+surface and the side-by-side comparison table.
 
 ## Documentation
 
