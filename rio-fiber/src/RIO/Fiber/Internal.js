@@ -2186,6 +2186,64 @@ Fiber.prototype._stepInner = function () {
                 this.value = inlineChild;
               }
               // mode is already M_OK
+            } else if (nextTag === FORK_ALL) {
+              // K_BIND -> FORK_ALL: batch-spawn matching case FORK_ALL.
+              const ops = nextOp._1;
+              const n = ops.length;
+              const out = new Array(n);
+              if (n > 0) {
+                this.frefsOwn = false;
+                const supEmpty = _supervisors.length === 0;
+                for (let i = 0; i < n; i++) {
+                  const body = ops[i];
+                  if (body._tag === PURE && supEmpty) {
+                    out[i] = new DoneFiber(M_OK, body._1);
+                  } else {
+                    const child = new Fiber(body, this.env, this.frefs);
+                    scheduleFiber(child);
+                    out[i] = child;
+                  }
+                }
+              }
+              this.value = out;
+              // mode is already M_OK
+            } else if (nextTag === JOIN_ALL) {
+              // K_BIND -> JOIN_ALL: drain ready fibers inline, suspend
+              // for the rest. Mirrors the JOIN_ALL arm in case BIND's
+              // inner loop.
+              const fibers = nextOp._1;
+              const n = fibers.length;
+              if (n === 0) {
+                this.value = [];
+              } else {
+                const results = new Array(n);
+                let pending = n;
+                let failed = false;
+                for (let i = 0; i < n; i++) {
+                  const target = fibers[i];
+                  if (target.queued) {
+                    target.queued = false;
+                    _pendingCount--;
+                    target.step();
+                  }
+                  if (target.status === F_DONE) {
+                    if (target.mode !== M_OK) {
+                      this._installResult(target);
+                      failed = true;
+                      break;
+                    }
+                    results[i] = target.value;
+                    pending--;
+                  }
+                }
+                if (!failed) {
+                  if (pending === 0) {
+                    this.value = results;
+                  } else {
+                    this.current = nextOp;
+                  }
+                }
+              }
             } else {
               this.current = nextOp;
             }
