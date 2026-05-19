@@ -30,12 +30,16 @@ module RIO.Fiber.Stream
   , buffer
   , merge
   , mapPar
+  , scan
+  , groupBy
+  , zipPar
   ) where
 
 import Prelude hiding (map)
 
 import Data.Array (snoc, uncons)
 import Data.Maybe (Maybe(..))
+import Data.Tuple (Tuple(..))
 import RIO.Fiber.Core (RIO)
 import RIO.Fiber.Core as F
 import RIO.Fiber.Queue (Queue)
@@ -242,3 +246,52 @@ fromArrayThen xs after = case uncons xs of
   Nothing -> after
   Just { head, tail } ->
     Stream (pure (Yield head (fromArrayThen tail after)))
+
+-- | Running fold: emit `seed`, then for every element `a` emit
+-- | `step prev a` where `prev` is the previous emission. The output
+-- | stream has one more element than the input plus the seed.
+scan :: forall r e a b. (b -> a -> b) -> b -> Stream r e a -> Stream r e b
+scan step seed source = Stream (pure (Yield seed (go seed source)))
+  where
+  go acc (Stream pull) = Stream do
+    s <- pull
+    pure case s of
+      Done -> Done
+      Yield a rest ->
+        let next = step acc a
+        in Yield next (go next rest)
+
+-- | Partition the input into adjacent runs sharing a key. Each
+-- | emitted element is a non-empty array; consecutive arrays have
+-- | different keys.
+groupBy
+  :: forall r e a k
+   . Eq k
+  => (a -> k)
+  -> Stream r e a
+  -> Stream r e (Array a)
+groupBy key (Stream pull) = Stream do
+  s <- pull
+  case s of
+    Done -> pure Done
+    Yield a rest -> collect (key a) [ a ] rest
+  where
+  collect k acc (Stream nextPull) = do
+    s <- nextPull
+    case s of
+      Done -> pure (Yield acc empty)
+      Yield a rest
+        | key a == k -> collect k (snoc acc a) rest
+        | otherwise ->
+            pure (Yield acc (Stream (collect (key a) [ a ] rest)))
+
+-- | Run two streams in parallel, pairing elements positionally. The
+-- | output ends as soon as either side ends.
+zipPar :: forall r e a b. Stream r e a -> Stream r e b -> Stream r e (Tuple a b)
+zipPar (Stream pullA) (Stream pullB) = Stream do
+  Tuple sa sb <- F.zipPar pullA pullB
+  case sa, sb of
+    Done, _ -> pure Done
+    _, Done -> pure Done
+    Yield a restA, Yield b restB ->
+      pure (Yield (Tuple a b) (zipPar restA restB))

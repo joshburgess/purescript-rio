@@ -3,6 +3,7 @@ module Test.RIO.Fiber.StreamSpec (spec) where
 import Prelude
 
 import Data.Time.Duration (Milliseconds(..))
+import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import RIO.Fiber.Core (Outcome(..))
@@ -116,6 +117,40 @@ spec = describe "rio-fiber: Stream" do
     out <- runAff prog {}
     case out of
       Success xs -> xs `shouldEqual` [ 10, 20, 30, 40, 50 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "scan emits seed then each accumulated value" do
+    let
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect (S.scan (+) 0 (S.fromArray [ 1, 2, 3 ]))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 0, 1, 3, 6 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "groupBy splits into adjacent runs by key" do
+    let
+      prog :: F.RIO () () (Array (Array Int))
+      prog = S.runCollect
+        (S.groupBy (\x -> x `mod` 2) (S.fromArray [ 1, 3, 4, 6, 7, 8 ]))
+    out <- runAff prog {}
+    case out of
+      Success xs ->
+        xs `shouldEqual`
+          [ [ 1, 3 ], [ 4, 6 ], [ 7 ], [ 8 ] ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "zipPar pairs elements positionally and ends when either ends" do
+    let
+      prog :: F.RIO () () (Array (Tuple Int String))
+      prog = S.runCollect
+        (S.zipPar
+          (S.fromArray [ 1, 2, 3 ])
+          (S.fromArray [ "a", "b" ]))
+    out <- runAff prog {}
+    case out of
+      Success xs ->
+        xs `shouldEqual` [ Tuple 1 "a", Tuple 2 "b" ]
       other -> fail ("expected Success, got " <> describeOutcome other)
 
   it "fromQueue + take pulls from a queue concurrently with a feeder" do
