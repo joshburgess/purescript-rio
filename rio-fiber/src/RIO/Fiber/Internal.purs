@@ -93,24 +93,34 @@ instance functorRIO :: Functor (RIO r e) where
   -- That saves a BIND + PURE + closure allocation per `map`, which adds
   -- up under `traverse` (the default Traversable instance for Array
   -- builds a balanced tree of `map` / `apply` over the bind machinery).
-  map f (RIO m) = RIO (opMap f m)
+  --
+  -- The unsafeCoerce makes the instance dictionary's `map` field point
+  -- at the foreign `opMap` directly. RIO is a newtype over Op, so the
+  -- runtime representations match; we skip the wrapper closure that the
+  -- `map f (RIO m) = RIO (opMap f m)` form would compile to, which
+  -- visibly tightens map-heavy hot paths (Functor laws still hold via
+  -- opMap's own properties).
+  map = unsafeCoerce opMap
 
 instance applyRIO :: Apply (RIO r e) where
   -- Same reasoning as `map`: opApply emits a dedicated APPLY op whose
   -- interpreter handles the two-stage evaluation in K_APPLY / K_APPLY2
-  -- frames without going through bind.
-  apply (RIO mf) (RIO ma) = RIO (opApply mf ma)
+  -- frames without going through bind. unsafeCoerce strips the newtype
+  -- wrapper closure for the same reason `map` above does.
+  apply = unsafeCoerce opApply
 
 instance applicativeRIO :: Applicative (RIO r e) where
   pure = RIO <<< opPure
 
 instance bindRIO :: Bind (RIO r e) where
-  -- `k` returns `RIO r e b`, which is a newtype wrapper over `Op r e b`.
-  -- The naive `\a -> case k a of RIO m' -> m'` compiles to an extra
-  -- closure-per-bind on the hot path even though the unwrap is a runtime
-  -- no-op. unsafeCoerce strips the wrapper at the type level so opBind
-  -- receives `k` directly.
-  bind (RIO m) k = RIO (opBind m (unsafeCoerce k))
+  -- RIO is a newtype over Op, so `k :: a -> RIO r e b` has the same
+  -- runtime shape as `a -> Op r e b`. unsafeCoerce makes the instance
+  -- dictionary's `bind` field point at `opBind` directly, skipping the
+  -- newtype-unwrap closure that `bind (RIO m) k = RIO (opBind m
+  -- (unsafeCoerce k))` would otherwise compile to. The bind fast paths
+  -- in the interpreter chain consecutive BIND nodes without an outer-
+  -- loop tick, so reducing the per-bind closure overhead matters.
+  bind = unsafeCoerce opBind
 
 instance monadRIO :: Monad (RIO r e)
 
