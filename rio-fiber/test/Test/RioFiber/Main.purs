@@ -17,6 +17,9 @@ import Test.RIO.Fiber.ScopeSpec as ScopeSpec
 import Test.RIO.Fiber.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.Fiber.ServicesSpec as ServicesSpec
 import Test.RIO.Fiber.STMSpec as STMSpec
+import Test.RIO.Fiber.STM.TArraySpec as TArraySpec
+import Test.RIO.Fiber.STM.TChanSpec as TChanSpec
+import Test.RIO.Fiber.STM.TMVarSpec as TMVarSpec
 import Test.RIO.Fiber.StreamSpec as StreamSpec
 import Test.RIO.Fiber.SupervisorSpec as SupervisorSpec
 import Test.RIO.Fiber.TestClockSpec as TestClockSpec
@@ -41,6 +44,9 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   ServicesSpec.spec
   StreamSpec.spec
   STMSpec.spec
+  TMVarSpec.spec
+  TChanSpec.spec
+  TArraySpec.spec
   SupervisorSpec.spec
   TestClockSpec.spec
   TracerSpec.spec

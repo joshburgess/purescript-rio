@@ -19,6 +19,7 @@ module RIO.Fiber.STM
   ( STM
   , TVar
   , newTVar
+  , newTVarSTM
   , readTVar
   , writeTVar
   , modifyTVar
@@ -126,6 +127,15 @@ newTVar a = do
   version <- Ref.new 0
   waiters <- Ref.new []
   pure (TVar { id, value, version, waiters })
+
+-- | Allocate a fresh `TVar` inside an STM action. The new cell is
+-- | not yet visible to other transactions; it becomes observable
+-- | only when it's stored (via `writeTVar`) into a previously-
+-- | reachable cell.
+newTVarSTM :: forall a. a -> STM (TVar a)
+newTVarSTM a = STM \_ -> do
+  tv <- newTVar a
+  pure (Done tv)
 
 -- | Read the current value of the cell. If we've staged a write to
 -- | the cell earlier in this transaction, see that staged value;
