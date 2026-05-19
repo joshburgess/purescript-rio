@@ -123,9 +123,14 @@ export const opLiftEffect = function (eff) {
   return { _tag: SYNC, run: eff };
 };
 
+// The BIND op also doubles as its own K_BIND continuation frame
+// (same `_k` field the unwind switch reads, same `next` field the
+// frame would carry). When the step loop encounters a BIND it can
+// push the op itself instead of allocating a fresh frame, saving
+// one object allocation per bind on the hot path.
 export const opBind = function (m) {
   return function (k) {
-    return { _tag: BIND, op: m, next: k };
+    return { _tag: BIND, _k: K_BIND, op: m, next: k };
   };
 };
 
@@ -133,13 +138,22 @@ export const opBind = function (m) {
 const ASK_NODE = { _tag: ASK };
 export const opAsk = ASK_NODE;
 
+// Singleton continuation frames that carry no per-instance payload:
+// pushing the singleton avoids a per-step allocation. Frames are
+// never mutated during the unwind, so sharing is safe.
+const FRAME_UNMASK = { _k: K_UNMASK };
+const FRAME_PEEL = { _k: K_PEEL };
+
 export const opFail = function (e) {
   return { _tag: FAIL, error: e };
 };
 
+// CATCH op doubles as its own K_CATCH frame (same trick as opBind):
+// the op carries `handler`, and the unwind switch only needs `_k`
+// and `handler`. Pushing the op itself saves a per-step alloc.
 export const opCatchAll = function (handler) {
   return function (op) {
-    return { _tag: CATCH, op: op, handler: handler };
+    return { _tag: CATCH, _k: K_CATCH, op: op, handler: handler };
   };
 };
 
@@ -178,9 +192,11 @@ export const opInterrupt = function (fiber) {
   return { _tag: INTERRUPT, fiber: fiber };
 };
 
+// ENSURING op doubles as its own K_ENSURE frame: `finalizer` is on
+// the op, the unwind switch only reads `_k` and `finalizer`.
 export const opEnsuring = function (finalizer) {
   return function (action) {
-    return { _tag: ENSURING, action: action, finalizer: finalizer };
+    return { _tag: ENSURING, _k: K_ENSURE, action: action, finalizer: finalizer };
   };
 };
 
@@ -305,17 +321,19 @@ function Fiber(op, env, frefs) {
   // act on it).
   this.mask = 0;
   this.canceller = null;
-  // Per-fiber state map keyed by FiberRef identity. We use copy-on-
-  // write so a fresh fork only allocates a new Map if either the
-  // parent or child actually writes to a ref. `frefsOwn = true` means
-  // we are the sole holder of this Map; while shared (false) any
-  // write must clone before mutating. Forking re-marks both sides as
-  // shared.
-  if (frefs) {
+  // Per-fiber state map keyed by FiberRef identity. We stay lazy:
+  // the Map itself is not allocated until either the fiber or one
+  // of its ancestors actually writes a FiberRef. `frefs === null`
+  // means "no writes seen yet, reads return ref.initial". Forks pass
+  // through the parent's reference (possibly null); copy-on-write
+  // on the next write by either side promotes both to owned Maps.
+  // `frefsOwn = true` means we are the sole owner of `frefs` (or it
+  // is null and any write should create a fresh Map).
+  if (frefs !== undefined) {
     this.frefs = frefs;
     this.frefsOwn = false;
   } else {
-    this.frefs = new Map();
+    this.frefs = null;
     this.frefsOwn = true;
   }
   for (let i = 0; i < _supervisors.length; i++) {
@@ -478,7 +496,8 @@ Fiber.prototype.step = function () {
           }
           break;
         case BIND:
-          this.stack.push({ _k: K_BIND, next: op.next });
+          // Reuse the op as its own K_BIND frame; see opBind.
+          this.stack.push(op);
           this.current = op.op;
           continue;
         case FAIL:
@@ -486,7 +505,8 @@ Fiber.prototype.step = function () {
           this.mode = M_FAIL;
           break;
         case CATCH:
-          this.stack.push({ _k: K_CATCH, handler: op.handler });
+          // Reuse the op as its own K_CATCH frame; see opCatchAll.
+          this.stack.push(op);
           this.current = op.op;
           continue;
         case ASK:
@@ -586,12 +606,13 @@ Fiber.prototype.step = function () {
           break;
         }
         case ENSURING:
-          this.stack.push({ _k: K_ENSURE, finalizer: op.finalizer });
+          // Reuse the op as its own K_ENSURE frame; see opEnsuring.
+          this.stack.push(op);
           this.current = op.action;
           continue;
         case UNINTERRUPTIBLE:
           this.mask++;
-          this.stack.push({ _k: K_UNMASK });
+          this.stack.push(FRAME_UNMASK);
           this.current = op.op;
           continue;
         case RACE: {
@@ -652,7 +673,7 @@ Fiber.prototype.step = function () {
           return;
         }
         case PEEL:
-          this.stack.push({ _k: K_PEEL });
+          this.stack.push(FRAME_PEEL);
           this.current = op.op;
           continue;
         case PAR_TRAVERSE: {
@@ -718,12 +739,16 @@ Fiber.prototype.step = function () {
         }
         case FREF_GET: {
           const ref = op.ref;
-          this.value = this.frefs.has(ref) ? this.frefs.get(ref) : ref.initial;
+          const m = this.frefs;
+          this.value = (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
           this.mode = M_OK;
           break;
         }
         case FREF_SET: {
-          if (!this.frefsOwn) {
+          if (this.frefs === null) {
+            this.frefs = new Map();
+            this.frefsOwn = true;
+          } else if (!this.frefsOwn) {
             this.frefs = new Map(this.frefs);
             this.frefsOwn = true;
           }
@@ -734,7 +759,8 @@ Fiber.prototype.step = function () {
         }
         case FREF_MODIFY: {
           const ref = op.ref;
-          const prev = this.frefs.has(ref) ? this.frefs.get(ref) : ref.initial;
+          const m0 = this.frefs;
+          const prev = (m0 !== null && m0.has(ref)) ? m0.get(ref) : ref.initial;
           let next;
           try {
             next = op.fn(prev);
@@ -743,8 +769,11 @@ Fiber.prototype.step = function () {
             this.mode = M_DIE;
             break;
           }
-          if (!this.frefsOwn) {
-            this.frefs = new Map(this.frefs);
+          if (m0 === null) {
+            this.frefs = new Map();
+            this.frefsOwn = true;
+          } else if (!this.frefsOwn) {
+            this.frefs = new Map(m0);
             this.frefsOwn = true;
           }
           this.frefs.set(ref, next);
