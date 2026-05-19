@@ -7,6 +7,7 @@ import Test.RIO.Fiber.CauseSpec as CauseSpec
 import Test.RIO.Fiber.CoreSpec as CoreSpec
 import Test.RIO.Fiber.DeferredSpec as DeferredSpec
 import Test.RIO.Fiber.HubSpec as HubSpec
+import Test.RIO.Fiber.LatchSpec as LatchSpec
 import Test.RIO.Fiber.LayerSpec as LayerSpec
 import Test.RIO.Fiber.MetricsSpec as MetricsSpec
 import Test.RIO.Fiber.PoolSpec as PoolSpec
@@ -36,6 +37,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   RefSpec.spec
   DeferredSpec.spec
   SemaphoreSpec.spec
+  LatchSpec.spec
   QueueSpec.spec
   ScheduleSpec.spec
   LayerSpec.spec
