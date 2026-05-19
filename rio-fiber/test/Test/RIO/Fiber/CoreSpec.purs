@@ -3,10 +3,14 @@ module Test.RIO.Fiber.CoreSpec (spec) where
 import Prelude
 
 import Data.Either (Either(..))
+import Data.DateTime.Instant (unInstant)
+import Data.Newtype (unwrap)
+import Data.Time.Duration (Milliseconds(..))
 import Data.Variant as Variant
 import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
+import Effect.Now (now)
 import Effect.Ref as Ref
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
@@ -137,6 +141,25 @@ spec = describe "rio-fiber: Core" do
           F.join f
       out <- runAff prog {}
       assertSuccess out 100
+
+  describe "sleep" do
+    it "suspends the fiber for approximately the requested duration" do
+      let
+        readMs :: Effect Number
+        readMs = map (unwrap <<< unInstant) now
+
+        prog :: F.RIO () () Number
+        prog = do
+          t0 <- F.liftEffect readMs
+          F.sleep (Milliseconds 50.0)
+          t1 <- F.liftEffect readMs
+          pure (t1 - t0)
+      out <- runAff prog {}
+      case out of
+        Success ms
+          | ms >= 40.0 -> pure unit
+          | otherwise -> fail ("slept too briefly: " <> show ms <> "ms")
+        other -> fail ("expected Success, got " <> describeOutcome other)
 
   describe "preemption" do
     it "yields after the tick budget so a sibling fiber can run" do

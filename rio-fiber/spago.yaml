@@ -4,6 +4,7 @@ package:
     version: 0.0.1
     license: MIT
   dependencies:
+    - datetime
     - effect
     - either
     - exceptions
@@ -20,9 +21,12 @@ package:
     dependencies:
       - aff
       - arrays
+      - datetime
       - effect
       - either
       - maybe
+      - newtype
+      - now
       - prelude
       - refs
       - spec

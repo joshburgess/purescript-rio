@@ -20,12 +20,14 @@ module RIO.Fiber.Core
   , runRIO
   , runRIO'
   , runRIOCallback
+  , sleep
   ) where
 
 import Prelude
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Data.Time.Duration (Milliseconds(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect (Effect)
@@ -127,3 +129,15 @@ runRIOCallback
   -> (Outcome e a -> Effect Unit)
   -> Effect (Effect Unit)
 runRIOCallback = Internal.runFiber
+
+-- | Suspend for the given duration. Interrupting the fiber while
+-- | it sleeps fires the underlying `clearTimeout` so no callback
+-- | runs after the interrupt point.
+sleep :: forall r e. Milliseconds -> RIO r e Unit
+sleep (Milliseconds ms) = async \cb -> do
+  id <- _setTimeout ms (cb (Right unit))
+  pure (_clearTimeout id)
+
+foreign import data TimeoutId :: Type
+foreign import _setTimeout :: Number -> Effect Unit -> Effect TimeoutId
+foreign import _clearTimeout :: TimeoutId -> Effect Unit
