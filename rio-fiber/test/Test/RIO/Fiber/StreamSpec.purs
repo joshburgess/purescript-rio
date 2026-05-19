@@ -88,6 +88,36 @@ spec = describe "rio-fiber: Stream" do
     seen <- liftEffect (Ref.read log)
     seen `shouldEqual` [ 7, 8, 9 ]
 
+  it "buffer decouples producer and consumer pacing" do
+    let
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect (S.buffer 4 (S.fromArray [ 1, 2, 3, 4, 5 ]))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 1, 2, 3, 4, 5 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "merge interleaves two streams and ends when both end" do
+    let
+      prog :: F.RIO () () Int
+      prog = S.fold (+) 0
+        (S.merge (S.fromArray [ 1, 2, 3 ]) (S.fromArray [ 10, 20, 30 ]))
+    out <- runAff prog {}
+    case out of
+      -- order is non-deterministic but the sum is well-defined
+      Success n -> n `shouldEqual` (1 + 2 + 3 + 10 + 20 + 30)
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "mapPar transforms elements with bounded concurrency" do
+    let
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect
+        (S.mapPar 3 (\x -> pure (x * 10)) (S.fromArray [ 1, 2, 3, 4, 5 ]))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 10, 20, 30, 40, 50 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
   it "fromQueue + take pulls from a queue concurrently with a feeder" do
     q <- liftEffect (Q.make 4 :: _ (Q.Queue Int))
     let

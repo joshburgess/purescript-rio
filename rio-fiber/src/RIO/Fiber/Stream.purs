@@ -27,6 +27,9 @@ module RIO.Fiber.Stream
   , forEach
   , run
   , runCollect
+  , buffer
+  , merge
+  , mapPar
   ) where
 
 import Prelude hiding (map)
@@ -34,6 +37,7 @@ import Prelude hiding (map)
 import Data.Array (snoc, uncons)
 import Data.Maybe (Maybe(..))
 import RIO.Fiber.Core (RIO)
+import RIO.Fiber.Core as F
 import RIO.Fiber.Queue (Queue)
 import RIO.Fiber.Queue as Q
 
@@ -140,3 +144,101 @@ run = forEach (\_ -> pure unit)
 -- | Pull every element into an array. Use only on bounded streams.
 runCollect :: forall r e a. Stream r e a -> RIO r e (Array a)
 runCollect = fold snoc []
+
+-- | Insert a bounded buffer of size `n` between producer and
+-- | consumer. The producer runs in a forked fiber that fills the
+-- | buffer; the consumer pulls from it. Lets a fast consumer ride
+-- | ahead of a bursty producer (and vice versa) without blocking
+-- | each pull on the slowest one.
+-- |
+-- | The producer signals end-of-stream by enqueuing `Nothing`; if
+-- | the producer raises before that, the consumer will block. For
+-- | now, callers should ensure the source is total or use this only
+-- | with side-effect-free transforms upstream.
+buffer :: forall r e a. Int -> Stream r e a -> Stream r e a
+buffer n source = Stream do
+  q <- F.liftEffect (Q.make (max 1 n) :: _ (Q.Queue (Maybe a)))
+  _ <- F.fork do
+    forEach (\a -> Q.offer q (Just a)) source
+    Q.offer q Nothing
+  case fromQueueWithSentinel q of
+    Stream pull -> pull
+  where
+  fromQueueWithSentinel :: Queue (Maybe a) -> Stream r e a
+  fromQueueWithSentinel q = Stream do
+    m <- Q.take q
+    case m of
+      Nothing -> pure Done
+      Just a -> pure (Yield a (fromQueueWithSentinel q))
+
+-- | Non-deterministically interleave two streams. Both producers
+-- | run concurrently into a shared buffer; the consumer sees an
+-- | arbitrary interleaving. The result terminates when both
+-- | upstreams have ended.
+merge :: forall r e a. Stream r e a -> Stream r e a -> Stream r e a
+merge sl sr = Stream do
+  q <- F.liftEffect (Q.make 16 :: _ (Q.Queue (Maybe a)))
+  let
+    pump source = do
+      forEach (\a -> Q.offer q (Just a)) source
+      Q.offer q Nothing
+  _ <- F.fork (pump sl)
+  _ <- F.fork (pump sr)
+  case drainQueueN q 2 of
+    Stream pull -> pull
+  where
+  drainQueueN :: Queue (Maybe a) -> Int -> Stream r e a
+  drainQueueN q remaining = Stream do
+    m <- Q.take q
+    case m of
+      Nothing ->
+        if remaining <= 1 then pure Done
+        else case drainQueueN q (remaining - 1) of
+          Stream pull -> pull
+      Just a -> pure (Yield a (drainQueueN q remaining))
+
+-- | Map elements with up to `concurrency` workers per batch.
+-- | Internally pulls up to `concurrency` elements at a time and
+-- | runs `f` over them via `parTraverse`, preserving in-batch
+-- | order. Batch boundaries serialize, so a slow element in one
+-- | batch blocks the start of the next. (Pipelined per-element
+-- | concurrency is a follow-up.)
+mapPar
+  :: forall r e a b
+   . Int
+  -> (a -> RIO r e b)
+  -> Stream r e a
+  -> Stream r e b
+mapPar concurrency f source = pumpWaves source
+  where
+  c = max 1 concurrency
+  pumpWaves s = Stream do
+    batch <- pullBatch c [] s
+    case batch of
+      { items: [], rest: _ } -> pure Done
+      { items, rest } -> do
+        results <- F.parTraverse f items
+        case fromArrayThen results (pumpWaves rest) of
+          Stream pull -> pull
+
+  pullBatch
+    :: Int
+    -> Array a
+    -> Stream r e a
+    -> RIO r e { items :: Array a, rest :: Stream r e a }
+  pullBatch n acc currentStream
+    | n <= 0 = pure { items: acc, rest: currentStream }
+    | otherwise = case currentStream of
+        Stream pull -> do
+          step <- pull
+          case step of
+            Done -> pure { items: acc, rest: empty }
+            Yield a rest ->
+              pullBatch (n - 1) (snoc acc a) rest
+
+-- | Yield the array in order, then continue with `after`.
+fromArrayThen :: forall r e a. Array a -> Stream r e a -> Stream r e a
+fromArrayThen xs after = case uncons xs of
+  Nothing -> after
+  Just { head, tail } ->
+    Stream (pure (Yield head (fromArrayThen tail after)))
