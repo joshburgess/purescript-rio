@@ -146,8 +146,8 @@ parent's next op observes the world before the child runs; with
 | Failure model | Single `Variant e` or `Cause` reified at boundaries | First-class `Cause e` everywhere (Then/Both/Interrupt) |
 | Virtual time | `RIO.Test.Clock` simulated via `Clock` discipline | `TestClock` wakes sleeping fibers directly |
 | STM atomicity | One commit per event-loop turn (shared with `Aff` scheduling) | Same model, plus retry on `TVar` change without spinning |
-| Bind hot path | About 38 ns per `bind` in the workspace bench | About 40 ns per `bind` (essentially the same) |
-| Fork hot path | About the same as `forkAff` | About 2.3x slower (per-fiber allocation + microtask hop) |
+| Bind hot path | About 32 ns per `bind` in the workspace bench | About 18 ns per `bind` (BIND fuses common leaf ops in the step loop) |
+| Fork hot path | About the same as `forkAff` | About 2x slower; `forkInline` for sync-bodied children narrows it to roughly 1.5x |
 
 Use `rio` for code that already lives on `Aff` and only needs the
 three-channel type. Use `rio-fiber` when you need any of the
