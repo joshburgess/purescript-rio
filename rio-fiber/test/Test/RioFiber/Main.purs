@@ -12,6 +12,7 @@ import Test.RIO.Fiber.RefSpec as RefSpec
 import Test.RIO.Fiber.ScheduleSpec as ScheduleSpec
 import Test.RIO.Fiber.ScopeSpec as ScopeSpec
 import Test.RIO.Fiber.SemaphoreSpec as SemaphoreSpec
+import Test.RIO.Fiber.StreamSpec as StreamSpec
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
@@ -26,3 +27,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   QueueSpec.spec
   ScheduleSpec.spec
   LayerSpec.spec
+  StreamSpec.spec
