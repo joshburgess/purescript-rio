@@ -32,6 +32,9 @@ module RIO.Fiber.Stream
   , merge
   , mapPar
   , scan
+  , mapAccum
+  , intersperse
+  , flatMap
   , groupBy
   , zipPar
   , throttle
@@ -307,6 +310,61 @@ scan step seed source = Stream (pure (Yield seed (go seed source)))
       Yield a rest ->
         let next = step acc a
         in Yield next (go next rest)
+
+-- | Stateful map: thread `s` through the stream and emit one `b` per
+-- | input. The result has the same length as the input.
+mapAccum
+  :: forall r e s a b
+   . (s -> a -> Tuple s b)
+  -> s
+  -> Stream r e a
+  -> Stream r e b
+mapAccum step seed source = Stream (go seed source)
+  where
+  go acc (Stream pull) = do
+    s <- pull
+    case s of
+      Done -> pure Done
+      Yield a rest ->
+        let Tuple acc' b = step acc a
+        in pure (Yield b (Stream (go acc' rest)))
+
+-- | Insert `sep` between every pair of emitted elements. The first
+-- | element passes through unchanged; thereafter every original
+-- | element is preceded by `sep`.
+intersperse :: forall r e a. a -> Stream r e a -> Stream r e a
+intersperse sep (Stream pull) = Stream do
+  s <- pull
+  case s of
+    Done -> pure Done
+    Yield a rest -> pure (Yield a (go rest))
+  where
+  go (Stream nextPull) = Stream do
+    s <- nextPull
+    case s of
+      Done -> pure Done
+      Yield a rest -> pure (Yield sep (Stream (pure (Yield a (go rest)))))
+
+-- | Run `f` on every element and concatenate the resulting sub-streams.
+-- | Each sub-stream is fully drained before the next input is pulled.
+flatMap
+  :: forall r e a b
+   . (a -> Stream r e b)
+  -> Stream r e a
+  -> Stream r e b
+flatMap f (Stream pull) = Stream do
+  s <- pull
+  case s of
+    Done -> pure Done
+    Yield a rest -> case appendStream (f a) (flatMap f rest) of
+      Stream nextPull -> nextPull
+  where
+  appendStream :: Stream r e b -> Stream r e b -> Stream r e b
+  appendStream (Stream p1) after = Stream do
+    s <- p1
+    case s of
+      Done -> case after of Stream p2 -> p2
+      Yield b rest -> pure (Yield b (appendStream rest after))
 
 -- | Partition the input into adjacent runs sharing a key. Each
 -- | emitted element is a non-empty array; consecutive arrays have

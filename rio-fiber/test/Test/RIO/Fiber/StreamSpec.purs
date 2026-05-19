@@ -160,6 +160,68 @@ spec = describe "rio-fiber: Stream" do
       Success xs -> xs `shouldEqual` [ 0, 1, 3, 6 ]
       other -> fail ("expected Success, got " <> describeOutcome other)
 
+  it "mapAccum threads state through and emits one b per input" do
+    let
+      runningSum :: Int -> Int -> Tuple Int Int
+      runningSum acc a = let acc' = acc + a in Tuple acc' acc'
+
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect (S.mapAccum runningSum 0 (S.fromArray [ 1, 2, 3, 4 ]))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 1, 3, 6, 10 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "intersperse inserts a separator between every adjacent pair" do
+    let
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect (S.intersperse 0 (S.fromArray [ 1, 2, 3 ]))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 1, 0, 2, 0, 3 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "intersperse on empty or singleton streams emits exactly that" do
+    let
+      progEmpty :: F.RIO () () (Array Int)
+      progEmpty = S.runCollect (S.intersperse 0 (S.fromArray []))
+
+      progOne :: F.RIO () () (Array Int)
+      progOne = S.runCollect (S.intersperse 0 (S.fromArray [ 42 ]))
+    o1 <- runAff progEmpty {}
+    o2 <- runAff progOne {}
+    case o1 of
+      Success xs -> xs `shouldEqual` []
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    case o2 of
+      Success xs -> xs `shouldEqual` [ 42 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "flatMap concatenates sub-streams in order" do
+    let
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect
+        ( S.flatMap (\n -> S.fromArray [ n, n * 10 ])
+            (S.fromArray [ 1, 2, 3 ])
+        )
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 1, 10, 2, 20, 3, 30 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "flatMap with an empty inner stream skips that input" do
+    let
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect
+        ( S.flatMap
+            (\n -> if n `mod` 2 == 0 then S.empty else S.fromArray [ n, n ])
+            (S.fromArray [ 1, 2, 3, 4, 5 ])
+        )
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 1, 1, 3, 3, 5, 5 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
   it "groupBy splits into adjacent runs by key" do
     let
       prog :: F.RIO () () (Array (Array Int))
