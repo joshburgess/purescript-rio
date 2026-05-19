@@ -486,12 +486,11 @@ Fiber.prototype.step = function () {
           // Fast paths for leaf inner ops. These cover the every-
           // bind patterns in `do { x <- pure y; ... }` /
           // `do { x <- liftEffect e; ... }` / `do { r <- ask; ... }`,
-          // and the very common case of joining an already-completed
-          // child fiber (e.g. fan-out where every forkInline child is
-          // already DONE by the time the parent traverses joins).
-          // Each fast path applies `next` to the leaf value directly
-          // without pushing a K_BIND frame or taking the value/mode
-          // round-trip.
+          // the common `do { fib <- fork m; ... }` shape inside
+          // traverse-style fan-outs, FiberRef reads, and the case of
+          // joining an already-completed child. Each fast path applies
+          // `next` to the leaf value directly without pushing a K_BIND
+          // frame or taking the value/mode round-trip.
           const inner = op.op;
           const innerTag = inner._tag;
           if (innerTag === PURE) {
@@ -514,6 +513,28 @@ Fiber.prototype.step = function () {
             this.current = op.next(this.env);
             continue;
           }
+          if (innerTag === FORK) {
+            this.frefsOwn = false;
+            const child = new Fiber(inner.op, this.env, this.frefs);
+            scheduleFiber(child);
+            this.current = op.next(child);
+            continue;
+          }
+          if (innerTag === FORK_INLINE) {
+            this.frefsOwn = false;
+            const inlineChild = new Fiber(inner.op, this.env, this.frefs);
+            inlineChild.step();
+            this.current = op.next(inlineChild);
+            continue;
+          }
+          if (innerTag === FREF_GET) {
+            const ref = inner.ref;
+            const m = this.frefs;
+            this.current = op.next(
+              (m !== null && m.has(ref)) ? m.get(ref) : ref.initial
+            );
+            continue;
+          }
           if (innerTag === JOIN) {
             const target = inner.fiber;
             if (target.status === F_DONE) {
@@ -522,9 +543,11 @@ Fiber.prototype.step = function () {
                 this.current = op.next(r.value);
                 continue;
               }
-              // For non-OK completed joins, install the result and
-              // unwind through the K_BIND frame so the error route
-              // (CATCH frames, etc.) sees it correctly.
+              // Non-OK completed join: install the result and skip
+              // the K_BIND entirely so the unwind walks to the next
+              // frame (CATCH / ENSURING / etc.).
+              this._installResult(r);
+              continue;
             }
           }
           // General path: reuse the op as its own K_BIND frame.
