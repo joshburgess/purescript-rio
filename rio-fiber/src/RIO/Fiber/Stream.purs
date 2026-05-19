@@ -20,6 +20,7 @@ module RIO.Fiber.Stream
   , fromArray
   , repeatRIO
   , fromQueue
+  , fromTQueue
   , map
   , filter
   , take
@@ -65,6 +66,8 @@ import RIO.Fiber.Queue as Q
 import RIO.Fiber.Schedule (Schedule)
 import RIO.Fiber.Schedule as Sch
 import RIO.Fiber.STM as STM
+import RIO.Fiber.STM.TQueue (TQueue)
+import RIO.Fiber.STM.TQueue as TQ
 import Unsafe.Coerce (unsafeCoerce)
 
 -- | A stream is a producer of `Step`s. Each pull is an `RIO` that
@@ -107,6 +110,14 @@ fromQueue :: forall r e a. Queue a -> Stream r e a
 fromQueue q = Stream do
   a <- Q.take q
   pure (Yield a (fromQueue q))
+
+-- | A stream that pulls from the given transactional queue. Each
+-- | pull commits a single `readTQueue`, retrying until an element is
+-- | available. Infinite: callers bound it externally.
+fromTQueue :: forall r e a. TQueue a -> Stream r e a
+fromTQueue q = Stream do
+  a <- STM.atomically (TQ.readTQueue q)
+  pure (Yield a (fromTQueue q))
 
 -- | Transform every element with `f`. Lazy: the function runs as
 -- | elements are pulled.

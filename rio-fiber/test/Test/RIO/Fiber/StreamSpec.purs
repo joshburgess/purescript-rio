@@ -13,6 +13,8 @@ import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
 import RIO.Fiber.Queue as Q
 import RIO.Fiber.Schedule as Sch
+import RIO.Fiber.STM as STM
+import RIO.Fiber.STM.TQueue as TQ
 import RIO.Fiber.Stream as S
 import Test.RIO.Fiber.Helpers (runAff)
 import Test.Spec (Spec, describe, it)
@@ -328,6 +330,23 @@ spec = describe "rio-fiber: Stream" do
       other -> fail ("expected Success, got " <> describeOutcome other)
     seen <- liftEffect (Ref.read counter)
     seen `shouldEqual` 3
+
+  it "fromTQueue pulls atomic reads from a transactional queue" do
+    q <- liftEffect (TQ.new 4 :: _ (TQ.TQueue Int))
+    let
+      prog :: F.RIO () () (Array Int)
+      prog = do
+        feeder <- F.fork do
+          STM.atomically (TQ.writeTQueue q 7)
+          STM.atomically (TQ.writeTQueue q 8)
+          STM.atomically (TQ.writeTQueue q 9)
+        result <- S.runCollect (S.take 3 (S.fromTQueue q))
+        _ <- F.join feeder
+        pure result
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 7, 8, 9 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
 
   it "broadcast fans each element to every consumer" do
     let
