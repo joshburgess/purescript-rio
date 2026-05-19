@@ -1,0 +1,30 @@
+package:
+  name: rio-fiber
+  publish:
+    version: 0.0.1
+    license: MIT
+  dependencies:
+    - effect
+    - either
+    - exceptions
+    - lists
+    - maybe
+    - prelude
+    - record
+    - refs
+    - tuples
+    - typelevel-prelude
+    - variant
+  test:
+    main: Test.RioFiber.Main
+    dependencies:
+      - aff
+      - arrays
+      - effect
+      - either
+      - maybe
+      - prelude
+      - refs
+      - spec
+      - spec-node
+      - variant
