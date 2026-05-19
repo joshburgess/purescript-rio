@@ -20,6 +20,7 @@ import Test.RIO.Fiber.STMSpec as STMSpec
 import Test.RIO.Fiber.STM.TArraySpec as TArraySpec
 import Test.RIO.Fiber.STM.TChanSpec as TChanSpec
 import Test.RIO.Fiber.STM.TMVarSpec as TMVarSpec
+import Test.RIO.Fiber.STM.TQueueSpec as TQueueSpec
 import Test.RIO.Fiber.StreamSpec as StreamSpec
 import Test.RIO.Fiber.SupervisorSpec as SupervisorSpec
 import Test.RIO.Fiber.TestClockSpec as TestClockSpec
@@ -46,6 +47,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   STMSpec.spec
   TMVarSpec.spec
   TChanSpec.spec
+  TQueueSpec.spec
   TArraySpec.spec
   SupervisorSpec.spec
   TestClockSpec.spec

@@ -25,6 +25,7 @@ module RIO.Fiber.STM
   , modifyTVar
   , swapTVar
   , retry
+  , check
   , orElse
   , atomically
   ) where
@@ -190,6 +191,11 @@ swapTVar t a = do
 -- | TVar it read is written.
 retry :: forall a. STM a
 retry = STM \_ -> pure NeedRetry
+
+-- | Guard a transaction on a predicate. `check true` is a no-op;
+-- | `check false` retries.
+check :: Boolean -> STM Unit
+check b = if b then pure unit else retry
 
 -- | Try the first alternative; if it retries, roll back its writes
 -- | (but keep its reads) and try the second. If both retry, the
