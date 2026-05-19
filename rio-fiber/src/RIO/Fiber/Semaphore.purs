@@ -10,6 +10,21 @@
 -- | Use `withPermit` / `withPermits` for the common acquire-then-release
 -- | pattern. Both pair release through `bracket`, so a typed failure
 -- | or interrupt inside the body still returns the permits.
+-- |
+-- | Bounded-concurrency parallel traversal is exposed directly as
+-- | `parTraverseN`, which builds an internal semaphore and gates a
+-- | normal `parTraverse` through it. Use it when you want
+-- | `parTraverse`'s order/fail-fast semantics but with a cap on how
+-- | many bodies run concurrently:
+-- |
+-- | ```purescript
+-- | -- Fetch every url with at most 4 in flight at a time.
+-- | Sem.parTraverseN 4 fetch urls
+-- | ```
+-- |
+-- | The cap is enforced by a single shared semaphore, so a slow
+-- | item never blocks later items from acquiring permits as long as
+-- | room is available.
 module RIO.Fiber.Semaphore
   ( Semaphore
   , make

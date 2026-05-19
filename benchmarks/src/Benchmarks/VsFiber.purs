@@ -24,7 +24,7 @@ import Effect.Class (liftEffect)
 import Effect.Console (log)
 import RIO.Fiber.Aff (runAff) as F
 import RIO.Fiber.Core (Outcome, RIO)
-import RIO.Fiber.Core (fork, join, parTraverse) as F
+import RIO.Fiber.Core (fork, forkInline, join, parTraverse) as F
 
 runFiberAff :: forall e a. RIO () e a -> Aff (Outcome e a)
 runFiberAff rio = F.runAff rio {}
@@ -81,10 +81,26 @@ runVsFiber = do
         )
     )
 
+  -- Workload 4: identical fan-out via forkInline. Each child is
+  -- sync-bodied (`pure (n + 1)`), so forkInline drives the child to
+  -- completion before the parent's next op and the subsequent `join`
+  -- resolves without going through queueMicrotask. The expected
+  -- delta versus workload 3 isolates the per-fork microtask hop.
+  benchAffWith sampleCount
+    "rio-fiber fan-out/fan-in (forkInline x16 + join each)"
+    ( void
+        ( runFiberAff do
+            fibs <- traverse (\n -> F.forkInline (fiberChild n)) fanArr
+            traverse F.join fibs
+        )
+    )
+
   liftEffect do
     log ""
     log "Reading the table: compare each rio-fiber row to the matching"
     log "RIO and Aff rows above. The runFiberAff bridge adds a fixed"
     log "per-iteration cost (one makeAff round-trip) that is paid by"
-    log "every rio-fiber row here."
+    log "every rio-fiber row here. The forkInline row isolates the"
+    log "savings from skipping the per-fork microtask hop for sync-"
+    log "bodied children."
     log ""
