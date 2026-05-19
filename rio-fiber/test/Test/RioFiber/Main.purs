@@ -8,6 +8,7 @@ import Test.RIO.Fiber.CoreSpec as CoreSpec
 import Test.RIO.Fiber.DeferredSpec as DeferredSpec
 import Test.RIO.Fiber.QueueSpec as QueueSpec
 import Test.RIO.Fiber.RefSpec as RefSpec
+import Test.RIO.Fiber.ScheduleSpec as ScheduleSpec
 import Test.RIO.Fiber.ScopeSpec as ScopeSpec
 import Test.RIO.Fiber.SemaphoreSpec as SemaphoreSpec
 import Test.Spec.Reporter.Console (consoleReporter)
@@ -22,3 +23,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   DeferredSpec.spec
   SemaphoreSpec.spec
   QueueSpec.spec
+  ScheduleSpec.spec
