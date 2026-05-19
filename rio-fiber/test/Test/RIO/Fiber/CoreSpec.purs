@@ -496,14 +496,25 @@ spec = describe "rio-fiber: Core" do
         sibling = F.liftEffect (Ref.write 1 ref)
 
         -- A long synchronous chain that should exceed the default
-        -- TICK_BUDGET (currently 2048). Without preemption the
+        -- TICK_BUDGET (currently 4096). Without preemption the
         -- parent would drive its whole chain to completion before
         -- the sibling ever ran, so the ref read at the end would
         -- be 0. With preemption, the parent yields mid-chain,
         -- the sibling runs, and the read sees 1.
+        --
+        -- The body deliberately uses an APPLY shape (`*>` desugars
+        -- to `apply (map (const id) lhs) rhs`). With the OP_MAP /
+        -- OP_APPLY smart-constructor fusions the `map (const id)`
+        -- side collapses into the inner Sync, but the surrounding
+        -- APPLY stays put (neither side is Pure), so every iteration
+        -- still pays an outer-loop dispatch. A pure `pure unit *> ...`
+        -- would fuse all the way down to a single `pure unit`, and a
+        -- pure `bind` chain would chain through the BIND fast paths
+        -- without consuming ticks. APPLY is the shape that genuinely
+        -- exercises preemption.
         busy :: Int -> F.RIO () () Unit
         busy 0 = pure unit
-        busy n = pure unit *> busy (n - 1)
+        busy n = F.liftEffect (pure unit) *> busy (n - 1)
 
         prog :: F.RIO () () Int
         prog = do
