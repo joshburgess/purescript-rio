@@ -136,6 +136,20 @@ runVsAff = do
         traverse joinFiber fibs
     )
 
+  -- Workload 4: sequential traverse over a 32-element array with pure
+  -- work. Mirrors the RIO and rio-fiber sequential-traverse rows so the
+  -- per-effect overhead of traverse-driven bind chains is comparable.
+  benchAffWith sampleCount
+    "RIO sequential traverse (32 elements, pure work)"
+    ( void
+        ( runRIO'
+            (traverse (\n -> pure (n + 1) :: RIO () () Int) parArr)
+        )
+    )
+  benchAffWith sampleCount
+    "Aff sequential traverse (32 elements, pure work)"
+    (void (traverse (\n -> pure (n + 1) :: Aff Int) parArr))
+
   liftEffect do
     log ""
     log "Reading the table: the row below each RIO entry is the same"

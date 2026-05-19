@@ -512,6 +512,19 @@ Fiber.prototype._completeFromMode = function () {
 };
 
 Fiber.prototype.step = function () {
+  // Depth-tracked wrapper around _stepInner: only the outermost step()
+  // call flushes the pending queue (sub-step()s nested via inline-drain
+  // / interrupt / _resumeAsync just bump the counter).
+  _inStep++;
+  try {
+    this._stepInner();
+  } finally {
+    _inStep--;
+    if (_inStep === 0) _flushPending();
+  }
+};
+
+Fiber.prototype._stepInner = function () {
   let ticks = TICK_BUDGET;
   while (true) {
     if (--ticks < 0) {
@@ -615,6 +628,7 @@ Fiber.prototype.step = function () {
                 const target = inner.fiber;
                 if (target.queued) {
                   target.queued = false;
+                  _pendingCount--;
                   target.step();
                 }
                 if (target.status === F_DONE) {
@@ -753,6 +767,7 @@ Fiber.prototype.step = function () {
                   const target = fibers[i];
                   if (target.queued) {
                     target.queued = false;
+                    _pendingCount--;
                     target.step();
                   }
                   if (target.status === F_DONE) {
@@ -935,6 +950,7 @@ Fiber.prototype.step = function () {
           const self = this;
           if (target.queued) {
             target.queued = false;
+            _pendingCount--;
             target.step();
           }
           if (target.status === F_DONE) {
@@ -1174,6 +1190,7 @@ Fiber.prototype.step = function () {
             const target = fibers[i];
             if (target.queued) {
               target.queued = false;
+              _pendingCount--;
               target.step();
             }
             if (target.status === F_DONE) {
@@ -1357,6 +1374,7 @@ Fiber.prototype.step = function () {
                     const target = inner.fiber;
                     if (target.queued) {
                       target.queued = false;
+                      _pendingCount--;
                       target.step();
                     }
                     if (target.status === F_DONE) {
@@ -1475,6 +1493,7 @@ Fiber.prototype.step = function () {
                       const target = fibers[i];
                       if (target.queued) {
                         target.queued = false;
+                        _pendingCount--;
                         target.step();
                       }
                       if (target.status === F_DONE) {
@@ -1652,8 +1671,18 @@ Fiber.prototype._resumeAsync = function (r) {
 // instead of N. Fibers can also be drained inline by JOIN before the
 // drain runs (the `queued` flag is the rendezvous: whichever side
 // clears it first wins, the other side becomes a no-op).
+//
+// Lazy drain scheduling: a fiber scheduled while we're already inside a
+// `step()` (depth counter `_inStep` > 0) does not pay queueMicrotask
+// up-front. The outer step's wrapper checks `_pendingCount` on exit and
+// schedules the drain only if any scheduled fiber survives the inline
+// JOIN / JOIN_ALL drains. The fork-fan-out + join-fan-in pattern, the
+// common case for parTraverse-style fan-outs, then pays zero
+// queueMicrotask round-trips in the all-sync-children case.
 const _runQueue = [];
 let _drainScheduled = false;
+let _inStep = 0;
+let _pendingCount = 0;
 
 const _queueDrain =
   typeof queueMicrotask !== "undefined"
@@ -1662,28 +1691,58 @@ const _queueDrain =
 
 function _runDrain() {
   _drainScheduled = false;
-  // Use an index walk: new fibers scheduled during a step() get
-  // appended to _runQueue and picked up in this same drain.
-  let i = 0;
-  while (i < _runQueue.length) {
-    const f = _runQueue[i];
-    i++;
-    if (f.queued) {
-      f.queued = false;
-      f.step();
+  // Bump _inStep across the whole drain so scheduleFibers fired by
+  // the steps we run don't trigger a fresh queueMicrotask; the index
+  // walk picks them up before we clear the queue.
+  _inStep++;
+  try {
+    let i = 0;
+    while (i < _runQueue.length) {
+      const f = _runQueue[i];
+      i++;
+      if (f.queued) {
+        f.queued = false;
+        _pendingCount--;
+        f.step();
+      }
+      // else: JOIN drove it inline; the inline-drainer decremented
+      // _pendingCount when it set queued=false.
     }
-    // else: JOIN drove it inline; nothing to do.
+    _runQueue.length = 0;
+  } finally {
+    _inStep--;
   }
-  _runQueue.length = 0;
 }
 
 function scheduleFiber(f) {
   f.queued = true;
   _runQueue.push(f);
+  _pendingCount++;
+  // Inside another step (this one, an inline-drain, or a drain pass)
+  // we defer queueMicrotask: the outer call will _flushPending on exit.
+  if (_inStep > 0) return;
   if (!_drainScheduled) {
     _drainScheduled = true;
     _queueDrain(_runDrain);
   }
+}
+
+function _flushPending() {
+  // Called at the outermost step() exit. If anything is still queued
+  // (i.e. wasn't picked up by an inline JOIN / JOIN_ALL drain), drain
+  // it inline on this call stack. That's both faster than scheduling
+  // a fresh queueMicrotask (no scheduler round-trip) and preserves the
+  // ordering invariant non-trivial tests rely on: a fiber that was
+  // `fork`ed before a synchronous operation must have registered its
+  // ASYNC callbacks by the time that operation runs. Lazy-deferring
+  // the drain to a microtask would let later synchronous work (e.g.
+  // `TestClock.advance`) observe a pre-`fork` world.
+  //
+  // Re-entry: _runDrain bumps `_inStep` itself, so f.step() calls it
+  // makes won't trigger another _flushPending. New scheduleFibers
+  // appended during the drain are picked up by the same index walk.
+  if (_pendingCount === 0) return;
+  _runDrain();
 }
 
 // Top-level entry points -----------------------------------------------
