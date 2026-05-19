@@ -22,11 +22,25 @@ import Prelude
 import Benchmarks.Harness (benchSyncWith)
 import Data.Array (range) as Array
 import Data.Traversable (traverse)
-import Effect.Aff (Aff)
+import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import RIO.Fiber.Core (RIO, runRIO')
 import RIO.Fiber.Core (forEach, fork, forkAll, forkAllInline, forkInline, join, joinAll, parTraverse) as F
+
+affMapChain :: Int -> Aff Int
+affMapChain n = go n (pure 0)
+  where
+  go :: Int -> Aff Int -> Aff Int
+  go 0 acc = acc
+  go k acc = go (k - 1) (map (_ + 1) acc)
+
+affApplyChain :: Int -> Aff Int
+affApplyChain n = go n (pure 0)
+  where
+  go :: Int -> Aff Int -> Aff Int
+  go 0 acc = acc
+  go k acc = go (k - 1) (pure (_ + 1) <*> acc)
 
 fiberBindChain :: Int -> RIO () () Int
 fiberBindChain n = go 0 n
@@ -172,6 +186,15 @@ runVsFiber = do
             (mapChain 1000 :: RIO () () Int)
         )
     )
+  -- Apples-to-apples Aff row: launchAff_ spins up a fresh Aff
+  -- interpreter per iteration, mirroring runRIO''s per-iter fiber
+  -- start/finish. (The Aff map-chain row in `Benchmarks.VsAff` runs
+  -- inside an outer Aff loop, which collapses to a single bind into
+  -- the parent continuation per iter and does not measure the
+  -- interpreter-start cost.)
+  benchSyncWith sampleCount
+    "Aff map chain via launchAff_ (1000 maps over pure)"
+    (launchAff_ (void (affMapChain 1000)))
   benchSyncWith sampleCount
     "rio-fiber apply chain (1000 applies over pure)"
     ( void
@@ -179,6 +202,9 @@ runVsFiber = do
             (applyChain 1000 :: RIO () () Int)
         )
     )
+  benchSyncWith sampleCount
+    "Aff apply chain via launchAff_ (1000 applies over pure)"
+    (launchAff_ (void (affApplyChain 1000)))
 
   liftEffect do
     log ""
@@ -190,5 +216,7 @@ runVsFiber = do
     log "forkAll / joinAll row isolates the savings from skipping the"
     log "per-element bind chain that traverse builds. The forEach row"
     log "vs sequential-traverse isolates the same gain for the non-"
-    log "forking traverse case."
+    log "forking traverse case. The two `launchAff_` Aff rows pair up"
+    log "with the rio-fiber map / apply rows on the same harness, so"
+    log "their ratio reflects the actual per-call interpreter cost."
     log ""
