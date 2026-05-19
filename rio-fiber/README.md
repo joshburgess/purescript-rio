@@ -160,6 +160,12 @@ The two interop at the boundary via `RIO.Fiber.Aff`. A common
 shape is a top-level `Aff` program that calls
 `RIO.Fiber.Aff.runAffThrow` to run a fiber-backed subroutine.
 
+## Going further
+
+The per-module list above is a reference. For a guided tour of
+how `Stream` / `Pipe` / `Sink` and `STM` actually compose into
+pipelines, see [`docs/ecosystem.md`](./docs/ecosystem.md).
+
 ## Build
 
 This package lives in the same workspace as `rio`. From the
