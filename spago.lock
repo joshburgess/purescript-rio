@@ -1938,12 +1938,14 @@
         "path": "rio-fiber",
         "core": {
           "dependencies": [
+            "console",
             "datetime",
             "effect",
             "either",
             "exceptions",
             "lists",
             "maybe",
+            "now",
             "prelude",
             "random",
             "record",
@@ -1955,6 +1957,7 @@
           "build_plan": [
             "arrays",
             "bifunctors",
+            "console",
             "const",
             "contravariant",
             "control",
@@ -1977,6 +1980,7 @@
             "maybe",
             "newtype",
             "nonempty",
+            "now",
             "numbers",
             "ordered-collections",
             "orders",

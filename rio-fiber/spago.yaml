@@ -4,12 +4,14 @@ package:
     version: 0.0.1
     license: MIT
   dependencies:
+    - console
     - datetime
     - effect
     - either
     - exceptions
     - lists
     - maybe
+    - now
     - prelude
     - random
     - record
