@@ -868,7 +868,25 @@ Fiber.prototype.step = function () {
       switch (frame._k) {
         case K_BIND:
           if (this.mode === M_OK) {
-            this.current = frame.next(this.value);
+            // Inline the common `do { x <- m; pure (f x) }` /
+            // `do { x <- m; liftEffect e }` tails: if next returns
+            // a leaf op we apply it here without going back through
+            // the dispatch switch.
+            const nextOp = frame.next(this.value);
+            const nextTag = nextOp._tag;
+            if (nextTag === PURE) {
+              this.value = nextOp.value;
+              // mode is already M_OK
+            } else if (nextTag === SYNC) {
+              try {
+                this.value = nextOp.run();
+              } catch (err) {
+                this.value = err;
+                this.mode = M_DIE;
+              }
+            } else {
+              this.current = nextOp;
+            }
           }
           // FAIL / DIE / INTERRUPT: skip this frame; keep unwinding.
           break;
