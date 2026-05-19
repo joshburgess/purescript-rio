@@ -29,6 +29,7 @@ module RIO.Fiber.Stream
   , run
   , runCollect
   , runSink
+  , via
   , buffer
   , merge
   , mapPar
@@ -75,6 +76,7 @@ import RIO.Fiber.Schedule (Schedule)
 import RIO.Fiber.Schedule as Sch
 import RIO.Fiber.Scope (Scope)
 import RIO.Fiber.Scope as Scope
+import RIO.Fiber.Pipe (Pipe(..))
 import RIO.Fiber.Sink (Sink(..))
 import RIO.Fiber.STM as STM
 import RIO.Fiber.STM.TQueue (TQueue)
@@ -211,6 +213,57 @@ runSink stream0 (Sink mkLoop) = do
             Just o -> pure o
             Nothing -> go rest
   go stream0
+
+-- | Splice a `Pipe` transducer between this stream and its consumer:
+-- | each upstream element is fed to the pipe, and the pipe's emissions
+-- | become the new stream. The pipe's `onDone` runs once upstream
+-- | signals end-of-stream, producing any trailing emissions (e.g. the
+-- | final partial chunk).
+via :: forall r e i o. Stream r e i -> Pipe r e i o -> Stream r e o
+via upstream0 (Pipe mkLoop) = Stream do
+  loop <- mkLoop
+  bufRef <- F.liftEffect (Ref.new ([] :: Array o))
+  upRef <- F.liftEffect (Ref.new (Just upstream0))
+  finishedRef <- F.liftEffect (Ref.new false)
+  let
+    drainOne :: RIO r e (Step r e o)
+    drainOne = do
+      buf <- F.liftEffect (Ref.read bufRef)
+      case Array.uncons buf of
+        Just { head, tail } -> do
+          F.liftEffect (Ref.write tail bufRef)
+          pure (Yield head (Stream drainOne))
+        Nothing -> do
+          done <- F.liftEffect (Ref.read finishedRef)
+          if done then pure Done
+          else do
+            mUp <- F.liftEffect (Ref.read upRef)
+            case mUp of
+              Nothing -> pure Done
+              Just (Stream pull) -> do
+                s <- pull
+                case s of
+                  Done -> do
+                    tailEmit <- loop.onDone
+                    F.liftEffect (Ref.write tailEmit bufRef)
+                    F.liftEffect (Ref.write Nothing upRef)
+                    F.liftEffect (Ref.write true finishedRef)
+                    drainOne
+                  Yield i rest -> do
+                    F.liftEffect (Ref.write (Just rest) upRef)
+                    step <- loop.onInput i
+                    F.liftEffect (Ref.write step.emit bufRef)
+                    if not step.more then do
+                      tailEmit <- loop.onDone
+                      F.liftEffect
+                        (Ref.modify_ (\xs -> xs <> tailEmit) bufRef)
+                      F.liftEffect (Ref.write Nothing upRef)
+                      F.liftEffect (Ref.write true finishedRef)
+                      pure unit
+                    else
+                      pure unit
+                    drainOne
+  drainOne
 
 -- | Insert a bounded buffer of size `n` between producer and
 -- | consumer. The producer runs in a forked fiber that fills the

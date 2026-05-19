@@ -10,6 +10,7 @@ import Test.RIO.Fiber.HubSpec as HubSpec
 import Test.RIO.Fiber.LatchSpec as LatchSpec
 import Test.RIO.Fiber.LayerSpec as LayerSpec
 import Test.RIO.Fiber.MetricsSpec as MetricsSpec
+import Test.RIO.Fiber.PipeSpec as PipeSpec
 import Test.RIO.Fiber.PoolSpec as PoolSpec
 import Test.RIO.Fiber.QueueSpec as QueueSpec
 import Test.RIO.Fiber.RefSpec as RefSpec
@@ -47,6 +48,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   MetricsSpec.spec
   ServicesSpec.spec
   SinkSpec.spec
+  PipeSpec.spec
   StreamSpec.spec
   STMSpec.spec
   TMVarSpec.spec
