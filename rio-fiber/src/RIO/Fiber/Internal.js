@@ -2153,6 +2153,32 @@ Fiber.prototype._stepInner = function () {
                 this.value = child;
               }
               // mode is already M_OK
+            } else if (nextTag === FORK_INLINE) {
+              // K_BIND -> FORK_INLINE: like FORK but drive the child
+              // synchronously once. PURE / SYNC bodies collapse to
+              // DoneFibers; everything else gets a Fiber + inline step.
+              const body = nextOp._1;
+              const bodyTag = body._tag;
+              if (_supervisors.length === 0 && bodyTag === PURE) {
+                this.value = new DoneFiber(M_OK, body._1);
+              } else if (_supervisors.length === 0 && bodyTag === SYNC) {
+                let v;
+                let m;
+                try {
+                  v = body._1();
+                  m = M_OK;
+                } catch (err) {
+                  v = err;
+                  m = M_DIE;
+                }
+                this.value = new DoneFiber(m, v);
+              } else {
+                this.frefsOwn = false;
+                const inlineChild = new Fiber(body, this.env, this.frefs);
+                inlineChild.step();
+                this.value = inlineChild;
+              }
+              // mode is already M_OK
             } else {
               this.current = nextOp;
             }
