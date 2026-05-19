@@ -228,7 +228,7 @@ function ForEachFrame(fn, items, results) {
 //   K_LOCAL frame   : _1 = previous env
 //   K_AFTER_FIN     : _1 = savedValue,      _2 = savedMode
 //   K_MAP frame     : _1 = function
-//   K_APPLY frame   : _1 = opA
+//   K_APPLY frame   : _2 = opA  (an APPLY op pushed directly, _k=K_APPLY)
 //   K_APPLY2 frame  : _1 = function
 
 export const opPure = function (a) {
@@ -410,7 +410,12 @@ function opApplySlow(opF, opA) {
       return g(a);
     })(opF);
   }
-  return new Op(APPLY, -1, opF, opA);
+  // _k = K_APPLY so the APPLY op doubles as its own K_APPLY frame:
+  // the spine-walk push sites stack the op itself instead of allocating
+  // a fresh `new Op(-1, K_APPLY, opA, null)` per level. K_APPLY's unwind
+  // reads `frame._2` (opA), which is the same slot the APPLY op already
+  // uses, so the dual-purpose layout matches without rearrangement.
+  return new Op(APPLY, K_APPLY, opF, opA);
 }
 
 // Like opForkAll but each child is stepped synchronously before its
@@ -964,10 +969,11 @@ Fiber.prototype._stepInner = function () {
                 // `do { xs <- traverse f arr; ... }` shape doesn't bounce
                 // through the outer-loop tick / interrupt / switch trio
                 // just to reach the apply tree. Push bindOp as its own
-                // K_BIND frame at the bottom, then stack K_APPLY / K_MAP
-                // frames while descending into the spine. The leaf becomes
-                // this.current and the unwind path folds back up through
-                // K_MAP / K_APPLY and finally K_BIND.
+                // K_BIND frame at the bottom, then stack each APPLY op
+                // (it doubles as its own K_APPLY frame) and one K_MAP
+                // per MAP while descending into the spine. The leaf
+                // becomes this.current and the unwind path folds back
+                // up through K_MAP / K_APPLY and finally K_BIND.
                 this.stack.push(bindOp);
                 let cur = inner;
                 while (true) {
@@ -985,7 +991,7 @@ Fiber.prototype._stepInner = function () {
                       }
                       break;
                     }
-                    this.stack.push(new Op(-1, K_APPLY, rhs, null));
+                    this.stack.push(cur);
                     cur = lhs;
                     continue;
                   }
@@ -1504,11 +1510,13 @@ Fiber.prototype._stepInner = function () {
           // `apply(apply(... ) y) z`, with MAP nodes carrying the
           // result-shape function at each level (`map array2`,
           // `map array3`, `map concat2`). Walk the left spine here,
-          // pushing one K_APPLY per APPLY and one K_MAP per MAP, so a
-          // depth-N spine pays one outer-loop dispatch instead of N.
-          // The walk stops at the first non-APPLY non-MAP leaf (PURE,
-          // SYNC, FORK, JOIN, ASK, ...); the outer loop dispatches
-          // that leaf and the unwind path folds the stacked frames.
+          // pushing the APPLY op itself as a K_APPLY frame (it already
+          // has _k=K_APPLY and carries opA in _2) and one K_MAP per
+          // MAP, so a depth-N spine pays one outer-loop dispatch
+          // instead of N. The walk stops at the first non-APPLY non-MAP
+          // leaf (PURE, SYNC, FORK, JOIN, ASK, ...); the outer loop
+          // dispatches that leaf and the unwind path folds the stacked
+          // frames.
           let cur = op;
           while (true) {
             const tag = cur._tag;
@@ -1525,7 +1533,7 @@ Fiber.prototype._stepInner = function () {
                 }
                 break;
               }
-              this.stack.push(new Op(-1, K_APPLY, rhs, null));
+              this.stack.push(cur);
               cur = lhs;
               continue;
             }
@@ -2004,7 +2012,8 @@ Fiber.prototype._stepInner = function () {
                     // Mirror the bindLoop fast path: walk the APPLY / MAP
                     // spine with bindOp already pushed as the bottom
                     // K_BIND frame so the unwind chain is ready by the
-                    // time we dispatch the leaf.
+                    // time we dispatch the leaf. Each APPLY op is its
+                    // own K_APPLY frame (set in opApplySlow).
                     this.stack.push(bindOp);
                     let cur = inner;
                     while (true) {
@@ -2022,7 +2031,7 @@ Fiber.prototype._stepInner = function () {
                           }
                           break;
                         }
-                        this.stack.push(new Op(-1, K_APPLY, rhs, null));
+                        this.stack.push(cur);
                         cur = lhs;
                         continue;
                       }
@@ -2211,9 +2220,12 @@ Fiber.prototype._stepInner = function () {
           // opA we fold the result inline so the K_APPLY2 + outer
           // dispatch round-trip vanishes. Only genuinely suspending
           // opAs (e.g. JOIN on an unfinished fiber) take the slow path.
+          //
+          // `frame` here is the APPLY op itself (pushed by the spine
+          // walks via _k=K_APPLY); opA lives in frame._2.
           if (this.mode === M_OK) {
             const f = this.value;
-            const opA = frame._1;
+            const opA = frame._2;
             const opATag = opA._tag;
             if (opATag === PURE) {
               try {
@@ -2340,7 +2352,7 @@ Fiber.prototype._stepInner = function () {
                     }
                     break;
                   }
-                  this.stack.push(new Op(-1, K_APPLY, rhs, null));
+                  this.stack.push(cur);
                   cur = lhs;
                   continue;
                 }
