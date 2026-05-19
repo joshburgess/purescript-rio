@@ -11,6 +11,7 @@ package:
     - lists
     - maybe
     - prelude
+    - random
     - record
     - refs
     - tuples

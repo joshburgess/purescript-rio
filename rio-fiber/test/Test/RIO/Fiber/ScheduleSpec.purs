@@ -2,17 +2,35 @@ module Test.RIO.Fiber.ScheduleSpec (spec) where
 
 import Prelude
 
+import Data.Array as Array
 import Data.Time.Duration (Milliseconds(..))
 import Data.Variant as Variant
+import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
+import RIO.Fiber.Schedule (Decision(..), Schedule(..))
 import RIO.Fiber.Schedule as Sch
 import Test.RIO.Fiber.Helpers (runAff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Type.Proxy (Proxy(..))
+
+collect
+  :: forall a
+   . Int
+  -> (Unit -> Effect (Decision Unit a))
+  -> Array Milliseconds
+  -> Effect (Array Milliseconds)
+collect n step acc
+  | n <= 0 = pure acc
+  | otherwise = do
+      d <- step unit
+      case d of
+        Halt _ -> pure acc
+        Step _ delay (Schedule next) ->
+          collect (n - 1) next (acc <> [ delay ])
 
 spec :: Spec Unit
 spec = describe "rio-fiber: Schedule" do
@@ -104,6 +122,71 @@ spec = describe "rio-fiber: Schedule" do
       -- Then andThen switches to recurs 2 -> two more Steps -> action runs 2 more times
       -- Total: 1 + 1 (first step) + 2 (second schedule) = 4
       n `shouldEqual` 4
+
+  describe "fibonacci" do
+    it "emits delays in the fibonacci sequence" do
+      decisions <- liftEffect do
+        let Schedule s0 = Sch.fibonacci (Milliseconds 1.0)
+        collect 4 s0 []
+      decisions `shouldEqual`
+        [ Milliseconds 1.0
+        , Milliseconds 1.0
+        , Milliseconds 2.0
+        , Milliseconds 3.0
+        ]
+
+  describe "jittered" do
+    it "scales each delay within the requested range" do
+      delays <- liftEffect do
+        let
+          Schedule s0 = Sch.jittered 0.5 1.5
+            (Sch.spaced (Milliseconds 100.0))
+        collect 5 s0 []
+      let
+        allInRange = Array.all
+          (\(Milliseconds ms) -> ms >= 50.0 && ms <= 150.0)
+          delays
+      allInRange `shouldEqual` true
+
+  describe "whileOutput" do
+    it "halts once the inner schedule's output stops satisfying p" do
+      ref <- liftEffect (Ref.new 0)
+      let
+        action :: F.RIO () () Unit
+        action = F.liftEffect (Ref.modify_ (_ + 1) ref)
+
+        prog :: F.RIO () () Unit
+        prog = do
+          _ <- Sch.repeat
+            (Sch.whileOutput (\n -> n < 3) Sch.forever)
+            action
+          pure unit
+      _ <- runAff prog {}
+      n <- liftEffect (Ref.read ref)
+      -- forever emits Step 1, Step 2, Step 3, ... ; whileOutput halts
+      -- as soon as the output is >= 3, i.e. after emitting Step 1 and
+      -- Step 2 (action runs 1 + 2 = 3 times total).
+      n `shouldEqual` 3
+
+  describe "untilInput" do
+    it "halts once an input satisfies the predicate" do
+      counter <- liftEffect (Ref.new 0)
+      let
+        action :: F.RIO () (oops :: String) Int
+        action = do
+          n <- F.liftEffect (Ref.modify (_ + 1) counter)
+          F.fail (Variant.inj (Proxy :: _ "oops") ("attempt " <> show n))
+
+        prog :: F.RIO () (oops :: String) Int
+        prog = Sch.retry
+          (Sch.untilInput (\v -> Variant.case_ # Variant.on (Proxy :: _ "oops")
+            (\msg -> msg == "attempt 2") $ v) Sch.forever)
+          action
+      _ <- runAff prog {}
+      n <- liftEffect (Ref.read counter)
+      -- attempts 1 fails, untilInput keeps trying; attempt 2 fails,
+      -- untilInput sees match and halts -> total attempts is 2.
+      n `shouldEqual` 2
 
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"

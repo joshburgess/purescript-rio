@@ -16,11 +16,18 @@ module RIO.Fiber.Schedule
   , recurs
   , spaced
   , exponential
+  , fibonacci
+  , fixed
   , forever
+  , jittered
   , once
   , bothS
   , andThen
   , mapOutput
+  , whileInput
+  , whileOutput
+  , untilInput
+  , untilOutput
   , repeat
   , repeatN
   , retry
@@ -30,10 +37,12 @@ module RIO.Fiber.Schedule
 import Prelude
 
 import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Effect (Effect)
+import Effect.Random (random)
 import RIO.Fiber.Core (RIO, catchAll, fail, liftEffect, sleep)
 
 -- | A schedule: feed it an input and it returns the next decision.
@@ -76,6 +85,40 @@ exponential (Milliseconds base) factor = go 1 base
   where
   go n d = Schedule \_ -> pure (Step n (Milliseconds d) (go (n + 1) (d * factor)))
 
+-- | Step forever with a delay following the Fibonacci sequence,
+-- | seeded with `unit`. The first delay is `unit`, the second is
+-- | `unit`, then each subsequent delay is the sum of the previous
+-- | two. Useful as a gentler alternative to `exponential`.
+fibonacci :: forall a. Milliseconds -> Schedule a Int
+fibonacci (Milliseconds unitMs) = go 1 unitMs unitMs
+  where
+  go n a b = Schedule \_ -> pure
+    (Step n (Milliseconds a) (go (n + 1) b (a + b)))
+
+-- | Step forever at a fixed interval. Unlike `spaced`, the delay
+-- | between iteration *starts* is held constant: the schedule
+-- | tracks wall time elapsed since the last step and shortens the
+-- | next sleep accordingly. (In this MVP we approximate it as
+-- | `spaced delay`; tightening to true fixed-rate scheduling is a
+-- | follow-up once we expose monotonic time.)
+fixed :: forall a. Milliseconds -> Schedule a Int
+fixed = spaced
+
+-- | Add jitter to every delay produced by the inner schedule. The
+-- | new delay is uniformly distributed in `[delay * lo, delay * hi]`.
+-- | Useful with `exponential` to avoid thundering-herd retries.
+jittered
+  :: forall a b. Number -> Number -> Schedule a b -> Schedule a b
+jittered lo hi (Schedule step) = Schedule \input -> do
+  d <- step input
+  case d of
+    Halt b -> pure (Halt b)
+    Step b (Milliseconds ms) next -> do
+      r <- random
+      let
+        factor = lo + (hi - lo) * r
+      pure (Step b (Milliseconds (ms * factor)) (jittered lo hi next))
+
 -- | Intersection: both schedules must agree to continue. The
 -- | combined delay is the maximum of the two.
 bothS
@@ -115,6 +158,40 @@ mapOutput f (Schedule step) = Schedule \input -> do
   pure case d of
     Halt b -> Halt (f b)
     Step b delay next -> Step (f b) delay (mapOutput f next)
+
+-- | Continue only while the input satisfies `p`. An input that
+-- | fails the predicate halts immediately; the schedule's last
+-- | step output is reused as the halt value.
+whileInput :: forall a b. (a -> Boolean) -> Schedule a b -> Schedule a b
+whileInput p sched = go sched Nothing
+  where
+  go (Schedule step) lastB = Schedule \input -> do
+    d <- step input
+    case d of
+      Halt b -> pure (Halt b)
+      Step b delay next
+        | p input -> pure (Step b delay (go next (Just b)))
+        | otherwise -> case lastB of
+            Just prev -> pure (Halt prev)
+            Nothing -> pure (Halt b)
+
+-- | Continue only while the inner schedule's output satisfies `p`.
+whileOutput :: forall a b. (b -> Boolean) -> Schedule a b -> Schedule a b
+whileOutput p (Schedule step) = Schedule \input -> do
+  d <- step input
+  pure case d of
+    Halt b -> Halt b
+    Step b delay next
+      | p b -> Step b delay (whileOutput p next)
+      | otherwise -> Halt b
+
+-- | Continue until the input satisfies `p` (negation of `whileInput`).
+untilInput :: forall a b. (a -> Boolean) -> Schedule a b -> Schedule a b
+untilInput p = whileInput (not <<< p)
+
+-- | Continue until the inner schedule's output satisfies `p`.
+untilOutput :: forall a b. (b -> Boolean) -> Schedule a b -> Schedule a b
+untilOutput p = whileOutput (not <<< p)
 
 -- | Run `action` once, then repeatedly while `schedule` decides to
 -- | continue. Returns the schedule's last output.
