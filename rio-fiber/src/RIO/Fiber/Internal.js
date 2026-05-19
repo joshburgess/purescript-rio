@@ -227,8 +227,8 @@ function ForEachFrame(fn, items, results) {
 //   APPLY           : _1 = opF,             _2 = opA
 //   K_LOCAL frame   : _1 = previous env
 //   K_AFTER_FIN     : _1 = savedValue,      _2 = savedMode
-//   K_MAP frame     : _1 = function
-//   K_APPLY frame   : _2 = opA  (an APPLY op pushed directly, _k=K_APPLY)
+//   K_MAP frame     : _1 = function  (a MAP op pushed directly, _k=K_MAP)
+//   K_APPLY frame   : _2 = opA       (an APPLY op pushed directly, _k=K_APPLY)
 //   K_APPLY2 frame  : _1 = function
 
 export const opPure = function (a) {
@@ -375,11 +375,13 @@ function opMapSlow(f, op, tag) {
   }
   if (tag === MAP) {
     const g = op._1;
-    return new Op(MAP, -1, function (x) {
+    // _k = K_MAP so the fused MAP op doubles as its own K_MAP frame
+    // (same trick as opApplySlow / opBind).
+    return new Op(MAP, K_MAP, function (x) {
       return f(g(x));
     }, op._2);
   }
-  return new Op(MAP, -1, f, op);
+  return new Op(MAP, K_MAP, f, op);
 }
 
 // Same inlining trick as opMap. The PURE/PURE leaf (which is what a
@@ -996,7 +998,7 @@ Fiber.prototype._stepInner = function () {
                     continue;
                   }
                   if (tag === MAP) {
-                    this.stack.push(new Op(-1, K_MAP, cur._1, null));
+                    this.stack.push(cur);
                     cur = cur._2;
                     continue;
                   }
@@ -1469,8 +1471,9 @@ Fiber.prototype._stepInner = function () {
               }
               break;
             }
-            // Suspending join: install K_MAP and dispatch JOIN.
-            this.stack.push(new Op(-1, K_MAP, f, null));
+            // Suspending join: push the MAP op (doubles as K_MAP frame)
+            // and dispatch JOIN.
+            this.stack.push(op);
             this.current = inner;
             continue;
           }
@@ -1497,7 +1500,8 @@ Fiber.prototype._stepInner = function () {
             }
             break;
           }
-          this.stack.push(new Op(-1, K_MAP, f, null));
+          // Fallback: push the MAP op (doubles as K_MAP frame, _k=K_MAP).
+          this.stack.push(op);
           this.current = inner;
           continue;
         }
@@ -1538,7 +1542,7 @@ Fiber.prototype._stepInner = function () {
               continue;
             }
             if (tag === MAP) {
-              this.stack.push(new Op(-1, K_MAP, cur._1, null));
+              this.stack.push(cur);
               cur = cur._2;
               continue;
             }
@@ -2036,7 +2040,7 @@ Fiber.prototype._stepInner = function () {
                         continue;
                       }
                       if (tag === MAP) {
-                        this.stack.push(new Op(-1, K_MAP, cur._1, null));
+                        this.stack.push(cur);
                         cur = cur._2;
                         continue;
                       }
@@ -2357,7 +2361,7 @@ Fiber.prototype._stepInner = function () {
                   continue;
                 }
                 if (tag === MAP) {
-                  this.stack.push(new Op(-1, K_MAP, cur._1, null));
+                  this.stack.push(cur);
                   cur = cur._2;
                   continue;
                 }
