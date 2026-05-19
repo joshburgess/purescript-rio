@@ -13,7 +13,7 @@ import RIO.Fiber.Clock (Clock(..))
 import RIO.Fiber.Clock as Clock
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
-import RIO.Fiber.Logger (LogLevel(..), Logger(..))
+import RIO.Fiber.Logger (Logger(..))
 import RIO.Fiber.Logger as Logger
 import RIO.Fiber.Random (Random(..))
 import RIO.Fiber.Random as Random

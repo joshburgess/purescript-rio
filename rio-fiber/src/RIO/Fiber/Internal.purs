@@ -48,6 +48,7 @@ module RIO.Fiber.Internal
   , opFailCause
   , JSCause
   , causeToJS
+  , _registerSupervisor
   ) where
 
 import Prelude
@@ -188,6 +189,14 @@ foreign import _causeFailValue :: forall e. JSCause e -> Variant e
 foreign import _causeDieValue :: forall e. JSCause e -> Error
 foreign import _causeLeft :: forall e. JSCause e -> JSCause e
 foreign import _causeRight :: forall e. JSCause e -> JSCause e
+
+-- | Register a supervisor with the runtime; returns an unregister
+-- | action. Used by `RIO.Fiber.Supervisor`.
+foreign import _registerSupervisor
+  :: { onStart :: Int -> Effect Unit
+     , onEnd :: Int -> Effect Unit
+     }
+  -> Effect (Effect Unit)
 
 -- | Convert a `Cause` to its JS representation for the interpreter.
 causeToJS :: forall e. Cause e -> JSCause e

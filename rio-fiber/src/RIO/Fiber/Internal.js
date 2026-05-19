@@ -247,7 +247,26 @@ export const _closeScope = function (scope) {
 
 // Fiber ----------------------------------------------------------------
 
+// Global supervisor registry. Each entry is { onStart, onEnd } where
+// each hook is a thunked Effect (i.e. a function returning a function
+// returning Unit). Calls are wrapped in try/catch so a faulty
+// supervisor can't crash the interpreter.
+const _supervisors = [];
+let _nextFiberId = 0;
+
+export const _registerSupervisor = function (sup) {
+  return function () {
+    _supervisors.push(sup);
+    return function () {
+      const idx = _supervisors.indexOf(sup);
+      if (idx >= 0) _supervisors.splice(idx, 1);
+      return {};
+    };
+  };
+};
+
 function Fiber(op, env, frefs) {
+  this.id = _nextFiberId++;
   this.current = op;
   this.value = null;
   this.mode = M_OK;
@@ -265,12 +284,22 @@ function Fiber(op, env, frefs) {
   // Per-fiber state map keyed by FiberRef identity. Children copy
   // this on fork so each fiber gets its own isolated namespace.
   this.frefs = frefs || new Map();
+  for (let i = 0; i < _supervisors.length; i++) {
+    try {
+      _supervisors[i].onStart(this.id)();
+    } catch (_) {}
+  }
 }
 
 Fiber.prototype._complete = function (result) {
   if (this.status === F_DONE) return;
   this.status = F_DONE;
   this.result = result;
+  for (let i = 0; i < _supervisors.length; i++) {
+    try {
+      _supervisors[i].onEnd(this.id)();
+    } catch (_) {}
+  }
   const obs = this.observers;
   this.observers = [];
   for (let i = 0; i < obs.length; i++) {
