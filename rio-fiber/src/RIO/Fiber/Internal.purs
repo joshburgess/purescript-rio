@@ -36,6 +36,10 @@ module RIO.Fiber.Internal
   , opPeel
   , FiberResult
   , peelToCauseEither
+  , Scope
+  , _newScope
+  , _addFinalizerEff
+  , _closeScope
   ) where
 
 import Prelude
@@ -134,6 +138,16 @@ foreign import opParTraverse
 -- | error row is independent: the caller may discharge it or thread
 -- | a different one.
 foreign import opPeel :: forall r e e' a. Op r e a -> Op r e' (FiberResult e a)
+
+-- | A scope: a holder for `Effect Unit` finalizers that all fire
+-- | in LIFO order when the scope is closed. The MVP finalizer
+-- | shape is fire-and-forget; async cleanup that needs to be
+-- | awaited has to bridge that itself.
+foreign import data Scope :: Type
+
+foreign import _newScope :: Effect Scope
+foreign import _addFinalizerEff :: Scope -> Effect Unit -> Effect Unit
+foreign import _closeScope :: Scope -> Effect Unit
 
 -- | The full outcome of running a fiber. Includes interrupt as a
 -- | dedicated case; defects come through `Die`.

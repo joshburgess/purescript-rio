@@ -140,6 +140,42 @@ export const opPeel = function (op) {
   return { _tag: PEEL, op: op };
 };
 
+// Scope: a JS object owning a list of synchronous `Effect Unit`
+// finalizers. The MVP API is fire-and-forget: closeScope invokes
+// each finalizer in LIFO order and swallows individual throws so
+// one bad finalizer can't strand the rest.
+function makeScope() {
+  return { finalizers: [], closed: false };
+}
+
+export const _newScope = function () {
+  return makeScope();
+};
+
+export const _addFinalizerEff = function (scope) {
+  return function (fin) {
+    return function () {
+      if (scope.closed) {
+        try { fin(); } catch (_) {}
+        return;
+      }
+      scope.finalizers.push(fin);
+    };
+  };
+};
+
+export const _closeScope = function (scope) {
+  return function () {
+    if (scope.closed) return;
+    scope.closed = true;
+    const fs = scope.finalizers;
+    scope.finalizers = [];
+    for (let i = fs.length - 1; i >= 0; i--) {
+      try { fs[i](); } catch (_) {}
+    }
+  };
+};
+
 // Fiber ----------------------------------------------------------------
 
 function Fiber(op, env) {
