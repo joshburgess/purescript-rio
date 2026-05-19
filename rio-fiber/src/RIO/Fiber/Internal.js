@@ -2113,6 +2113,46 @@ Fiber.prototype._stepInner = function () {
                   }
                 }
               }
+            } else if (nextTag === ASK) {
+              // K_BIND -> ASK leaf: env read with no frame, no
+              // outer-dispatch round-trip.
+              this.value = this.env;
+              // mode is already M_OK
+            } else if (nextTag === FREF_GET) {
+              const ref = nextOp._1;
+              const m = this.frefs;
+              this.value =
+                (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
+              // mode is already M_OK
+            } else if (nextTag === JOIN) {
+              // K_BIND -> JOIN: try the inline-drain rendezvous before
+              // suspending. Matches case JOIN's fast path so a chain
+              // like `do { fib <- fork m; x <- join fib; ... }` resolves
+              // without leaving the unwind loop when the child is done.
+              const target = nextOp._1;
+              if (target.queued) {
+                target.queued = false;
+                _pendingCount--;
+                target.step();
+              }
+              if (target.status === F_DONE) {
+                this._installResult(target);
+              } else {
+                this.current = nextOp;
+              }
+            } else if (nextTag === FORK) {
+              // K_BIND -> FORK: spawn (or DoneFiber for PURE bodies)
+              // and continue the unwind chain holding the handle.
+              const body = nextOp._1;
+              if (body._tag === PURE && _supervisors.length === 0) {
+                this.value = new DoneFiber(M_OK, body._1);
+              } else {
+                this.frefsOwn = false;
+                const child = new Fiber(body, this.env, this.frefs);
+                scheduleFiber(child);
+                this.value = child;
+              }
+              // mode is already M_OK
             } else {
               this.current = nextOp;
             }
