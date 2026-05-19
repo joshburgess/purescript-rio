@@ -2,7 +2,9 @@ module Test.RIO.Fiber.SemaphoreSpec (spec) where
 
 import Prelude
 
+import Data.Array (range) as Array
 import Data.Time.Duration (Milliseconds(..))
+import Data.Variant as Variant
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import RIO.Fiber.Core (Outcome(..))
@@ -11,6 +13,7 @@ import RIO.Fiber.Semaphore as Sem
 import Test.RIO.Fiber.Helpers (runAff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
+import Type.Proxy (Proxy(..))
 
 spec :: Spec Unit
 spec = describe "rio-fiber: Semaphore" do
@@ -104,6 +107,90 @@ spec = describe "rio-fiber: Semaphore" do
     case out of
       Success n -> n `shouldEqual` 1
       other -> fail ("expected Success, got " <> describeOutcome other)
+
+  describe "parTraverseN" do
+    it "preserves order and visits every input" do
+      let
+        items = Array.range 1 10
+
+        prog :: F.RIO () () (Array Int)
+        prog = Sem.parTraverseN 3 (\n -> pure (n * n)) items
+      out <- runAff prog {}
+      case out of
+        Success ys ->
+          ys `shouldEqual` [ 1, 4, 9, 16, 25, 36, 49, 64, 81, 100 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "never lets more than n workers run concurrently" do
+      activeRef <- liftEffect (Ref.new 0)
+      peakRef <- liftEffect (Ref.new 0)
+      let
+        items = Array.range 1 16
+        cap = 4
+
+        work :: Int -> F.RIO () () Int
+        work n = do
+          F.liftEffect do
+            current <- Ref.modify (_ + 1) activeRef
+            Ref.modify_ (max current) peakRef
+          F.sleep (Milliseconds 5.0)
+          F.liftEffect (Ref.modify_ (_ - 1) activeRef)
+          pure n
+
+        prog :: F.RIO () () (Array Int)
+        prog = Sem.parTraverseN cap work items
+      out <- runAff prog {}
+      case out of
+        Success _ -> pure unit
+        other -> fail ("expected Success, got " <> describeOutcome other)
+      peak <- liftEffect (Ref.read peakRef)
+      if peak > cap then fail ("peak exceeded cap: " <> show peak)
+      else pure unit
+
+    it "empty input is a no-op (no permits needed)" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = Sem.parTraverseN 0 (\n -> pure (n + 1)) []
+      out <- runAff prog {}
+      case out of
+        Success ys -> ys `shouldEqual` []
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "n <= 0 on non-empty input is a defect" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = Sem.parTraverseN 0 (\n -> pure n) [ 1, 2, 3 ]
+      out <- runAff prog {}
+      case out of
+        Die _ -> pure unit
+        other -> fail ("expected Die, got " <> describeOutcome other)
+
+    it "fail-fast: a worker failure interrupts pending and queued siblings" do
+      ranRef <- liftEffect (Ref.new 0)
+      let
+        items = Array.range 1 8
+
+        work :: Int -> F.RIO () (boom :: String) Int
+        work n
+          | n == 2 = F.fail (Variant.inj (Proxy :: _ "boom") "stop")
+          | otherwise = do
+              F.sleep (Milliseconds 20.0)
+              F.liftEffect (Ref.modify_ (_ + 1) ranRef)
+              pure n
+
+        prog :: F.RIO () (boom :: String) (Array Int)
+        prog = Sem.parTraverseN 2 work items
+      out <- runAff prog {}
+      case out of
+        Fail _ -> pure unit
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+      ran <- liftEffect (Ref.read ranRef)
+      -- At most the first concurrency-window's slow worker completed
+      -- before the failure took down the rest. Most importantly, the
+      -- queued workers (3..8) never get to run.
+      if ran > 1 then
+        fail ("too many workers completed before fail-fast kicked in: " <> show ran)
+      else pure unit
 
   it "queue is FIFO" do
     s <- liftEffect (Sem.make 0)

@@ -90,7 +90,8 @@ parent's next op observes the world before the child runs; with
 - **`RIO.Fiber.Deferred`**: one-shot write-once cell.
   `succeed` / `fail` / `await` / `poll`.
 - **`RIO.Fiber.Semaphore`**, **`RIO.Fiber.Latch`**: counting
-  semaphore (`withPermit`) and one-shot count-down latch.
+  semaphore (`withPermit`, `parTraverseN` for bounded-concurrency
+  parallel traversal) and one-shot count-down latch.
 - **`RIO.Fiber.Queue`**, **`RIO.Fiber.Hub`**: bounded /
   unbounded async queue, and a pub/sub hub.
 - **`RIO.Fiber.STM`** plus `STM.TMVar`, `STM.TChan`, `STM.TQueue`,

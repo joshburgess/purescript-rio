@@ -18,18 +18,21 @@ module RIO.Fiber.Semaphore
   , available
   , withPermit
   , withPermits
+  , parTraverseN
   ) where
 
 import Prelude
 
 import Data.Array (filter, snoc, uncons)
+import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Foldable (for_)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
+import Effect.Exception (error)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
-import RIO.Fiber.Core (RIO, async, bracket, liftEffect)
+import RIO.Fiber.Core (RIO, async, bracket, die, liftEffect, parTraverse)
 
 type State =
   { available :: Int
@@ -117,3 +120,26 @@ withPermits n s body =
 -- | `withPermits 1`.
 withPermit :: forall r e a. Semaphore -> RIO r e a -> RIO r e a
 withPermit = withPermits 1
+
+-- | Bounded-concurrency parallel traversal. Caps the number of
+-- | concurrently running workers at `n` (each item still forks a
+-- | fiber, but only `n` of them hold a permit at a time and the
+-- | rest queue on a fresh `Semaphore`).
+-- |
+-- | Order of results matches the input. Fail-fast: the first non-
+-- | success outcome interrupts the siblings, including any worker
+-- | still waiting on a permit (the semaphore's cancellation cleans
+-- | up the queue). An empty input returns `[]` without consuming
+-- | permits. `n <= 0` on a non-empty input is a defect.
+parTraverseN
+  :: forall r e a b
+   . Int
+  -> (a -> RIO r e b)
+  -> Array a
+  -> RIO r e (Array b)
+parTraverseN n f xs
+  | Array.null xs = pure []
+  | n <= 0 = die (error "rio-fiber: parTraverseN requires n >= 1")
+  | otherwise = do
+      sem <- liftEffect (make n)
+      parTraverse (\a -> withPermit sem (f a)) xs
