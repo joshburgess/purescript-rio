@@ -4,6 +4,8 @@ import Prelude
 
 import Data.Array (length)
 import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
+import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Exception (error, message)
 import RIO.Fiber.Cause (Cause(..))
@@ -140,3 +142,142 @@ spec = describe "rio-fiber: Cause" do
       case out of
         F.Success (Left (Then (Fail _) Interrupt)) -> pure unit
         _ -> fail "expected Then (Fail _) Interrupt"
+
+  describe "introspection helpers" do
+    let
+      mkOops :: String -> Cause (oops :: String)
+      mkOops s = Cause.fail (Variant.inj (Proxy :: _ "oops") s)
+
+      renderOops :: Variant (oops :: String) -> String
+      renderOops v =
+        (Variant.case_ # Variant.on (Proxy :: _ "oops") (\s -> "oops=" <> s)) v
+
+    it "firstFailure / firstDefect pick the leftmost leaf" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.both
+          (Cause.both Cause.interrupt (Cause.die (error "boom")))
+          (Cause.both (mkOops "a") (mkOops "b"))
+      case Cause.firstFailure c of
+        Just v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "oops") identity) v
+            `shouldEqual` "a"
+        Nothing -> fail "expected Just"
+      case Cause.firstDefect c of
+        Just e -> message e `shouldEqual` "boom"
+        Nothing -> fail "expected Just"
+
+    it "firstFailure is Nothing on an interrupt-only cause" do
+      let
+        c :: Cause ()
+        c = Cause.both Cause.interrupt Cause.interrupt
+      case Cause.firstFailure c of
+        Nothing -> pure unit
+        Just _ -> fail "expected Nothing"
+
+    it "interruptCount counts every Interrupt leaf" do
+      let
+        c :: Cause ()
+        c = Cause.both
+          (Cause.both Cause.interrupt (Cause.die (error "x")))
+          (Cause.then_ Cause.interrupt Cause.interrupt)
+      Cause.interruptCount c `shouldEqual` 3
+
+    it "stripInterrupts collapses pure-interrupt subtrees" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.both
+          (Cause.both Cause.interrupt Cause.interrupt)
+          (mkOops "a")
+      case Cause.stripInterrupts c of
+        Fail _ -> pure unit
+        _ -> fail "expected Fail after stripping pure-interrupt branch"
+
+    it "stripFailures keeps defects and interrupts" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.both (mkOops "a") (Cause.die (error "boom"))
+      let stripped = Cause.stripFailures c
+      length (Cause.failures stripped) `shouldEqual` 0
+      length (Cause.defects stripped) `shouldEqual` 1
+
+    it "stripDefects keeps typed failures and interrupts" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.both (mkOops "a") (Cause.die (error "boom"))
+      let stripped = Cause.stripDefects c
+      length (Cause.failures stripped) `shouldEqual` 1
+      length (Cause.defects stripped) `shouldEqual` 0
+
+    it "mapFailures rewrites every Fail leaf" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.both (mkOops "first") (mkOops "second")
+
+        f :: Variant (oops :: String) -> Variant (other :: Int)
+        f _ = Variant.inj (Proxy :: _ "other") 42
+
+        c' :: Cause (other :: Int)
+        c' = Cause.mapFailures f c
+      length (Cause.failures c') `shouldEqual` 2
+
+    it "flatten reports the three leaf populations" do
+      let
+        c :: Cause (a :: String)
+        c = Cause.both
+          (Cause.fail (Variant.inj (Proxy :: _ "a") "x"))
+          (Cause.both Cause.interrupt (Cause.die (error "boom")))
+        out = Cause.flatten c
+      length out.failures `shouldEqual` 1
+      length out.defects `shouldEqual` 1
+      out.interrupted `shouldEqual` true
+
+    it "squash returns the first defect when one exists" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.both (mkOops "a") (Cause.die (error "kaboom"))
+        e = Cause.squash (\_ -> error "should not be used") c
+      message e `shouldEqual` "kaboom"
+
+    it "squash falls back to the first typed failure" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.both (mkOops "first") (mkOops "second")
+        e = Cause.squash (\v -> error (renderOops v)) c
+      message e `shouldEqual` "oops=first"
+
+    it "squash on an interrupt-only cause uses the interrupt placeholder" do
+      let
+        c :: Cause ()
+        c = Cause.interrupt
+        e = Cause.squash (\_ -> error "unused") c
+      message e `shouldEqual` "rio-fiber: cause squashed from interrupt"
+
+    it "fold reproduces an existing helper (failures count)" do
+      let
+        c :: Cause (a :: String, b :: String)
+        c = Cause.then_
+          (Cause.fail (Variant.inj (Proxy :: _ "a") "x"))
+          (Cause.both
+              (Cause.fail (Variant.inj (Proxy :: _ "b") "y"))
+              (Cause.die (error "z"))
+          )
+
+        cnt = Cause.fold
+          { empty: 0
+          , fail: \_ -> 1
+          , die: \_ -> 0
+          , interrupt: 0
+          , then_: add
+          , both: add
+          }
+          c
+      cnt `shouldEqual` 2
+
+    it "prettyPrint renders the tree shape readably" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.then_ (mkOops "a") (Cause.die (error "boom"))
+        rendered = Cause.prettyPrint renderOops c
+      rendered `shouldEqual`
+        "Then\n|-- Fail oops=a\n`-- Die boom"
