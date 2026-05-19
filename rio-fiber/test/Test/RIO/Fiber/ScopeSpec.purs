@@ -98,6 +98,156 @@ spec = describe "rio-fiber: Scope" do
     fired <- liftEffect (Ref.read ref)
     fired `shouldEqual` true
 
+  it "forkScoped: child is interrupted when the scope closes normally" do
+    childFinalizerFired <- liftEffect (Ref.new false)
+    childReachedEnd <- liftEffect (Ref.new false)
+    let
+      child :: F.RIO () () Unit
+      child = F.ensuring
+        (F.liftEffect (Ref.write true childFinalizerFired))
+        do
+          F.sleep (Milliseconds 100.0)
+          F.liftEffect (Ref.write true childReachedEnd)
+
+      prog :: F.RIO () () Unit
+      prog = Scope.scoped \s -> do
+        _ <- Scope.forkScoped s child
+        F.sleep (Milliseconds 10.0)
+        pure unit
+    _ <- runAff prog {}
+    _ <- runAff (F.sleep (Milliseconds 30.0) :: F.RIO () () Unit) {}
+    finFired <- liftEffect (Ref.read childFinalizerFired)
+    reached <- liftEffect (Ref.read childReachedEnd)
+    finFired `shouldEqual` true
+    reached `shouldEqual` false
+
+  it "forkScoped: child is interrupted when the body raises a typed failure" do
+    childInterrupted <- liftEffect (Ref.new false)
+    let
+      child :: F.RIO () (boom :: String) Unit
+      child = F.ensuring
+        (F.liftEffect (Ref.write true childInterrupted))
+        (F.sleep (Milliseconds 200.0))
+
+      prog :: F.RIO () (boom :: String) Unit
+      prog = Scope.scoped \s -> do
+        _ <- Scope.forkScoped s child
+        F.sleep (Milliseconds 5.0)
+        F.fail (Variant.inj (Proxy :: _ "boom") "nope")
+    out <- runAff prog {}
+    case out of
+      Fail _ -> pure unit
+      other -> fail ("expected Fail, got " <> describeOutcome other)
+    _ <- runAff (F.sleep (Milliseconds 20.0) :: F.RIO () () Unit) {}
+    fired <- liftEffect (Ref.read childInterrupted)
+    fired `shouldEqual` true
+
+  it "forkScoped: child is interrupted when the parent fiber is interrupted" do
+    childInterrupted <- liftEffect (Ref.new false)
+    let
+      child :: F.RIO () () Unit
+      child = F.ensuring
+        (F.liftEffect (Ref.write true childInterrupted))
+        (F.sleep (Milliseconds 500.0))
+
+      action :: F.RIO () () Unit
+      action = Scope.scoped \s -> do
+        _ <- Scope.forkScoped s child
+        F.sleep (Milliseconds 500.0)
+
+      prog :: F.RIO () () Unit
+      prog = do
+        fib <- F.fork action
+        F.sleep (Milliseconds 10.0)
+        F.interrupt fib
+        _ <- F.join fib
+        pure unit
+    _ <- runAff prog {}
+    _ <- runAff (F.sleep (Milliseconds 20.0) :: F.RIO () () Unit) {}
+    fired <- liftEffect (Ref.read childInterrupted)
+    fired `shouldEqual` true
+
+  it "forkScoped: registering on an already-closed scope interrupts immediately" do
+    childInterrupted <- liftEffect (Ref.new false)
+    childReachedEnd <- liftEffect (Ref.new false)
+    let
+      child :: F.RIO () () Unit
+      child = F.ensuring
+        (F.liftEffect (Ref.write true childInterrupted))
+        do
+          F.sleep (Milliseconds 100.0)
+          F.liftEffect (Ref.write true childReachedEnd)
+
+      prog :: F.RIO () () Unit
+      prog = do
+        s <- Scope.newScope
+        Scope.closeScope s
+        _ <- Scope.forkScoped s child
+        F.sleep (Milliseconds 20.0)
+        pure unit
+    _ <- runAff prog {}
+    _ <- runAff (F.sleep (Milliseconds 20.0) :: F.RIO () () Unit) {}
+    fired <- liftEffect (Ref.read childInterrupted)
+    reached <- liftEffect (Ref.read childReachedEnd)
+    fired `shouldEqual` true
+    reached `shouldEqual` false
+
+  it "supervised + forkSupervised: children interrupted when supervised exits" do
+    aFinalizer <- liftEffect (Ref.new false)
+    bFinalizer <- liftEffect (Ref.new false)
+    let
+      mkChild :: Ref.Ref Boolean -> F.RIO () () Unit
+      mkChild r = F.ensuring
+        (F.liftEffect (Ref.write true r))
+        (F.sleep (Milliseconds 500.0))
+
+      prog :: F.RIO () () Unit
+      prog = Scope.supervised do
+        _ <- Scope.forkSupervised (mkChild aFinalizer)
+        _ <- Scope.forkSupervised (mkChild bFinalizer)
+        F.sleep (Milliseconds 10.0)
+    _ <- runAff prog {}
+    _ <- runAff (F.sleep (Milliseconds 30.0) :: F.RIO () () Unit) {}
+    a <- liftEffect (Ref.read aFinalizer)
+    b <- liftEffect (Ref.read bFinalizer)
+    a `shouldEqual` true
+    b `shouldEqual` true
+
+  it "forkSupervised outside `supervised` is a defect" do
+    let
+      prog :: F.RIO () () Unit
+      prog = do
+        _ <- Scope.forkSupervised (F.sleep (Milliseconds 50.0))
+        pure unit
+    out <- runAff prog {}
+    case out of
+      Die _ -> pure unit
+      other -> fail ("expected Die, got " <> describeOutcome other)
+
+  it "supervised blocks nest: inner scope is independent" do
+    innerChildFin <- liftEffect (Ref.new false)
+    outerChildFin <- liftEffect (Ref.new false)
+    let
+      slow :: Ref.Ref Boolean -> F.RIO () () Unit
+      slow r = F.ensuring
+        (F.liftEffect (Ref.write true r))
+        (F.sleep (Milliseconds 500.0))
+
+      prog :: F.RIO () () Unit
+      prog = Scope.supervised do
+        _ <- Scope.forkSupervised (slow outerChildFin)
+        Scope.supervised do
+          _ <- Scope.forkSupervised (slow innerChildFin)
+          F.sleep (Milliseconds 5.0)
+        -- Inner supervised has exited; its child must be dead.
+        F.sleep (Milliseconds 5.0)
+    _ <- runAff prog {}
+    _ <- runAff (F.sleep (Milliseconds 30.0) :: F.RIO () () Unit) {}
+    innerFired <- liftEffect (Ref.read innerChildFin)
+    outerFired <- liftEffect (Ref.read outerChildFin)
+    innerFired `shouldEqual` true
+    outerFired `shouldEqual` true
+
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"
 describeOutcome (Fail _) = "Fail"
