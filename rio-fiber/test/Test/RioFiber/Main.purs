@@ -15,6 +15,7 @@ import Test.RIO.Fiber.ScheduleSpec as ScheduleSpec
 import Test.RIO.Fiber.ScopeSpec as ScopeSpec
 import Test.RIO.Fiber.SemaphoreSpec as SemaphoreSpec
 import Test.RIO.Fiber.ServicesSpec as ServicesSpec
+import Test.RIO.Fiber.STMSpec as STMSpec
 import Test.RIO.Fiber.StreamSpec as StreamSpec
 import Test.RIO.Fiber.SupervisorSpec as SupervisorSpec
 import Test.Spec.Reporter.Console (consoleReporter)
@@ -35,4 +36,5 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   PoolSpec.spec
   ServicesSpec.spec
   StreamSpec.spec
+  STMSpec.spec
   SupervisorSpec.spec

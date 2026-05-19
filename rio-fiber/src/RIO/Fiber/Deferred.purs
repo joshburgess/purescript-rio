@@ -12,7 +12,9 @@ module RIO.Fiber.Deferred
   ( Deferred
   , make
   , await
+  , awaitPure
   , succeed
+  , _succeed
   , fail
   , poll
   , isDone
@@ -56,6 +58,14 @@ make = _make
 await :: forall r e a. Deferred e a -> RIO r e a
 await d = async \cb -> do
   id <- _await d (\a -> cb (Right a)) (\v -> cb (Left v))
+  pure (_unsubscribe d id)
+
+-- | Await a Deferred whose failure row is `()`. Because no
+-- | `Variant ()` value can be constructed, the failure callback is
+-- | unreachable, so the await can be embedded in any outer row.
+awaitPure :: forall r e a. Deferred () a -> RIO r e a
+awaitPure d = async \cb -> do
+  id <- _await d (\a -> cb (Right a)) (\_ -> pure unit)
   pure (_unsubscribe d id)
 
 -- | Complete the cell with a success. Returns `true` if this call
