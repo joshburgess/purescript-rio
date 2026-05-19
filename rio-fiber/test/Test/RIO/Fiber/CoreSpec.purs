@@ -187,6 +187,110 @@ spec = describe "rio-fiber: Core" do
       out <- runAff prog {}
       assertSuccess out 1
 
+  describe "finalizers" do
+    it "ensuring runs the finalizer after success" do
+      ref <- liftEffect (Ref.new 0)
+      let
+        prog :: F.RIO () () Int
+        prog = F.ensuring (F.liftEffect (Ref.write 1 ref)) (pure 42)
+      out <- runAff prog {}
+      assertSuccess out 42
+      finVal <- liftEffect (Ref.read ref)
+      finVal `shouldEqual` 1
+
+    it "ensuring runs the finalizer after a typed failure and re-raises" do
+      ref <- liftEffect (Ref.new 0)
+      let
+        prog :: F.RIO () (boom :: String) Int
+        prog = F.ensuring
+          (F.liftEffect (Ref.write 1 ref))
+          (F.fail (Variant.inj (Proxy :: _ "boom") "x"))
+      out <- runAff prog {}
+      case out of
+        Fail _ -> pure unit
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+      finVal <- liftEffect (Ref.read ref)
+      finVal `shouldEqual` 1
+
+    it "ensuring runs the finalizer when the action is interrupted" do
+      finRef <- liftEffect (Ref.new 0)
+      let
+        -- An action that gets interrupted while sleeping.
+        action :: F.RIO () () Int
+        action = F.ensuring
+          (F.liftEffect (Ref.write 1 finRef))
+          (F.sleep (Milliseconds 100.0) *> pure 0)
+
+        prog :: F.RIO () () Unit
+        prog = do
+          f <- F.fork action
+          F.sleep (Milliseconds 10.0)
+          F.interrupt f
+          _ <- F.join f
+          pure unit
+      out <- runAff prog {}
+      case out of
+        Interrupted -> pure unit
+        other -> fail ("expected Interrupted, got " <> describeOutcome other)
+      finVal <- liftEffect (Ref.read finRef)
+      finVal `shouldEqual` 1
+
+    it "nested ensuring runs inner finalizer first" do
+      events <- liftEffect (Ref.new ([] :: Array String))
+      let
+        record :: String -> F.RIO () () Unit
+        record s = F.liftEffect $
+          Ref.modify_ (\xs -> xs <> [ s ]) events
+
+        prog :: F.RIO () () Unit
+        prog =
+          F.ensuring (record "outer")
+            ( F.ensuring (record "inner")
+                (record "body")
+            )
+      out <- runAff prog {}
+      assertSuccess out unit
+      seq <- liftEffect (Ref.read events)
+      seq `shouldEqual` [ "body", "inner", "outer" ]
+
+    it "bracket runs release on a successful use" do
+      events <- liftEffect (Ref.new ([] :: Array String))
+      let
+        record :: String -> F.RIO () () Unit
+        record s = F.liftEffect $
+          Ref.modify_ (\xs -> xs <> [ s ]) events
+
+        prog :: F.RIO () () Int
+        prog = F.bracket
+          (record "acquire" *> pure 42)
+          (\_ -> record "release")
+          (\n -> record "use" *> pure (n + 1))
+      out <- runAff prog {}
+      assertSuccess out 43
+      seq <- liftEffect (Ref.read events)
+      seq `shouldEqual` [ "acquire", "use", "release" ]
+
+    it "bracket runs release on a failing use" do
+      events <- liftEffect (Ref.new ([] :: Array String))
+      let
+        record :: forall e. String -> F.RIO () e Unit
+        record s = F.liftEffect $
+          Ref.modify_ (\xs -> xs <> [ s ]) events
+
+        prog :: F.RIO () (boom :: String) Int
+        prog = F.bracket
+          (record "acquire" *> pure 42)
+          (\_ -> record "release")
+          ( \_ -> record "use" *>
+              F.fail (Variant.inj (Proxy :: _ "boom") "nope")
+          )
+      out <- runAff prog {}
+      case out of
+        Fail _ -> pure unit
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+      seq <- liftEffect (Ref.read events)
+      seq `shouldEqual` [ "acquire", "use", "release" ]
+
   describe "interrupt" do
     it "interrupting a suspended forked fiber fires its canceller and propagates Interrupted" do
       ref <- liftEffect (Ref.new false)

@@ -11,7 +11,9 @@ module RIO.Fiber.Core
   , ask
   , asks
   , async
+  , bracket
   , catchAll
+  , ensuring
   , fail
   , fork
   , interrupt
@@ -21,6 +23,7 @@ module RIO.Fiber.Core
   , runRIO'
   , runRIOCallback
   , sleep
+  , uninterruptible
   ) where
 
 import Prelude
@@ -137,6 +140,37 @@ sleep :: forall r e. Milliseconds -> RIO r e Unit
 sleep (Milliseconds ms) = async \cb -> do
   id <- _setTimeout ms (cb (Right unit))
   pure (_clearTimeout id)
+
+-- | Run a finalizer after the action regardless of how it terminates
+-- | (success, typed failure, defect, or interrupt). The finalizer
+-- | runs inside an uninterruptible region so a late interrupt cannot
+-- | abandon it midway.
+-- |
+-- | If the finalizer itself raises a typed failure or defect, that
+-- | replaces the action's outcome. (Composing both outcomes is what
+-- | `Cause` is for; it lands in a later phase.)
+ensuring :: forall r e a. RIO r e Unit -> RIO r e a -> RIO r e a
+ensuring (RIO fin) (RIO action) = RIO (Internal.opEnsuring fin action)
+
+-- | Defer interruption for the duration of the wrapped action. The
+-- | interrupt flag is preserved; the action just doesn't observe it
+-- | until the mask is released.
+uninterruptible :: forall r e a. RIO r e a -> RIO r e a
+uninterruptible (RIO op) = RIO (Internal.opUninterruptible op)
+
+-- | Acquire / use / release with finalizer semantics. The release
+-- | runs whether `use` succeeds, fails, defects, or is interrupted.
+-- | The acquire itself is not interruptible (otherwise an interrupt
+-- | between allocating the resource and installing the release would
+-- | leak).
+bracket
+  :: forall r e a b
+   . RIO r e a
+  -> (a -> RIO r e Unit)
+  -> (a -> RIO r e b)
+  -> RIO r e b
+bracket acquire release use = uninterruptible acquire >>=
+  \resource -> ensuring (release resource) (use resource)
 
 foreign import data TimeoutId :: Type
 foreign import _setTimeout :: Number -> Effect Unit -> Effect TimeoutId

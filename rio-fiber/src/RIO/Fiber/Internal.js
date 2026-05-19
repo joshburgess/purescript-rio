@@ -26,16 +26,28 @@ const ASYNC = 7;
 const FORK = 8;
 const JOIN = 9;
 const INTERRUPT = 10;
+const ENSURING = 11;
+const UNINTERRUPTIBLE = 12;
 
 // Continuation-stack frame tags.
 const K_BIND = 0; // next: a -> Op r e b
 const K_CATCH = 1; // handler: Variant e -> Op r e' a
 const K_LOCAL = 2; // restore env: previous env to put back
+const K_ENSURE = 3; // run finalizer regardless of outcome
+const K_AFTER_FIN = 4; // restore saved (value, mode) after finalizer
+const K_UNMASK = 5; // decrement mask depth
 
 // Fiber statuses.
 const F_RUNNING = 0;
 const F_SUSPENDED = 1;
 const F_DONE = 2;
+
+// Carrying modes. The (value, mode) pair encodes what's flowing
+// through the continuation stack at any given moment.
+const M_OK = 0;       // success: value carries an `a`
+const M_FAIL = 1;     // typed failure: value carries a Variant e
+const M_DIE = 2;      // defect: value carries a JS Error
+const M_INTERRUPT = 3; // interrupt requested: value unused
 
 // Number of ops a fiber may execute before yielding to the microtask
 // queue. Matches the Effect / ZIO default order of magnitude; tuned
@@ -98,22 +110,32 @@ export const opInterrupt = function (fiber) {
   return { _tag: INTERRUPT, fiber: fiber };
 };
 
+export const opEnsuring = function (finalizer) {
+  return function (action) {
+    return { _tag: ENSURING, action: action, finalizer: finalizer };
+  };
+};
+
+export const opUninterruptible = function (op) {
+  return { _tag: UNINTERRUPTIBLE, op: op };
+};
+
 // Fiber ----------------------------------------------------------------
-//
-// One Fiber per RIO program execution. Started fibers run their step
-// loop synchronously to completion or suspension; on suspension the
-// loop yields control and resumes through a callback.
 
 function Fiber(op, env) {
   this.current = op;
   this.value = null;
-  this.mode = "ok"; // "ok" carries a success; "fail" carries a Variant e
+  this.mode = M_OK;
   this.stack = [];
   this.env = env;
   this.status = F_RUNNING;
-  this.result = null; // { ok } | { fail } | { die } | { interrupted: true }
+  this.result = null;
   this.observers = [];
   this.interrupted = false;
+  // Depth of nested uninterruptible regions. While > 0, interrupts
+  // are deferred (the flag stays set; the step loop just doesn't
+  // act on it).
+  this.mask = 0;
   this.canceller = null;
 }
 
@@ -153,18 +175,22 @@ Fiber.prototype.interrupt = function () {
         // ignore canceller throws
       }
     }
-    this._complete({ interrupted: true });
+    // Drive the fiber forward so it observes the interrupt flag at
+    // its next safe point. We re-enter step() so any pending
+    // finalizers run.
+    this.status = F_RUNNING;
+    this.step();
   }
-  // If F_RUNNING the step loop will see the flag and unwind.
+  // If F_RUNNING the step loop will see the flag on its next pass.
 };
 
 // Install the result of a completed async / join into the fiber's
-// (value, mode). Returns true if the fiber should continue stepping,
-// false if it has already completed (defect or interrupt propagation).
+// (value, mode). Returns true if the fiber should continue stepping.
 Fiber.prototype._installResult = function (r) {
   if (Object.prototype.hasOwnProperty.call(r, "die")) {
-    this._complete({ die: r.die });
-    return false;
+    this.value = r.die;
+    this.mode = M_DIE;
+    return true;
   }
   if (r.interrupted) {
     this.interrupted = true;
@@ -172,44 +198,73 @@ Fiber.prototype._installResult = function (r) {
   }
   if (Object.prototype.hasOwnProperty.call(r, "ok")) {
     this.value = r.ok;
-    this.mode = "ok";
+    this.mode = M_OK;
     return true;
   }
   // fail
   this.value = r.fail;
-  this.mode = "fail";
+  this.mode = M_FAIL;
   return true;
+};
+
+Fiber.prototype._completeFromMode = function () {
+  switch (this.mode) {
+    case M_OK:
+      this._complete({ ok: this.value });
+      return;
+    case M_FAIL:
+      this._complete({ fail: this.value });
+      return;
+    case M_DIE:
+      this._complete({ die: this.value });
+      return;
+    case M_INTERRUPT:
+      this._complete({ interrupted: true });
+      return;
+  }
 };
 
 Fiber.prototype.step = function () {
   let ticks = TICK_BUDGET;
   while (true) {
     if (--ticks < 0) {
-      // Yield to the microtask queue so sibling fibers can make
-      // progress. Fiber state lives on `this`, so the next step()
-      // call picks up exactly where we left off.
       scheduleFiber(this);
       return;
     }
-    if (this.interrupted) {
-      this._complete({ interrupted: true });
-      return;
+
+    // Consume a pending interrupt: transition into the unwinding
+    // path so finalizers get a chance to run. Only consume when
+    // we're not in a mask and not already in a failure unwind that
+    // would override (interrupt has priority over typed failure but
+    // not over a die we're already carrying).
+    if (
+      this.interrupted &&
+      this.mask === 0 &&
+      this.mode !== M_INTERRUPT &&
+      this.mode !== M_DIE
+    ) {
+      this.current = null;
+      this.mode = M_INTERRUPT;
+      this.value = null;
     }
+
     if (this.current !== null) {
       const op = this.current;
       this.current = null;
       switch (op._tag) {
         case PURE:
           this.value = op.value;
-          this.mode = "ok";
+          this.mode = M_OK;
           break;
         case SYNC:
           try {
             this.value = op.run();
-            this.mode = "ok";
+            this.mode = M_OK;
           } catch (err) {
-            this._complete({ die: err });
-            return;
+            // Synchronous throw becomes a defect that unwinds
+            // through any pending finalizers.
+            this.value = err;
+            this.mode = M_DIE;
           }
           break;
         case BIND:
@@ -218,7 +273,7 @@ Fiber.prototype.step = function () {
           continue;
         case FAIL:
           this.value = op.error;
-          this.mode = "fail";
+          this.mode = M_FAIL;
           break;
         case CATCH:
           this.stack.push({ _k: K_CATCH, handler: op.handler });
@@ -226,7 +281,7 @@ Fiber.prototype.step = function () {
           continue;
         case ASK:
           this.value = this.env;
-          this.mode = "ok";
+          this.mode = M_OK;
           break;
         case LOCAL: {
           const prev = this.env;
@@ -239,15 +294,12 @@ Fiber.prototype.step = function () {
           const self = this;
           let settled = false;
           let syncResult = null;
-          // PureScript curried: register(onOk)(onFail)() -> canceller.
           const onOk = function (a) {
             return function () {
               if (settled) return;
               settled = true;
               const r = { ok: a };
               if (self.status === F_RUNNING) {
-                // Resumed synchronously inside register(): record and
-                // fall through after register returns.
                 syncResult = r;
               } else {
                 self._resumeAsync(r);
@@ -270,12 +322,12 @@ Fiber.prototype.step = function () {
           try {
             canceller = op.register(onOk)(onFail)();
           } catch (err) {
-            this._complete({ die: err });
-            return;
+            this.value = err;
+            this.mode = M_DIE;
+            break;
           }
           if (syncResult !== null) {
-            // Resumed during register(); continue with that result.
-            if (!this._installResult(syncResult)) return;
+            this._installResult(syncResult);
             break;
           }
           this.status = F_SUSPENDED;
@@ -286,14 +338,14 @@ Fiber.prototype.step = function () {
           const child = new Fiber(op.op, this.env);
           scheduleFiber(child);
           this.value = child;
-          this.mode = "ok";
+          this.mode = M_OK;
           break;
         }
         case JOIN: {
           const target = op.fiber;
           const self = this;
           if (target.status === F_DONE) {
-            if (!this._installResult(target.result)) return;
+            this._installResult(target.result);
             break;
           }
           this.status = F_SUSPENDED;
@@ -306,46 +358,93 @@ Fiber.prototype.step = function () {
         case INTERRUPT: {
           op.fiber.interrupt();
           this.value = undefined;
-          this.mode = "ok";
+          this.mode = M_OK;
           break;
         }
+        case ENSURING:
+          this.stack.push({ _k: K_ENSURE, finalizer: op.finalizer });
+          this.current = op.action;
+          continue;
+        case UNINTERRUPTIBLE:
+          this.mask++;
+          this.stack.push({ _k: K_UNMASK });
+          this.current = op.op;
+          continue;
         default:
-          this._complete({
-            die: new Error("rio-fiber: unknown Op tag " + op._tag),
-          });
-          return;
+          this.value = new Error("rio-fiber: unknown Op tag " + op._tag);
+          this.mode = M_DIE;
+          break;
       }
     }
 
-    // No current op; unwind continuation frames.
+    // Unwinding loop. One pop per iteration. Each frame chooses
+    // whether to consume the current (value, mode), pass it through,
+    // or rewrite it.
     while (true) {
-      if (this.interrupted) {
-        this._complete({ interrupted: true });
-        return;
+      if (
+        this.interrupted &&
+        this.mask === 0 &&
+        this.mode !== M_INTERRUPT &&
+        this.mode !== M_DIE
+      ) {
+        this.mode = M_INTERRUPT;
+        this.value = null;
       }
       if (this.stack.length === 0) {
-        if (this.mode === "ok") {
-          this._complete({ ok: this.value });
-          return;
-        }
-        this._complete({ fail: this.value });
+        this._completeFromMode();
         return;
       }
       const frame = this.stack.pop();
-      if (frame._k === K_BIND) {
-        if (this.mode === "ok") {
-          this.current = frame.next(this.value);
+      switch (frame._k) {
+        case K_BIND:
+          if (this.mode === M_OK) {
+            this.current = frame.next(this.value);
+          }
+          // FAIL / DIE / INTERRUPT: skip this frame; keep unwinding.
+          break;
+        case K_CATCH:
+          if (this.mode === M_FAIL) {
+            this.current = frame.handler(this.value);
+            this.mode = M_OK;
+            this.value = null;
+          }
+          // OK passes through; DIE / INTERRUPT bypass user handlers.
+          break;
+        case K_LOCAL:
+          this.env = frame.prev;
+          break;
+        case K_ENSURE: {
+          // Save the action's outcome, enter uninterruptible region,
+          // and arrange for the finalizer to run.
+          this.mask++;
+          this.stack.push({
+            _k: K_AFTER_FIN,
+            savedValue: this.value,
+            savedMode: this.mode,
+          });
+          this.current = frame.finalizer;
+          this.mode = M_OK;
+          this.value = null;
           break;
         }
-      } else if (frame._k === K_CATCH) {
-        if (this.mode === "fail") {
-          this.current = frame.handler(this.value);
-          this.mode = "ok";
+        case K_AFTER_FIN: {
+          this.mask--;
+          // Finalizer just completed.
+          //   - If it succeeded: restore the saved action outcome.
+          //   - If it raised: the finalizer's failure wins (we lose
+          //     the action's outcome). Tracking both is what Cause
+          //     is for; until that lands we keep the latest.
+          if (this.mode === M_OK) {
+            this.value = frame.savedValue;
+            this.mode = frame.savedMode;
+          }
           break;
         }
-      } else {
-        this.env = frame.prev;
+        case K_UNMASK:
+          this.mask--;
+          break;
       }
+      if (this.current !== null) break;
     }
   }
 };
@@ -353,7 +452,7 @@ Fiber.prototype.step = function () {
 Fiber.prototype._resumeAsync = function (r) {
   this.canceller = null;
   this.status = F_RUNNING;
-  if (!this._installResult(r)) return;
+  this._installResult(r);
   this.step();
 };
 
@@ -374,9 +473,6 @@ const scheduleFiber =
 
 // Top-level entry points -----------------------------------------------
 
-// Start a fiber and run its step loop until completion or suspension.
-// The returned object is the Fiber itself, with `status` / `result`
-// readable by the PureScript wrappers.
 export const _startFiber = function (op) {
   return function (env) {
     return function () {

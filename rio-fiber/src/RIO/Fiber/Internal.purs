@@ -29,6 +29,8 @@ module RIO.Fiber.Internal
   , opFork
   , opJoin
   , opInterrupt
+  , opEnsuring
+  , opUninterruptible
   ) where
 
 import Prelude
@@ -96,6 +98,17 @@ foreign import opAsync
 foreign import opFork :: forall r e a. Op r e a -> Op r e (Fiber e a)
 foreign import opJoin :: forall r e a. Fiber e a -> Op r e a
 foreign import opInterrupt :: forall r e a. Fiber e a -> Op r e Unit
+
+-- | Attach a finalizer that runs after the action regardless of how
+-- | it terminates: success, typed failure, defect, or interrupt. The
+-- | finalizer runs inside an uninterruptible region.
+foreign import opEnsuring
+  :: forall r e a. Op r e Unit -> Op r e a -> Op r e a
+
+-- | Run the wrapped op inside an uninterruptible mask. Interrupts
+-- | are deferred (the flag remains set; the loop just doesn't act
+-- | on it) until the mask is released.
+foreign import opUninterruptible :: forall r e a. Op r e a -> Op r e a
 
 -- | The full outcome of running a fiber. Includes interrupt as a
 -- | dedicated case; defects come through `Die`.
