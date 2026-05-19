@@ -121,6 +121,30 @@ spec = describe "rio-fiber: STM" do
         r.committed `shouldEqual` 7
       other -> fail ("expected Success, got " <> describeOutcome other)
 
+  it "concurrent modifyTVar from many fibers converges to N" do
+    -- Stronger than the basic parTraverse test: we run 50 increments
+    -- in parallel; optimistic STM should retry on every conflict and
+    -- still produce 50.
+    t <- liftEffect (STM.newTVar 0 :: _ (TVar Int))
+    let
+      bump :: F.RIO () () Unit
+      bump = STM.atomically (STM.modifyTVar t (_ + 1))
+
+      prog :: F.RIO () () Int
+      prog = do
+        _ <- F.parTraverse (\_ -> bump)
+          [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+          , 11, 12, 13, 14, 15, 16, 17, 18, 19, 20
+          , 21, 22, 23, 24, 25, 26, 27, 28, 29, 30
+          , 31, 32, 33, 34, 35, 36, 37, 38, 39, 40
+          , 41, 42, 43, 44, 45, 46, 47, 48, 49, 50
+          ]
+        STM.atomically (STM.readTVar t)
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 50
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
   it "retry suspends the transaction until another commits" do
     t <- liftEffect (STM.newTVar 0 :: _ (TVar Int))
     let
