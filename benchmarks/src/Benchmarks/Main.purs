@@ -31,6 +31,7 @@ import Prelude
 
 import Benchmarks.Harness (benchAff)
 import Benchmarks.VsAff (runVsAff)
+import Benchmarks.VsFiber (runVsFiber)
 import Data.Array (range) as Array
 import Data.Traversable (traverse)
 import Effect (Effect)
@@ -146,6 +147,7 @@ main = launchAff_ do
     (void (runRIO' (loopPure bindIterations)))
 
   runVsAff
+  runVsFiber
 
   liftEffect (log "")
   liftEffect (log "rio-benchmarks: done.")

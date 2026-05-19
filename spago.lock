@@ -238,6 +238,7 @@
             "record",
             "refs",
             "rio",
+            "rio-fiber",
             "strings",
             "tuples",
             "variant"
@@ -308,6 +309,7 @@
             "record",
             "refs",
             "rio",
+            "rio-fiber",
             "safe-coerce",
             "spec",
             "spec-node",

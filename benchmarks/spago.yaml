@@ -16,6 +16,7 @@ package:
     - record
     - refs
     - rio
+    - rio-fiber
     - strings
     - tuples
     - variant
