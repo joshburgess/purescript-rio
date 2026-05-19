@@ -1227,14 +1227,19 @@ Fiber.prototype._stepInner = function () {
           break;
         }
         case MAP: {
-          // Inline common leaf shapes so the every-bind PURE / SYNC
-          // pattern (`map f (pure x)` / `map f (liftEffect e)`) doesn't
-          // pay a K_MAP frame.
+          // Inline common leaf shapes so leaf-of-traverse patterns like
+          // `map f (fork m)` / `map f (join fib)` / `map f (pure x)` /
+          // `map f (liftEffect e)` don't pay a K_MAP frame and a
+          // separate outer-dispatch tick on the inner op. Anything that
+          // returns synchronously gets folded in place; only genuinely
+          // suspending inner ops (e.g. JOIN on an unfinished fiber)
+          // install a K_MAP frame and yield to the outer dispatch.
           const inner = op.op;
           const innerTag = inner._tag;
+          const f = op.f;
           if (innerTag === PURE) {
             try {
-              this.value = op.f(inner.value);
+              this.value = f(inner.value);
               this.mode = M_OK;
             } catch (err) {
               this.value = err;
@@ -1244,7 +1249,7 @@ Fiber.prototype._stepInner = function () {
           }
           if (innerTag === SYNC) {
             try {
-              this.value = op.f(inner.run());
+              this.value = f(inner.run());
               this.mode = M_OK;
             } catch (err) {
               this.value = err;
@@ -1252,7 +1257,107 @@ Fiber.prototype._stepInner = function () {
             }
             break;
           }
-          this.stack.push({ _k: K_MAP, f: op.f });
+          if (innerTag === FORK) {
+            const body = inner.op;
+            let fiber;
+            if (body._tag === PURE && _supervisors.length === 0) {
+              fiber = new DoneFiber(M_OK, body.value);
+            } else {
+              this.frefsOwn = false;
+              fiber = new Fiber(body, this.env, this.frefs);
+              scheduleFiber(fiber);
+            }
+            try {
+              this.value = f(fiber);
+              this.mode = M_OK;
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+            }
+            break;
+          }
+          if (innerTag === FORK_INLINE) {
+            const body = inner.op;
+            const bodyTag = body._tag;
+            let fiber;
+            if (_supervisors.length === 0 && bodyTag === PURE) {
+              fiber = new DoneFiber(M_OK, body.value);
+            } else if (_supervisors.length === 0 && bodyTag === SYNC) {
+              let v;
+              let m;
+              try {
+                v = body.run();
+                m = M_OK;
+              } catch (err) {
+                v = err;
+                m = M_DIE;
+              }
+              fiber = new DoneFiber(m, v);
+            } else {
+              this.frefsOwn = false;
+              fiber = new Fiber(body, this.env, this.frefs);
+              fiber.step();
+            }
+            try {
+              this.value = f(fiber);
+              this.mode = M_OK;
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+            }
+            break;
+          }
+          if (innerTag === JOIN) {
+            const target = inner.fiber;
+            if (target.queued) {
+              target.queued = false;
+              _pendingCount--;
+              target.step();
+            }
+            if (target.status === F_DONE) {
+              if (target.mode === M_OK) {
+                try {
+                  this.value = f(target.value);
+                  this.mode = M_OK;
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                }
+              } else {
+                // Non-OK completed join: propagate result; skip f.
+                this._installResult(target);
+              }
+              break;
+            }
+            // Suspending join: install K_MAP and dispatch JOIN.
+            this.stack.push({ _k: K_MAP, f: f });
+            this.current = inner;
+            continue;
+          }
+          if (innerTag === ASK) {
+            try {
+              this.value = f(this.env);
+              this.mode = M_OK;
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+            }
+            break;
+          }
+          if (innerTag === FREF_GET) {
+            const ref = inner.ref;
+            const m = this.frefs;
+            const v = (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
+            try {
+              this.value = f(v);
+              this.mode = M_OK;
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+            }
+            break;
+          }
+          this.stack.push({ _k: K_MAP, f: f });
           this.current = inner;
           continue;
         }
@@ -1913,10 +2018,92 @@ Fiber.prototype._stepInner = function () {
         }
         case K_APPLY: {
           // opF just completed. On success, capture its value (the
-          // function) and continue with opA. Otherwise propagate.
+          // function) and continue with opA. For simple leaf shapes of
+          // opA we fold the result inline so the K_APPLY2 + outer
+          // dispatch round-trip vanishes. Only genuinely suspending
+          // opAs (e.g. JOIN on an unfinished fiber) take the slow path.
           if (this.mode === M_OK) {
-            this.stack.push({ _k: K_APPLY2, f: this.value });
-            this.current = frame.opA;
+            const f = this.value;
+            const opA = frame.opA;
+            const opATag = opA._tag;
+            if (opATag === PURE) {
+              try {
+                this.value = f(opA.value);
+                this.mode = M_OK;
+              } catch (err) {
+                this.value = err;
+                this.mode = M_DIE;
+              }
+              break;
+            }
+            if (opATag === SYNC) {
+              try {
+                this.value = f(opA.run());
+                this.mode = M_OK;
+              } catch (err) {
+                this.value = err;
+                this.mode = M_DIE;
+              }
+              break;
+            }
+            if (opATag === FORK) {
+              const body = opA.op;
+              let fiber;
+              if (body._tag === PURE && _supervisors.length === 0) {
+                fiber = new DoneFiber(M_OK, body.value);
+              } else {
+                this.frefsOwn = false;
+                fiber = new Fiber(body, this.env, this.frefs);
+                scheduleFiber(fiber);
+              }
+              try {
+                this.value = f(fiber);
+                this.mode = M_OK;
+              } catch (err) {
+                this.value = err;
+                this.mode = M_DIE;
+              }
+              break;
+            }
+            if (opATag === JOIN) {
+              const target = opA.fiber;
+              if (target.queued) {
+                target.queued = false;
+                _pendingCount--;
+                target.step();
+              }
+              if (target.status === F_DONE) {
+                if (target.mode === M_OK) {
+                  try {
+                    this.value = f(target.value);
+                    this.mode = M_OK;
+                  } catch (err) {
+                    this.value = err;
+                    this.mode = M_DIE;
+                  }
+                } else {
+                  this._installResult(target);
+                }
+                break;
+              }
+              // Suspending join: K_APPLY2 + outer dispatch.
+              this.stack.push({ _k: K_APPLY2, f: f });
+              this.current = opA;
+              this.value = null;
+              break;
+            }
+            if (opATag === ASK) {
+              try {
+                this.value = f(this.env);
+                this.mode = M_OK;
+              } catch (err) {
+                this.value = err;
+                this.mode = M_DIE;
+              }
+              break;
+            }
+            this.stack.push({ _k: K_APPLY2, f: f });
+            this.current = opA;
             this.value = null;
           }
           break;
