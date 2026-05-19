@@ -257,6 +257,29 @@ or point your `spago.yaml` at the git remote directly.
 - `RIO.Test.Tracer`, `RIO.Test.Metrics`: recording backends for
   the observability services.
 
+## A custom fiber runtime: `rio-fiber`
+
+Everything above runs `RIO r e a` on top of `Effect.Aff`. That is
+a deliberate ceiling: it is what gives the package its small
+surface, fast bind path, and easy interop with the rest of the
+PureScript ecosystem, but `Aff` cannot give us fiber identity,
+per-fiber state, structural supervision, a `Cause` tree that
+distinguishes failure from defect from interrupt, or a test
+clock that drives sleeping fibers directly. The cost analysis is
+in [`docs/aff-constraints.md`](./docs/aff-constraints.md).
+
+The companion package `rio-fiber` is a separate interpreter for
+the same three-channel design. It ships its own
+`RIO.Fiber.Core` plus a parallel `RIO.Fiber.*` namespace
+(Cause, Scope with `forkScoped` / `forkSupervised`, Ref as a real
+FiberRef, Stream / Sink / Pipe with `via`, STM, TestClock, the
+rest), and an `RIO.Fiber.Aff` bridge in both directions for
+interop with `Aff`-based code at the boundary. The trade-off is
+fork hot path overhead (about 2.3x raw `Aff`); the bind hot path
+is essentially the same. See
+[`rio-fiber/README.md`](./rio-fiber/README.md) for the full
+surface and the comparison table.
+
 ## Documentation
 
 Foundational reading:
