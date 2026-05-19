@@ -119,6 +119,30 @@ spec = describe "rio-fiber: Stream" do
       Success xs -> xs `shouldEqual` [ 10, 20, 30, 40, 50 ]
       other -> fail ("expected Success, got " <> describeOutcome other)
 
+  it "mapPar runs workers concurrently across element boundaries" do
+    inFlight <- liftEffect (Ref.new 0)
+    maxInFlight <- liftEffect (Ref.new 0)
+    let
+      slow :: Int -> F.RIO () () Int
+      slow x = do
+        n <- F.liftEffect (Ref.modify (_ + 1) inFlight)
+        F.liftEffect
+          (Ref.modify_ (\m -> if n > m then n else m) maxInFlight)
+        F.sleep (Milliseconds 10.0)
+        _ <- F.liftEffect (Ref.modify (_ - 1) inFlight)
+        pure x
+
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect (S.mapPar 3 slow (S.fromArray [ 1, 2, 3, 4, 5 ]))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 1, 2, 3, 4, 5 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    peak <- liftEffect (Ref.read maxInFlight)
+    -- with 5 elements and concurrency 3, we should observe at least
+    -- 2 workers active simultaneously at some point.
+    (peak >= 2) `shouldEqual` true
+
   it "scan emits seed then each accumulated value" do
     let
       prog :: F.RIO () () (Array Int)

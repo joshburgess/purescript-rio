@@ -37,8 +37,10 @@ module RIO.Fiber.Stream
 
 import Prelude hiding (map)
 
-import Data.Array (snoc, uncons)
+import Data.Array (index, range, snoc, uncons, zipWith)
+import Data.Array as Array
 import Data.Maybe (Maybe(..))
+import Data.Traversable (traverse, traverse_)
 import Data.Tuple (Tuple(..))
 import RIO.Fiber.Core (RIO)
 import RIO.Fiber.Core as F
@@ -201,44 +203,55 @@ merge sl sr = Stream do
           Stream pull -> pull
       Just a -> pure (Yield a (drainQueueN q remaining))
 
--- | Map elements with up to `concurrency` workers per batch.
--- | Internally pulls up to `concurrency` elements at a time and
--- | runs `f` over them via `parTraverse`, preserving in-batch
--- | order. Batch boundaries serialize, so a slow element in one
--- | batch blocks the start of the next. (Pipelined per-element
--- | concurrency is a follow-up.)
+-- | Map elements with up to `concurrency` workers running in
+-- | parallel. Workers are pre-spawned and fed by a round-robin
+-- | dispatcher; results are reordered downstream by the same
+-- | round-robin, so the output preserves input order. A slow
+-- | element blocks downstream emission past its position but does
+-- | not stall workers handling later elements.
 mapPar
   :: forall r e a b
    . Int
   -> (a -> RIO r e b)
   -> Stream r e a
   -> Stream r e b
-mapPar concurrency f source = pumpWaves source
+mapPar concurrency f source = Stream do
+  let n = max 1 concurrency
+  reqs <- F.liftEffect (traverse (\_ -> Q.make 1) (range 0 (n - 1)) :: _ (Array (Q.Queue (Maybe a))))
+  resps <- F.liftEffect (traverse (\_ -> Q.make 1) (range 0 (n - 1)) :: _ (Array (Q.Queue (Maybe b))))
+  let pairs = zipWith Tuple reqs resps
+  traverse_ (\(Tuple req resp) -> F.fork (worker req resp)) pairs
+  _ <- F.fork (dispatcher 0 source reqs)
+  case readResponses 0 resps of
+    Stream pull -> pull
   where
-  c = max 1 concurrency
-  pumpWaves s = Stream do
-    batch <- pullBatch c [] s
-    case batch of
-      { items: [], rest: _ } -> pure Done
-      { items, rest } -> do
-        results <- F.parTraverse f items
-        case fromArrayThen results (pumpWaves rest) of
-          Stream pull -> pull
+  worker req resp = do
+    m <- Q.take req
+    case m of
+      Nothing -> Q.offer resp Nothing
+      Just a -> do
+        b <- f a
+        Q.offer resp (Just b)
+        worker req resp
 
-  pullBatch
-    :: Int
-    -> Array a
-    -> Stream r e a
-    -> RIO r e { items :: Array a, rest :: Stream r e a }
-  pullBatch n acc currentStream
-    | n <= 0 = pure { items: acc, rest: currentStream }
-    | otherwise = case currentStream of
-        Stream pull -> do
-          step <- pull
-          case step of
-            Done -> pure { items: acc, rest: empty }
-            Yield a rest ->
-              pullBatch (n - 1) (snoc acc a) rest
+  dispatcher i (Stream pull) reqs = do
+    step <- pull
+    case step of
+      Done -> traverse_ (\q -> Q.offer q Nothing) reqs
+      Yield a rest -> case index reqs (i `mod` Array.length reqs) of
+        Nothing -> pure unit
+        Just q -> do
+          Q.offer q (Just a)
+          dispatcher (i + 1) rest reqs
+
+  readResponses cursor resps = Stream do
+    case index resps (cursor `mod` Array.length resps) of
+      Nothing -> pure Done
+      Just q -> do
+        m <- Q.take q
+        case m of
+          Nothing -> pure Done
+          Just b -> pure (Yield b (readResponses (cursor + 1) resps))
 
 -- | Yield the array in order, then continue with `after`.
 fromArrayThen :: forall r e a. Array a -> Stream r e a -> Stream r e a
