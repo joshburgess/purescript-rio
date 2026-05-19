@@ -5,6 +5,7 @@ import Prelude
 import Effect (Effect)
 import Test.RIO.Fiber.CauseSpec as CauseSpec
 import Test.RIO.Fiber.CoreSpec as CoreSpec
+import Test.RIO.Fiber.DeferredSpec as DeferredSpec
 import Test.RIO.Fiber.RefSpec as RefSpec
 import Test.RIO.Fiber.ScopeSpec as ScopeSpec
 import Test.Spec.Reporter.Console (consoleReporter)
@@ -16,3 +17,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   CauseSpec.spec
   ScopeSpec.spec
   RefSpec.spec
+  DeferredSpec.spec
