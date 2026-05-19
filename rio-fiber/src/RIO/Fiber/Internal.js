@@ -284,16 +284,30 @@ function Fiber(op, env, frefs) {
   this.env = env;
   this.status = F_RUNNING;
   this.result = null;
-  this.observers = [];
+  // Lazy-allocate the observer list. Most short-lived fibers either
+  // never gain an observer or gain exactly one (a single joiner) and
+  // resolve before any second registration, so deferring the array
+  // alloc until the first observer arrives avoids a per-fiber [].
+  this.observers = null;
   this.interrupted = false;
   // Depth of nested uninterruptible regions. While > 0, interrupts
   // are deferred (the flag stays set; the step loop just doesn't
   // act on it).
   this.mask = 0;
   this.canceller = null;
-  // Per-fiber state map keyed by FiberRef identity. Children copy
-  // this on fork so each fiber gets its own isolated namespace.
-  this.frefs = frefs || new Map();
+  // Per-fiber state map keyed by FiberRef identity. We use copy-on-
+  // write so a fresh fork only allocates a new Map if either the
+  // parent or child actually writes to a ref. `frefsOwn = true` means
+  // we are the sole holder of this Map; while shared (false) any
+  // write must clone before mutating. Forking re-marks both sides as
+  // shared.
+  if (frefs) {
+    this.frefs = frefs;
+    this.frefsOwn = false;
+  } else {
+    this.frefs = new Map();
+    this.frefsOwn = true;
+  }
   for (let i = 0; i < _supervisors.length; i++) {
     try {
       _supervisors[i].onStart(this.id)();
@@ -311,12 +325,14 @@ Fiber.prototype._complete = function (result) {
     } catch (_) {}
   }
   const obs = this.observers;
-  this.observers = [];
-  for (let i = 0; i < obs.length; i++) {
-    try {
-      obs[i](result);
-    } catch (_) {
-      // observers must not throw into the fiber; swallow.
+  this.observers = null;
+  if (obs !== null) {
+    for (let i = 0; i < obs.length; i++) {
+      try {
+        obs[i](result);
+      } catch (_) {
+        // observers must not throw into the fiber; swallow.
+      }
     }
   }
 };
@@ -324,6 +340,8 @@ Fiber.prototype._complete = function (result) {
 Fiber.prototype.observe = function (cb) {
   if (this.status === F_DONE) {
     cb(this.result);
+  } else if (this.observers === null) {
+    this.observers = [cb];
   } else {
     this.observers.push(cb);
   }
@@ -517,7 +535,10 @@ Fiber.prototype.step = function () {
           return;
         }
         case FORK: {
-          const child = new Fiber(op.op, this.env, new Map(this.frefs));
+          // Share the frefs map with the child; copy-on-write on the
+          // next mutation by either side. See Fiber constructor.
+          this.frefsOwn = false;
+          const child = new Fiber(op.op, this.env, this.frefs);
           scheduleFiber(child);
           this.value = child;
           this.mode = M_OK;
@@ -560,8 +581,9 @@ Fiber.prototype.step = function () {
           // composed with `Both`. If both sides end in pure interrupt
           // (no failure observed), the race itself is interrupted.
           const self = this;
-          const leftFiber = new Fiber(op.left, this.env, new Map(this.frefs));
-          const rightFiber = new Fiber(op.right, this.env, new Map(this.frefs));
+          this.frefsOwn = false;
+          const leftFiber = new Fiber(op.left, this.env, this.frefs);
+          const rightFiber = new Fiber(op.right, this.env, this.frefs);
           let settled = false;
           let firstFailure = null; // Cause held while waiting for the other side
           let bothCompleted = 0;
@@ -626,9 +648,10 @@ Fiber.prototype.step = function () {
           const fibers = new Array(n);
           let pending = n;
           let settled = false;
+          this.frefsOwn = false;
           for (let i = 0; i < n; i++) {
             const idx = i;
-            const child = new Fiber(fn(items[idx]), this.env, new Map(this.frefs));
+            const child = new Fiber(fn(items[idx]), this.env, this.frefs);
             fibers[idx] = child;
             child.observe(function (r) {
               if (settled) return;
@@ -679,6 +702,10 @@ Fiber.prototype.step = function () {
           break;
         }
         case FREF_SET: {
+          if (!this.frefsOwn) {
+            this.frefs = new Map(this.frefs);
+            this.frefsOwn = true;
+          }
           this.frefs.set(op.ref, op.value);
           this.value = undefined;
           this.mode = M_OK;
@@ -694,6 +721,10 @@ Fiber.prototype.step = function () {
             this.value = err;
             this.mode = M_DIE;
             break;
+          }
+          if (!this.frefsOwn) {
+            this.frefs = new Map(this.frefs);
+            this.frefsOwn = true;
           }
           this.frefs.set(ref, next);
           this.value = undefined;
