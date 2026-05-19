@@ -1999,6 +1999,43 @@ Fiber.prototype._stepInner = function () {
                     this.current = inner;
                     break kbindLoop;
                   }
+                  case APPLY:
+                  case MAP: {
+                    // Mirror the bindLoop fast path: walk the APPLY / MAP
+                    // spine with bindOp already pushed as the bottom
+                    // K_BIND frame so the unwind chain is ready by the
+                    // time we dispatch the leaf.
+                    this.stack.push(bindOp);
+                    let cur = inner;
+                    while (true) {
+                      const tag = cur._tag;
+                      if (tag === APPLY) {
+                        const lhs = cur._1;
+                        const rhs = cur._2;
+                        if (lhs._tag === PURE && rhs._tag === PURE) {
+                          try {
+                            this.value = lhs._1(rhs._1);
+                            this.mode = M_OK;
+                          } catch (err) {
+                            this.value = err;
+                            this.mode = M_DIE;
+                          }
+                          break;
+                        }
+                        this.stack.push(new Op(-1, K_APPLY, rhs, null));
+                        cur = lhs;
+                        continue;
+                      }
+                      if (tag === MAP) {
+                        this.stack.push(new Op(-1, K_MAP, cur._1, null));
+                        cur = cur._2;
+                        continue;
+                      }
+                      this.current = cur;
+                      break;
+                    }
+                    break kbindLoop;
+                  }
                   default:
                     this.stack.push(bindOp);
                     this.current = inner;
