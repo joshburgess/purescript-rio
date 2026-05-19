@@ -2337,6 +2337,88 @@ export const _fiberInterrupt = function (f) {
   };
 };
 
+// Fused synchronous runner. The PS wrapper layer would otherwise call
+// startFiber, then _fiberIsDone, then _fiberResult, then
+// resultToOutcome (which itself allocs a Success / Die / Fail and
+// dispatches on three mode predicates), then wrap the Outcome in a
+// Maybe, then in runRIO pattern-match the Maybe-of-Outcome and alloc
+// an Either, then in runRIO' pattern-match the Either and unwrap.
+// That's five constructor allocations and several FFI predicate calls
+// per runRIO' invocation, all to compute "did the fiber finish with
+// OK". Inline the whole pipeline here so the OK path is one tag check
+// + one field read, and the failure paths throw directly.
+//
+// The type at the PS boundary is `Op r e a -> Record r -> Effect a`;
+// callers that statically know `e = ()` (i.e. runRIO') use it raw, and
+// callers that need the typed-failure path (runRIO) keep going
+// through runFiberSync.
+export const _runFiberSyncOrThrow = function (op) {
+  return function (env) {
+    return function () {
+      let f;
+      if (_supervisors.length === 0) {
+        const tag = op._tag;
+        if (tag === PURE) {
+          return op._1;
+        }
+        if (tag === SYNC) {
+          return op._1();
+        }
+        f = new Fiber(op, env);
+        f.step();
+      } else {
+        f = new Fiber(op, env);
+        f.step();
+      }
+      if (f.status !== F_DONE) {
+        throw new Error("rio-fiber: program suspended; use runRIOCallback");
+      }
+      const mode = f.mode;
+      if (mode === M_OK) {
+        return f.value;
+      }
+      if (mode === M_DIE) {
+        throw f.value;
+      }
+      if (mode === M_INTERRUPT) {
+        throw new Error("rio-fiber: program was interrupted");
+      }
+      if (mode === M_CAUSE) {
+        const leaf = _causeRepresentative(f.value);
+        if (leaf === null) {
+          throw new Error("rio-fiber: program was interrupted");
+        }
+        throw leaf;
+      }
+      // M_FAIL: at type `RIO () () a` this is statically unreachable
+      // (the error row is uninhabited), but defend against misuse by
+      // throwing a JS error rather than silently returning a Variant.
+      throw new Error("rio-fiber: typed failure escaped runRIO'");
+    };
+  };
+};
+
+// Walk a Cause tree and return a representative leaf payload to throw.
+// Prefers defects (Die) since they always carry an Error; falls back
+// to Fail payloads (which are Variants and won't be useful directly,
+// but at least propagate something) and finally null for an
+// interrupt-only cause.
+function _causeRepresentative(c) {
+  const t = c._c;
+  if (t === 2) {
+    return c.die;
+  }
+  if (t === 1) {
+    return c.fail;
+  }
+  if (t === 4 || t === 5) {
+    const l = _causeRepresentative(c.left);
+    if (l !== null) return l;
+    return _causeRepresentative(c.right);
+  }
+  return null;
+}
+
 // Tagged-result inspectors used by the PureScript wrapper. All
 // result objects use the uniform { mode, value } shape so each
 // predicate is a single field read against a small integer.

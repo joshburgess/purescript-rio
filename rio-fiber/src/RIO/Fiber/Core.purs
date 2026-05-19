@@ -49,7 +49,6 @@ import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds)
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
-import Data.Variant as Variant
 import Effect (Effect)
 import Effect.Exception (Error, throwException, error)
 import RIO.Fiber.Cause (Cause)
@@ -282,12 +281,14 @@ runRIO m = do
 -- | Run an `RIO` with both rows discharged. The error row is
 -- | uninhabited so the result is returned unwrapped. Same sync
 -- | constraints as `runRIO`.
+-- |
+-- | Goes straight through the fused `_runFiberSyncOrThrow` FFI rather
+-- | than `runFiberSync` + Maybe / Outcome / Either pattern matches.
+-- | The OK path is one Fiber-status check + one field read on the JS
+-- | side; the failure paths throw directly. There is no Outcome
+-- | constructor alloc, no Maybe wrap, and no Either wrap per call.
 runRIO' :: forall a. RIO () () a -> Effect a
-runRIO' m = do
-  res <- runRIO m
-  case res of
-    Right a -> pure a
-    Left v -> Variant.case_ v
+runRIO' (RIO op) = Internal._runFiberSyncOrThrow op {}
 
 -- | Callback-style runner. The callback receives the full outcome
 -- | (including `Interrupted` as a dedicated case); the returned

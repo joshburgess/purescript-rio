@@ -17,6 +17,7 @@ module RIO.Fiber.Internal
   , Outcome(..)
   , runFiber
   , runFiberSync
+  , _runFiberSyncOrThrow
   , startFiber
   , observeFiber
   , interruptFiber
@@ -320,6 +321,15 @@ foreign import _fiberObserve
   -> Effect Unit
 
 foreign import _fiberInterrupt :: forall e a. Fiber e a -> Effect Unit
+
+-- | Fused sync runner used by `runRIO'`. Starts the fiber, then if it
+-- | completed with M_OK returns the value directly; otherwise throws.
+-- | Skips the Maybe / Outcome / Either round-trip the layered runner
+-- | builds. Statically `M_FAIL` cannot happen at the call site
+-- | (`runRIO'`'s error row is uninhabited); the FFI defends against
+-- | misuse by throwing rather than silently returning.
+foreign import _runFiberSyncOrThrow
+  :: forall r e a. Op r e a -> Record r -> Effect a
 
 foreign import _resultIsOk :: forall e a. FiberResult e a -> Boolean
 foreign import _resultIsFail :: forall e a. FiberResult e a -> Boolean
