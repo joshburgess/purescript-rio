@@ -1441,32 +1441,41 @@ Fiber.prototype._stepInner = function () {
           // Folds the PURE / PURE leaf to skip both frames entirely.
           //
           // Spine collapse: traverseArrayImpl builds a balanced tree of
-          // `apply(apply(... ) y) z`, so opF is itself an APPLY on the
-          // way down. Walk that spine here, pushing one K_APPLY per
-          // level, so a depth-N tree pays one outer-loop dispatch
-          // instead of N. Stops at any non-APPLY (typically a MAP that
-          // carries the leaf function); the outer loop picks up there.
-          let curF = op._1;
-          let curA = op._2;
+          // `apply(apply(... ) y) z`, with MAP nodes carrying the
+          // result-shape function at each level (`map array2`,
+          // `map array3`, `map concat2`). Walk the left spine here,
+          // pushing one K_APPLY per APPLY and one K_MAP per MAP, so a
+          // depth-N spine pays one outer-loop dispatch instead of N.
+          // The walk stops at the first non-APPLY non-MAP leaf (PURE,
+          // SYNC, FORK, JOIN, ASK, ...); the outer loop dispatches
+          // that leaf and the unwind path folds the stacked frames.
+          let cur = op;
           while (true) {
-            if (curF._tag === PURE && curA._tag === PURE) {
-              try {
-                this.value = curF._1(curA._1);
-                this.mode = M_OK;
-              } catch (err) {
-                this.value = err;
-                this.mode = M_DIE;
+            const tag = cur._tag;
+            if (tag === APPLY) {
+              const lhs = cur._1;
+              const rhs = cur._2;
+              if (lhs._tag === PURE && rhs._tag === PURE) {
+                try {
+                  this.value = lhs._1(rhs._1);
+                  this.mode = M_OK;
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                }
+                break;
               }
-              break;
+              this.stack.push(new Op(-1, K_APPLY, rhs, null));
+              cur = lhs;
+              continue;
             }
-            this.stack.push(new Op(-1, K_APPLY, curA, null));
-            if (curF._tag !== APPLY) {
-              this.current = curF;
-              break;
+            if (tag === MAP) {
+              this.stack.push(new Op(-1, K_MAP, cur._1, null));
+              cur = cur._2;
+              continue;
             }
-            const innerF = curF._1;
-            curA = curF._2;
-            curF = innerF;
+            this.current = cur;
+            break;
           }
           if (this.current !== null) continue;
           break;
