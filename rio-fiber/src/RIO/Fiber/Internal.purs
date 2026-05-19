@@ -21,6 +21,7 @@ module RIO.Fiber.Internal
   , observeFiber
   , interruptFiber
   , fiberIsDone
+  , fiberOutcome
   , opPure
   , opLiftEffect
   , opBind
@@ -326,6 +327,14 @@ startFiber (RIO op) = _startFiber op
 -- | Has this fiber completed?
 fiberIsDone :: forall e a. Fiber e a -> Boolean
 fiberIsDone = _fiberIsDone
+
+-- | Read the outcome from a fiber that the caller has already
+-- | confirmed is `fiberIsDone`. Unsafe to call on a running fiber; the
+-- | result object is null until `_complete` installs it. Used by the
+-- | Aff bridge to skip the makeAff round-trip when a program finishes
+-- | synchronously inside `startFiber`.
+fiberOutcome :: forall e a. Fiber e a -> Outcome e a
+fiberOutcome f = resultToOutcome (_fiberResult f)
 
 -- | Install a one-shot observer: the callback fires when the fiber
 -- | completes, with the full outcome.

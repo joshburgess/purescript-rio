@@ -31,7 +31,14 @@ import Effect.Aff (Aff, Canceler(..))
 import Effect.Aff as Aff
 import Effect.Class (liftEffect)
 import Effect.Exception (Error, error, throwException)
-import RIO.Fiber.Core (Outcome(..), RIO, async, die, runRIOCallback)
+import RIO.Fiber.Core (Outcome(..), RIO, async, die)
+import RIO.Fiber.Internal
+  ( fiberIsDone
+  , fiberOutcome
+  , interruptFiber
+  , observeFiber
+  , startFiber
+  ) as Internal
 
 -- | Lift an `Aff` action into `RIO`. The result is delivered on the
 -- | success channel; an Aff failure surfaces as a defect (`Die`), and
@@ -52,10 +59,22 @@ fromAff aff = do
 -- | so the caller can inspect typed failures, defects, and interrupts
 -- | separately. Interrupting the surrounding `Aff` propagates as an
 -- | interruption request to the running fiber.
+-- |
+-- | The fiber is started eagerly inside an `Effect`. If it finishes
+-- | synchronously (the common case for pure pipelines built on `fork`
+-- | / `forkInline` / STM commits) the outcome flows back through
+-- | `Aff.pure`, skipping the `Aff.makeAff` round-trip. Only programs
+-- | that actually suspend pay the bridge cost of a `makeAff` register
+-- | + Scheduler resume.
 runAff :: forall r e a. RIO r e a -> Record r -> Aff (Outcome e a)
-runAff rio env = Aff.makeAff \cb -> do
-  cancel <- runRIOCallback rio env (cb <<< Right)
-  pure (Canceler \_ -> liftEffect cancel)
+runAff rio env = do
+  fiber <- liftEffect (Internal.startFiber rio env)
+  if Internal.fiberIsDone fiber then
+    pure (Internal.fiberOutcome fiber)
+  else
+    Aff.makeAff \cb -> do
+      Internal.observeFiber fiber (cb <<< Right)
+      pure (Canceler \_ -> liftEffect (Internal.interruptFiber fiber))
 
 -- | Run an `RIO` program inside `Aff`, projecting the outcome onto
 -- | Aff's shape: typed failures land in `Left`, success in `Right`,

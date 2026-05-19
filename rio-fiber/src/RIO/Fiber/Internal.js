@@ -672,6 +672,31 @@ Fiber.prototype.step = function () {
                 break bindLoop;
             }
           }
+          // bindLoop exited with `this.current = next` for non-BIND
+          // leaf shapes. If `next` is itself a PURE / SYNC leaf, the
+          // outer-loop round-trip just sets (value, mode) and unwinds;
+          // collapse it here so a `pure x >>= \a -> pure (f a)` style
+          // tail doesn't pay an extra tick + dispatch.
+          {
+            const cur = this.current;
+            if (cur !== null) {
+              const curTag = cur._tag;
+              if (curTag === PURE) {
+                this.value = cur.value;
+                this.mode = M_OK;
+                this.current = null;
+              } else if (curTag === SYNC) {
+                this.current = null;
+                try {
+                  this.value = cur.run();
+                  this.mode = M_OK;
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                }
+              }
+            }
+          }
           continue;
         }
         case FAIL:
@@ -1006,6 +1031,16 @@ Fiber.prototype.step = function () {
     // whether to consume the current (value, mode), pass it through,
     // or rewrite it.
     while (true) {
+      // Tick budget also applies during unwind: a chain of K_BIND ->
+      // BIND continuations can be just as long as a forward-dispatched
+      // chain (e.g. the `busy` synthetic stress builds a deep stack
+      // that is unwound in one go), and the K_BIND fast paths below
+      // can fold leaf ops inline without re-entering the outer dispatch
+      // switch.
+      if (--ticks < 0) {
+        scheduleFiber(this);
+        return;
+      }
       if (
         this.interrupted &&
         this.mask === 0 &&
@@ -1027,7 +1062,10 @@ Fiber.prototype.step = function () {
             // Inline the common `do { x <- m; pure (f x) }` /
             // `do { x <- m; liftEffect e }` tails: if next returns
             // a leaf op we apply it here without going back through
-            // the dispatch switch.
+            // the dispatch switch. The K_BIND -> BIND case is the
+            // typical traverse-built shape, so we descend into the
+            // BIND inner loop directly to skip the outer dispatch
+            // round-trip per nested bind.
             const nextOp = frame.next(this.value);
             const nextTag = nextOp._tag;
             if (nextTag === PURE) {
@@ -1039,6 +1077,155 @@ Fiber.prototype.step = function () {
               } catch (err) {
                 this.value = err;
                 this.mode = M_DIE;
+              }
+            } else if (nextTag === BIND) {
+              // Mirror case BIND's inner-loop fast paths so a chain
+              // of K_BIND -> BIND continuations doesn't bounce through
+              // the outer-loop tick/interrupt/dispatch trio per step.
+              let bindOp = nextOp;
+              kbindLoop: while (true) {
+                const inner = bindOp.op;
+                switch (inner._tag) {
+                  case PURE: {
+                    const next = bindOp.next(inner.value);
+                    if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
+                    this.current = next;
+                    break kbindLoop;
+                  }
+                  case BIND: {
+                    this.stack.push(bindOp);
+                    bindOp = inner;
+                    continue kbindLoop;
+                  }
+                  case FORK: {
+                    const body = inner.op;
+                    if (body._tag === PURE && _supervisors.length === 0) {
+                      const next = bindOp.next(new DoneFiber(M_OK, body.value));
+                      if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
+                      this.current = next;
+                      break kbindLoop;
+                    }
+                    this.frefsOwn = false;
+                    const child = new Fiber(body, this.env, this.frefs);
+                    scheduleFiber(child);
+                    const next = bindOp.next(child);
+                    if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
+                    this.current = next;
+                    break kbindLoop;
+                  }
+                  case JOIN: {
+                    const target = inner.fiber;
+                    if (target.queued) {
+                      target.queued = false;
+                      target.step();
+                    }
+                    if (target.status === F_DONE) {
+                      if (target.mode === M_OK) {
+                        const next = bindOp.next(target.value);
+                        if (next._tag === BIND) {
+                          bindOp = next;
+                          continue kbindLoop;
+                        }
+                        this.current = next;
+                        break kbindLoop;
+                      }
+                      this._installResult(target);
+                      break kbindLoop;
+                    }
+                    this.stack.push(bindOp);
+                    this.current = inner;
+                    break kbindLoop;
+                  }
+                  case SYNC: {
+                    let v;
+                    try {
+                      v = inner.run();
+                    } catch (err) {
+                      this.value = err;
+                      this.mode = M_DIE;
+                      break kbindLoop;
+                    }
+                    const next = bindOp.next(v);
+                    if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
+                    this.current = next;
+                    break kbindLoop;
+                  }
+                  case ASK: {
+                    const next = bindOp.next(this.env);
+                    if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
+                    this.current = next;
+                    break kbindLoop;
+                  }
+                  case FORK_INLINE: {
+                    const body = inner.op;
+                    const bodyTag = body._tag;
+                    if (_supervisors.length === 0) {
+                      if (bodyTag === PURE) {
+                        const next = bindOp.next(new DoneFiber(M_OK, body.value));
+                        if (next._tag === BIND) {
+                          bindOp = next;
+                          continue kbindLoop;
+                        }
+                        this.current = next;
+                        break kbindLoop;
+                      }
+                      if (bodyTag === SYNC) {
+                        let v;
+                        let m;
+                        try {
+                          v = body.run();
+                          m = M_OK;
+                        } catch (err) {
+                          v = err;
+                          m = M_DIE;
+                        }
+                        const next = bindOp.next(new DoneFiber(m, v));
+                        if (next._tag === BIND) {
+                          bindOp = next;
+                          continue kbindLoop;
+                        }
+                        this.current = next;
+                        break kbindLoop;
+                      }
+                    }
+                    this.frefsOwn = false;
+                    const inlineChild = new Fiber(body, this.env, this.frefs);
+                    inlineChild.step();
+                    const next = bindOp.next(inlineChild);
+                    if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
+                    this.current = next;
+                    break kbindLoop;
+                  }
+                  default:
+                    this.stack.push(bindOp);
+                    this.current = inner;
+                    break kbindLoop;
+                }
+              }
+              // kbindLoop terminated with `this.current = next` for a
+              // non-BIND leaf. If `next` is itself a PURE / SYNC, fold
+              // its effect in here so the unwind keeps popping K_BIND
+              // frames without an outer step()-loop round-trip per leaf.
+              // The unwind loop's own tick decrement keeps preemption
+              // honest across long K_BIND chains.
+              {
+                const cur = this.current;
+                if (cur !== null) {
+                  const curTag = cur._tag;
+                  if (curTag === PURE) {
+                    this.value = cur.value;
+                    this.current = null;
+                    // mode is already M_OK
+                  } else if (curTag === SYNC) {
+                    this.current = null;
+                    try {
+                      this.value = cur.run();
+                    } catch (err) {
+                      this.value = err;
+                      this.mode = M_DIE;
+                    }
+                  }
+                }
               }
             } else {
               this.current = nextOp;
