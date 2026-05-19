@@ -2217,6 +2217,31 @@ Fiber.prototype._stepInner = function () {
               }
               break;
             }
+            if (opATag === FORK_INLINE) {
+              const body = opA._1;
+              const bodyTag = body._tag;
+              let fiber;
+              if (_supervisors.length === 0 && bodyTag === PURE) {
+                fiber = new DoneFiber(M_OK, body._1);
+              } else if (_supervisors.length === 0 && bodyTag === SYNC) {
+                let v, m;
+                try { v = body._1(); m = M_OK; }
+                catch (err) { v = err; m = M_DIE; }
+                fiber = new DoneFiber(m, v);
+              } else {
+                this.frefsOwn = false;
+                fiber = new Fiber(body, this.env, this.frefs);
+                fiber.step();
+              }
+              try {
+                this.value = f(fiber);
+                this.mode = M_OK;
+              } catch (err) {
+                this.value = err;
+                this.mode = M_DIE;
+              }
+              break;
+            }
             if (opATag === JOIN) {
               const target = opA._1;
               if (target.queued) {
