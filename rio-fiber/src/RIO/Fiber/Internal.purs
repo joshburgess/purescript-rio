@@ -33,14 +33,20 @@ module RIO.Fiber.Internal
   , opUninterruptible
   , opRace
   , opParTraverse
+  , opPeel
+  , FiberResult
+  , peelToCauseEither
   ) where
 
 import Prelude
 
+import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Variant (Variant)
 import Effect (Effect)
 import Effect.Exception (Error)
+import RIO.Fiber.Cause (Cause)
+import RIO.Fiber.Cause as Cause
 
 -- | Opaque instruction tree built by FFI factories and stepped by the
 -- | interpreter. Users never construct or pattern-match on it.
@@ -123,6 +129,12 @@ foreign import opRace :: forall r e a. Op r e a -> Op r e a -> Op r e a
 foreign import opParTraverse
   :: forall r e a b. (a -> Op r e b) -> Array a -> Op r e (Array b)
 
+-- | Run the wrapped op and capture its outcome (success, typed
+-- | failure, defect, or interrupt) as a `FiberResult`. The outer
+-- | error row is independent: the caller may discharge it or thread
+-- | a different one.
+foreign import opPeel :: forall r e e' a. Op r e a -> Op r e' (FiberResult e a)
+
 -- | The full outcome of running a fiber. Includes interrupt as a
 -- | dedicated case; defects come through `Die`.
 data Outcome e a
@@ -161,6 +173,19 @@ resultToOutcome r
   | _resultIsFail r = Fail (_resultFail r)
   | _resultIsInterrupted r = Interrupted
   | otherwise = Die (_resultDie r)
+
+-- | Convert a `FiberResult` (the JS-tagged outcome carried by `peel`)
+-- | into an `Either (Cause e) a`. `Right` carries the success value;
+-- | `Left` carries the leaf cause (a single `Fail` / `Die` /
+-- | `Interrupt`). Composed causes from finalizer-then-action or
+-- | parallel-both will land here once the interpreter threads Cause
+-- | through every mode.
+peelToCauseEither :: forall e a. FiberResult e a -> Either (Cause e) a
+peelToCauseEither r
+  | _resultIsOk r = Right (_resultOk r)
+  | _resultIsFail r = Left (Cause.fail (_resultFail r))
+  | _resultIsInterrupted r = Left Cause.interrupt
+  | otherwise = Left (Cause.die (_resultDie r))
 
 -- | Start a fiber executing the given program against `env`. Returns
 -- | the fiber handle synchronously; the fiber may already have

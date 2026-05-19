@@ -13,6 +13,8 @@ module RIO.Fiber.Core
   , async
   , bracket
   , catchAll
+  , causeOf
+  , die
   , ensuring
   , fail
   , fork
@@ -39,7 +41,8 @@ import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect (Effect)
-import Effect.Exception (throwException, error)
+import Effect.Exception (Error, throwException, error)
+import RIO.Fiber.Cause (Cause)
 import RIO.Fiber.Internal (Fiber, Outcome(..), RIO(..))
 import RIO.Fiber.Internal (Fiber, Outcome(..), RIO, observeFiber, runFiber, startFiber) as Exports
 import RIO.Fiber.Internal as Internal
@@ -59,6 +62,13 @@ asks f = map f ask
 -- | Raise a typed failure on the chosen tag.
 fail :: forall r e a. Variant e -> RIO r e a
 fail v = RIO (Internal.opFail v)
+
+-- | Crash the fiber with a JS defect. Goes through the normal
+-- | unwind path (finalizers run) and surfaces as `Die err` at the
+-- | runner. Use this for "should never happen" invariants, not for
+-- | expected business errors (those belong in the typed row).
+die :: forall r e a. Error -> RIO r e a
+die err = RIO (Internal.opLiftEffect (throwException err))
 
 -- | Handle every typed failure with a recovery action. The handler
 -- | sees the original error row `e`; the recovered program runs in
@@ -183,6 +193,20 @@ bracket acquire release use = uninterruptible acquire >>=
 -- | externally the result is `Interrupted`.
 race :: forall r e a. RIO r e a -> RIO r e a -> RIO r e a
 race (RIO l) (RIO r) = RIO (Internal.opRace l r)
+
+-- | Run the wrapped action and capture its leaf cause on failure.
+-- | A success becomes `Right a`; a typed failure / defect / interrupt
+-- | becomes `Left` of the corresponding `Cause`. The outer error
+-- | row is independent so callers can discharge it.
+-- |
+-- | This is the gateway to inspecting causes from user code. Note
+-- | that `causeOf` swallows interrupts: the wrapped action runs to
+-- | completion and the captured `Cause.Interrupt` is the only
+-- | trace. Callers who want the interrupt to propagate must re-raise.
+causeOf :: forall r e e' a. RIO r e a -> RIO r e' (Either (Cause e) a)
+causeOf (RIO m) = RIO (Internal.opBind (Internal.opPeel m) goPure)
+  where
+  goPure r = Internal.opPure (Internal.peelToCauseEither r)
 
 -- | Run one fiber per element and collect the results in order.
 -- | Fail-fast: the first non-success outcome interrupts the

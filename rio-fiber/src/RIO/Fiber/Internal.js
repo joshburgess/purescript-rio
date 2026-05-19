@@ -30,6 +30,7 @@ const ENSURING = 11;
 const UNINTERRUPTIBLE = 12;
 const RACE = 13;
 const PAR_TRAVERSE = 14;
+const PEEL = 15;
 
 // Continuation-stack frame tags.
 const K_BIND = 0; // next: a -> Op r e b
@@ -38,6 +39,7 @@ const K_LOCAL = 2; // restore env: previous env to put back
 const K_ENSURE = 3; // run finalizer regardless of outcome
 const K_AFTER_FIN = 4; // restore saved (value, mode) after finalizer
 const K_UNMASK = 5; // decrement mask depth
+const K_PEEL = 6; // capture the current (mode, value) as a tagged result
 
 // Fiber statuses.
 const F_RUNNING = 0;
@@ -132,6 +134,10 @@ export const opParTraverse = function (fn) {
   return function (items) {
     return { _tag: PAR_TRAVERSE, fn: fn, items: items };
   };
+};
+
+export const opPeel = function (op) {
+  return { _tag: PEEL, op: op };
 };
 
 // Fiber ----------------------------------------------------------------
@@ -423,6 +429,10 @@ Fiber.prototype.step = function () {
           };
           return;
         }
+        case PEEL:
+          this.stack.push({ _k: K_PEEL });
+          this.current = op.op;
+          continue;
         case PAR_TRAVERSE: {
           const self = this;
           const fn = op.fn;
@@ -543,6 +553,32 @@ Fiber.prototype.step = function () {
         case K_UNMASK:
           this.mask--;
           break;
+        case K_PEEL: {
+          // Capture the current (mode, value) as a tagged result and
+          // continue as a success. Clear the interrupt flag so the
+          // captured outcome is the final word; if the caller wants
+          // to re-propagate the interrupt they can do it from the
+          // returned tagged result.
+          let result;
+          switch (this.mode) {
+            case M_OK:
+              result = { ok: this.value };
+              break;
+            case M_FAIL:
+              result = { fail: this.value };
+              break;
+            case M_DIE:
+              result = { die: this.value };
+              break;
+            default:
+              result = { interrupted: true };
+              break;
+          }
+          this.value = result;
+          this.mode = M_OK;
+          this.interrupted = false;
+          break;
+        }
       }
       if (this.current !== null) break;
     }
