@@ -33,6 +33,7 @@ module RIO.Fiber.Internal
   , opFork
   , opForkInline
   , opForkAll
+  , opForkAllInline
   , opJoin
   , opJoinAll
   , opInterrupt
@@ -41,6 +42,8 @@ module RIO.Fiber.Internal
   , opRace
   , opParTraverse
   , opForEach
+  , opMap
+  , opApply
   , opPeel
   , FiberResult
   , peelToCauseEither
@@ -86,11 +89,17 @@ newtype RIO :: Row Type -> Row Type -> Type -> Type
 newtype RIO r e a = RIO (Op r e a)
 
 instance functorRIO :: Functor (RIO r e) where
-  map f (RIO m) = RIO (opBind m (\a -> opPure (f a)))
+  -- `opMap` is a dedicated MAP op rather than `bind m (\a -> pure (f a))`.
+  -- That saves a BIND + PURE + closure allocation per `map`, which adds
+  -- up under `traverse` (the default Traversable instance for Array
+  -- builds a balanced tree of `map` / `apply` over the bind machinery).
+  map f (RIO m) = RIO (opMap f m)
 
 instance applyRIO :: Apply (RIO r e) where
-  apply (RIO mf) (RIO ma) =
-    RIO (opBind mf (\f -> opBind ma (\a -> opPure (f a))))
+  -- Same reasoning as `map`: opApply emits a dedicated APPLY op whose
+  -- interpreter handles the two-stage evaluation in K_APPLY / K_APPLY2
+  -- frames without going through bind.
+  apply (RIO mf) (RIO ma) = RIO (opApply mf ma)
 
 instance applicativeRIO :: Applicative (RIO r e) where
   pure = RIO <<< opPure
@@ -109,6 +118,7 @@ foreign import opPure :: forall r e a. a -> Op r e a
 foreign import opLiftEffect :: forall r e a. Effect a -> Op r e a
 foreign import opBind
   :: forall r e a b. Op r e a -> (a -> Op r e b) -> Op r e b
+
 foreign import opAsk :: forall r e. Op r e (Record r)
 foreign import opFail :: forall r e a. Variant e -> Op r e a
 foreign import opCatchAll
@@ -116,6 +126,7 @@ foreign import opCatchAll
    . (Variant e -> Op r e' a)
   -> Op r e a
   -> Op r e' a
+
 foreign import opLocal
   :: forall r r' e a. (Record r -> Record r') -> Op r' e a -> Op r e a
 
@@ -145,6 +156,13 @@ foreign import opInterrupt :: forall r e a. Fiber e a -> Op r e Unit
 -- | handles in order. Equivalent to `traverse fork ops` but bypasses
 -- | the per-element bind chain that `traverse` would build.
 foreign import opForkAll :: forall r e a. Array (Op r e a) -> Op r e (Array (Fiber e a))
+
+-- | Like `opForkAll` but each child is stepped synchronously once
+-- | before its handle lands in the result array. PURE / SYNC bodies
+-- | complete inline (no scheduler entry); anything else gets exactly
+-- | one step so its first ASYNC callback is registered before the
+-- | parent makes further observable progress.
+foreign import opForkAllInline :: forall r e a. Array (Op r e a) -> Op r e (Array (Fiber e a))
 
 -- | Specialized array join: wait on a batch of pre-forked fibers and
 -- | resume with their results in order. Suspends until every fiber
@@ -178,6 +196,16 @@ foreign import opParTraverse
 -- | `Traversable` instance for `Array` would build.
 foreign import opForEach
   :: forall r e a b. (a -> Op r e b) -> Array a -> Op r e (Array b)
+
+-- | Dedicated MAP op backing the Functor instance. Carries the function
+-- | directly rather than wrapping it in a `\a -> pure (f a)` closure.
+foreign import opMap :: forall r e a b. (a -> b) -> Op r e a -> Op r e b
+
+-- | Dedicated APPLY op backing the Apply instance. Skips the two-bind
+-- | encoding that `\mf ma -> bind mf (\f -> bind ma (\a -> pure (f a)))`
+-- | would otherwise allocate.
+foreign import opApply
+  :: forall r e a b. Op r e (a -> b) -> Op r e a -> Op r e b
 
 -- | Run the wrapped op and capture its outcome (success, typed
 -- | failure, defect, or interrupt) as a `FiberResult`. The outer
@@ -280,6 +308,7 @@ foreign import _fiberObserve
    . Fiber e a
   -> (FiberResult e a -> Effect Unit)
   -> Effect Unit
+
 foreign import _fiberInterrupt :: forall e a. Fiber e a -> Effect Unit
 
 foreign import _resultIsOk :: forall e a. FiberResult e a -> Boolean

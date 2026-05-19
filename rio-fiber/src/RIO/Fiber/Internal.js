@@ -39,6 +39,9 @@ const FORK_INLINE = 20;
 const FORK_ALL = 21;
 const JOIN_ALL = 22;
 const FOR_EACH = 23;
+const MAP = 24;
+const APPLY = 25;
+const FORK_ALL_INLINE = 26;
 
 // Continuation-stack frame tags.
 const K_BIND = 0; // next: a -> Op r e b
@@ -49,6 +52,9 @@ const K_AFTER_FIN = 4; // restore saved (value, mode) after finalizer
 const K_UNMASK = 5; // decrement mask depth
 const K_PEEL = 6; // capture the current (mode, value) as a tagged result
 const K_FOR_EACH = 7; // sequential traverse: collect this iteration, advance
+const K_MAP = 8;   // apply f to the result without an extra PURE wrap
+const K_APPLY = 9; // value (f) is in hand, now evaluate the second op
+const K_APPLY2 = 10; // both ops complete: apply the captured f to the value
 
 // Fiber statuses.
 const F_RUNNING = 0;
@@ -256,6 +262,36 @@ export const opForEach = function (fn) {
   return function (items) {
     return { _tag: FOR_EACH, fn: fn, items: items };
   };
+};
+
+// Dedicated map / apply ops. The Functor / Apply instances would
+// otherwise express `map` as `bind m (\a -> pure (f a))` and `apply mf
+// ma` as `bind mf (\f -> bind ma (\a -> pure (f a)))`. Each of those
+// allocates BIND + PURE + closure objects on every node, and `traverse`
+// composes them into a balanced tree, so the per-element cost was
+// dominated by allocation churn. MAP / APPLY carry the function value
+// directly so the runtime can fold it into the result without a PURE
+// round-trip.
+export const opMap = function (f) {
+  return function (op) {
+    return { _tag: MAP, f: f, op: op };
+  };
+};
+
+export const opApply = function (opF) {
+  return function (opA) {
+    return { _tag: APPLY, opF: opF, opA: opA };
+  };
+};
+
+// Like opForkAll but each child is stepped synchronously before its
+// handle lands in the result array, mirroring opForkInline for the
+// batch case. PURE / SYNC leaves collapse to DoneFibers without
+// touching the scheduler; everything else allocates a Fiber and is
+// driven once inline so its first ASYNC callback is registered before
+// the parent makes any further observable progress.
+export const opForkAllInline = function (ops) {
+  return { _tag: FORK_ALL_INLINE, ops: ops };
 };
 
 export const opInterrupt = function (fiber) {
@@ -1135,6 +1171,99 @@ Fiber.prototype._stepInner = function () {
           this.mode = M_OK;
           break;
         }
+        case MAP: {
+          // Inline common leaf shapes so the every-bind PURE / SYNC
+          // pattern (`map f (pure x)` / `map f (liftEffect e)`) doesn't
+          // pay a K_MAP frame.
+          const inner = op.op;
+          const innerTag = inner._tag;
+          if (innerTag === PURE) {
+            try {
+              this.value = op.f(inner.value);
+              this.mode = M_OK;
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+            }
+            break;
+          }
+          if (innerTag === SYNC) {
+            try {
+              this.value = op.f(inner.run());
+              this.mode = M_OK;
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+            }
+            break;
+          }
+          this.stack.push({ _k: K_MAP, f: op.f });
+          this.current = inner;
+          continue;
+        }
+        case APPLY: {
+          // Evaluate opF first; K_APPLY then captures the resulting
+          // function and kicks off opA. K_APPLY2 finally calls f(v).
+          // Folds the PURE / PURE leaf to skip both frames entirely.
+          const opF = op.opF;
+          const opA = op.opA;
+          if (opF._tag === PURE && opA._tag === PURE) {
+            try {
+              this.value = opF.value(opA.value);
+              this.mode = M_OK;
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+            }
+            break;
+          }
+          this.stack.push({ _k: K_APPLY, opA: opA });
+          this.current = opF;
+          continue;
+        }
+        case FORK_ALL_INLINE: {
+          // Batch variant of FORK_INLINE: spawn N fibers, drive each
+          // one synchronously once before returning the handle array.
+          // PURE / SYNC bodies collapse to DoneFibers (no Fiber alloc,
+          // no scheduleFiber); everything else gets one inline step so
+          // a subsequent JOIN_ALL can rendezvous on completed children
+          // without the queueMicrotask round-trip.
+          const ops = op.ops;
+          const n = ops.length;
+          const out = new Array(n);
+          if (n === 0) {
+            this.value = out;
+            this.mode = M_OK;
+            break;
+          }
+          this.frefsOwn = false;
+          const supEmpty = _supervisors.length === 0;
+          for (let i = 0; i < n; i++) {
+            const body = ops[i];
+            const bodyTag = body._tag;
+            if (supEmpty && bodyTag === PURE) {
+              out[i] = new DoneFiber(M_OK, body.value);
+            } else if (supEmpty && bodyTag === SYNC) {
+              let v;
+              let m;
+              try {
+                v = body.run();
+                m = M_OK;
+              } catch (err) {
+                v = err;
+                m = M_DIE;
+              }
+              out[i] = new DoneFiber(m, v);
+            } else {
+              const child = new Fiber(body, this.env, this.frefs);
+              child.step();
+              out[i] = child;
+            }
+          }
+          this.value = out;
+          this.mode = M_OK;
+          break;
+        }
         case FOR_EACH: {
           // Sequential traverse. Run fn(items[0]) and push a single
           // K_FOR_EACH frame; the frame mutates `i` and `results` in
@@ -1647,6 +1776,39 @@ Fiber.prototype._stepInner = function () {
             : makeResult(this.mode, this.value);
           this.mode = M_OK;
           this.interrupted = false;
+          break;
+        }
+        case K_MAP: {
+          if (this.mode === M_OK) {
+            try {
+              this.value = frame.f(this.value);
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+            }
+          }
+          // FAIL / DIE / INTERRUPT / CAUSE: pass through.
+          break;
+        }
+        case K_APPLY: {
+          // opF just completed. On success, capture its value (the
+          // function) and continue with opA. Otherwise propagate.
+          if (this.mode === M_OK) {
+            this.stack.push({ _k: K_APPLY2, f: this.value });
+            this.current = frame.opA;
+            this.value = null;
+          }
+          break;
+        }
+        case K_APPLY2: {
+          if (this.mode === M_OK) {
+            try {
+              this.value = frame.f(this.value);
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+            }
+          }
           break;
         }
       }
