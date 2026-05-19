@@ -33,6 +33,7 @@ spec = describe "rio-fiber: services" do
         fake = Clock
           { instant: pure (mkInstant 1000.0)
           , epoch: pure (Milliseconds 1000.0)
+          , sleep: \_ _ -> pure (pure unit)
           }
 
         prog :: F.RIO () () Milliseconds
@@ -49,6 +50,7 @@ spec = describe "rio-fiber: services" do
         fake = Clock
           { instant: pure (mkInstant 5000.0)
           , epoch: pure (Milliseconds 5000.0)
+          , sleep: \_ _ -> pure (pure unit)
           }
 
         prog :: F.RIO () () Unit

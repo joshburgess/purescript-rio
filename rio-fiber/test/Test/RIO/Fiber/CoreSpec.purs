@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.DateTime.Instant (unInstant)
+import Data.Maybe (Maybe(..))
 import Data.Newtype (unwrap)
 import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
@@ -389,6 +390,40 @@ spec = describe "rio-fiber: Core" do
       c <- liftEffect (Ref.read finalizedC)
       a `shouldEqual` true
       c `shouldEqual` true
+
+  describe "timeout" do
+    it "returns Just when the action finishes before the timeout" do
+      let
+        prog :: F.RIO () () (Maybe Int)
+        prog = F.timeout (Milliseconds 100.0) (pure 42)
+      out <- runAff prog {}
+      assertSuccess out (Just 42)
+
+    it "returns Nothing when the timeout wins" do
+      let
+        prog :: F.RIO () () (Maybe Int)
+        prog = F.timeout (Milliseconds 10.0)
+          (F.sleep (Milliseconds 200.0) *> pure 42)
+      out <- runAff prog {}
+      assertSuccess out Nothing
+
+    it "interrupts the action when the timeout fires" do
+      finalized <- liftEffect (Ref.new false)
+      let
+        slow :: F.RIO () () Int
+        slow = F.ensuring
+          (F.liftEffect (Ref.write true finalized))
+          (F.sleep (Milliseconds 200.0) *> pure 0)
+
+        prog :: F.RIO () () (Maybe Int)
+        prog = do
+          r <- F.timeout (Milliseconds 10.0) slow
+          F.sleep (Milliseconds 30.0)
+          pure r
+      out <- runAff prog {}
+      assertSuccess out Nothing
+      fin <- liftEffect (Ref.read finalized)
+      fin `shouldEqual` true
 
   describe "parTraverse" do
     it "runs all in parallel and collects results in order" do

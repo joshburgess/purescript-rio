@@ -28,7 +28,7 @@ module RIO.Fiber.Core
   , runRIO
   , runRIO'
   , runRIOCallback
-  , sleep
+  , timeout
   , uninterruptible
   , zipPar
   , zipWithPar
@@ -47,6 +47,8 @@ import Data.Variant as Variant
 import Effect (Effect)
 import Effect.Exception (Error, throwException, error)
 import RIO.Fiber.Cause (Cause)
+import RIO.Fiber.Clock (sleep)
+import RIO.Fiber.Clock (sleep) as Exports
 import RIO.Fiber.Internal (Fiber, Outcome(..), RIO(..))
 import RIO.Fiber.Internal (Fiber, Outcome(..), RIO, observeFiber, runFiber, startFiber) as Exports
 import RIO.Fiber.Internal as Internal
@@ -158,13 +160,12 @@ runRIOCallback
   -> Effect (Effect Unit)
 runRIOCallback = Internal.runFiber
 
--- | Suspend for the given duration. Interrupting the fiber while
--- | it sleeps fires the underlying `clearTimeout` so no callback
--- | runs after the interrupt point.
-sleep :: forall r e. Milliseconds -> RIO r e Unit
-sleep (Milliseconds ms) = async \cb -> do
-  id <- _setTimeout ms (cb (Right unit))
-  pure (_clearTimeout id)
+-- | Race an action against a timeout. Returns `Just a` if the action
+-- | completes before the duration, `Nothing` if the timeout wins. The
+-- | losing branch is interrupted. The timer goes through the active
+-- | `Clock`, so a virtual clock makes timeout deterministic.
+timeout :: forall r e a. Milliseconds -> RIO r e a -> RIO r e (Maybe a)
+timeout dur action = race (Just <$> action) (sleep dur *> pure Nothing)
 
 -- | Run a finalizer after the action regardless of how it terminates
 -- | (success, typed failure, defect, or interrupt). The finalizer
@@ -256,6 +257,3 @@ zipWithPar f ra rb = do
           (throwException (error "rio-fiber: zipWithPar invariant violated"))
       )
 
-foreign import data TimeoutId :: Type
-foreign import _setTimeout :: Number -> Effect Unit -> Effect TimeoutId
-foreign import _clearTimeout :: TimeoutId -> Effect Unit

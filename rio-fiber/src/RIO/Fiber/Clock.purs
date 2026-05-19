@@ -1,14 +1,14 @@
 -- | A swappable clock service.
 -- |
 -- | Production code reads time via `currentTime` and `currentEpoch`
--- | instead of calling `Effect.Now` directly. Tests can swap the
--- | implementation with `withClock` to advance time deterministically
--- | (e.g. via a `Ref`-backed fake), so a flaky `sleep`-driven assertion
--- | becomes a synchronous one.
+-- | and suspends via `sleep`. Tests can swap the implementation with
+-- | `withClock` to advance time deterministically (e.g. via a
+-- | `Ref`-backed fake), so flaky `sleep`-driven assertions become
+-- | synchronous.
 -- |
--- | The default implementation reads system time via
--- | `Effect.Now.now`. The current implementation lives in a
--- | module-level `FiberRef`, so a `withClock` block scopes the
+-- | The default implementation reads system time via `Effect.Now`
+-- | and sleeps via `setTimeout`. The current implementation lives
+-- | in a module-level `FiberRef`, so a `withClock` block scopes the
 -- | override to the wrapped action and any child fibers forked from
 -- | inside it; sibling fibers are untouched.
 module RIO.Fiber.Clock
@@ -16,6 +16,7 @@ module RIO.Fiber.Clock
   , defaultClock
   , currentTime
   , currentEpoch
+  , sleep
   , withClock
   , getClock
   , setClock
@@ -24,29 +25,36 @@ module RIO.Fiber.Clock
 import Prelude
 
 import Data.DateTime.Instant (Instant, unInstant)
-import Data.Time.Duration (Milliseconds)
+import Data.Time.Duration (Milliseconds(..))
 import Effect (Effect)
 import Effect.Now (now) as Now
 import Effect.Unsafe (unsafePerformEffect)
-import RIO.Fiber.Core (RIO, ensuring, liftEffect)
-import RIO.Fiber.Internal (FiberRef)
+import RIO.Fiber.Internal (FiberRef, RIO(..))
+import RIO.Fiber.Internal as Internal
 import RIO.Fiber.Ref (getFiberRef, newFiberRef, setFiberRef)
 
--- | A clock implementation. Two operations: the raw `Instant` and a
--- | convenience epoch reading as `Milliseconds`. Tests can build
--- | their own via a `Ref Instant`.
+-- | A clock implementation. Three operations: read the raw
+-- | `Instant`, read the epoch as `Milliseconds`, and suspend for a
+-- | given duration. Tests can build their own via a `Ref` and a
+-- | pending-wakeups list.
 newtype Clock = Clock
   { instant :: Effect Instant
   , epoch :: Effect Milliseconds
+  -- | Duration + a wake callback. Returns a best-effort canceller.
+  , sleep :: Milliseconds -> Effect Unit -> Effect (Effect Unit)
   }
 
--- | The default clock: delegates to `Effect.Now.now`.
+-- | The default clock: real wall time via `Effect.Now` and real
+-- | `setTimeout`.
 defaultClock :: Clock
 defaultClock = Clock
   { instant: Now.now
   , epoch: do
       i <- Now.now
       pure (unInstant i)
+  , sleep: \(Milliseconds ms) wake -> do
+      id <- _setTimeout ms wake
+      pure (_clearTimeout id)
   }
 
 clockRef :: FiberRef Clock
@@ -56,13 +64,26 @@ clockRef = unsafePerformEffect (newFiberRef defaultClock)
 currentTime :: forall r e. RIO r e Instant
 currentTime = do
   Clock c <- getFiberRef clockRef
-  liftEffect c.instant
+  RIO (Internal.opLiftEffect c.instant)
 
 -- | Read the current epoch as `Milliseconds` from the active clock.
 currentEpoch :: forall r e. RIO r e Milliseconds
 currentEpoch = do
   Clock c <- getFiberRef clockRef
-  liftEffect c.epoch
+  RIO (Internal.opLiftEffect c.epoch)
+
+-- | Suspend the fiber for the given duration via the active clock.
+-- | The default clock uses real `setTimeout`; a virtual clock can
+-- | resume the fiber synchronously when `advance` moves past the
+-- | scheduled wake time.
+sleep :: forall r e. Milliseconds -> RIO r e Unit
+sleep ms = do
+  Clock c <- getFiberRef clockRef
+  RIO
+    ( Internal.opAsync \onOk _onFail -> do
+        cancel <- c.sleep ms (onOk unit)
+        pure cancel
+    )
 
 -- | Read the active clock implementation.
 getClock :: forall r e. RIO r e Clock
@@ -80,4 +101,10 @@ withClock :: forall r e a. Clock -> RIO r e a -> RIO r e a
 withClock clock body = do
   prev <- getClock
   setClock clock
-  ensuring (setClock prev) body
+  case body of
+    RIO op ->
+      RIO (Internal.opEnsuring (case setClock prev of RIO o -> o) op)
+
+foreign import data TimeoutId :: Type
+foreign import _setTimeout :: Number -> Effect Unit -> Effect TimeoutId
+foreign import _clearTimeout :: TimeoutId -> Effect Unit
