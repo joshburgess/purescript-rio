@@ -99,6 +99,34 @@ spec = describe "rio-fiber: Cause" do
           message err `shouldEqual` "fin"
         _ -> fail "expected Left (Cause.Then (Fail _) (Die _))"
 
+    it "validatePar composes parallel failures with Cause.both" do
+      let
+        prog :: F.RIO () () (Either (Cause (a :: String, b :: String)) (Array Int))
+        prog = F.causeOf
+          ( F.validatePar identity
+              [ F.fail (Variant.inj (Proxy :: _ "a") "first")
+              , F.fail (Variant.inj (Proxy :: _ "b") "second")
+              ] :: F.RIO () (a :: String, b :: String) (Array Int)
+          )
+      out <- runAff prog {}
+      case out of
+        F.Success (Left c) -> do
+          length (Cause.failures c) `shouldEqual` 2
+          length (Cause.defects c) `shouldEqual` 0
+        _ -> fail "expected Left (Cause with two failures)"
+
+    it "validatePar succeeds with all results when no branch fails" do
+      let
+        prog :: F.RIO () () (Either (Cause ()) (Array Int))
+        prog = F.causeOf
+          ( F.validatePar (\n -> pure (n + 1)) [ 1, 2, 3 ]
+              :: F.RIO () () (Array Int)
+          )
+      out <- runAff prog {}
+      case out of
+        F.Success (Right xs) -> xs `shouldEqual` [ 2, 3, 4 ]
+        _ -> fail "expected Right [2, 3, 4]"
+
     it "failCause round-trips through causeOf" do
       let
         c :: Cause (oops :: String)

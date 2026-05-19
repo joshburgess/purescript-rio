@@ -30,6 +30,7 @@ module RIO.Fiber.Core
   , runRIOCallback
   , timeout
   , uninterruptible
+  , validatePar
   , zipPar
   , zipWithPar
   ) where
@@ -40,13 +41,14 @@ import Data.Array (uncons)
 import Data.Either (Either(..))
 import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
-import Data.Time.Duration (Milliseconds(..))
+import Data.Time.Duration (Milliseconds)
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect (Effect)
 import Effect.Exception (Error, throwException, error)
 import RIO.Fiber.Cause (Cause)
+import RIO.Fiber.Cause as Cause
 import RIO.Fiber.Clock (sleep)
 import RIO.Fiber.Clock (sleep) as Exports
 import RIO.Fiber.Internal (Fiber, Outcome(..), RIO(..))
@@ -234,6 +236,26 @@ parTraverse
   :: forall r e a b. (a -> RIO r e b) -> Array a -> RIO r e (Array b)
 parTraverse f xs = RIO
   (Internal.opParTraverse (\a -> case f a of RIO m -> m) xs)
+
+-- | Run every branch to completion (not fail-fast). On all-success,
+-- | yields the array of results. If any branch failed, the resulting
+-- | typed-failure / defect / interrupt causes are merged left-to-right
+-- | with `Cause.both`, and the combined `Cause` is raised via
+-- | `failCause`. Unlike `parTraverse`, sibling branches are not
+-- | interrupted on the first failure: every branch contributes its
+-- | outcome to the composed cause.
+validatePar
+  :: forall r e a b. (a -> RIO r e b) -> Array a -> RIO r e (Array b)
+validatePar f xs = do
+  results <- parTraverse (\a -> causeOf (f a)) xs
+  case partition results of
+    { failures: [], successes } -> pure successes
+    { failures } -> failCause (foldl Cause.both Cause.empty failures)
+  where
+  partition rs = foldl step { failures: [], successes: [] } rs
+
+  step acc (Left c) = acc { failures = acc.failures <> [ c ] }
+  step acc (Right b) = acc { successes = acc.successes <> [ b ] }
 
 -- | Run two actions concurrently; succeed with both results when
 -- | both complete. Fail-fast on the first failure or interrupt.

@@ -135,6 +135,19 @@ spec = describe "rio-fiber: Schedule" do
         , Milliseconds 3.0
         ]
 
+  describe "exponential" do
+    it "multiplies each delay by the growth factor" do
+      delays <- liftEffect do
+        let Schedule s0 = Sch.exponential (Milliseconds 1.0) 2.0
+        collect 5 s0 []
+      delays `shouldEqual`
+        [ Milliseconds 1.0
+        , Milliseconds 2.0
+        , Milliseconds 4.0
+        , Milliseconds 8.0
+        , Milliseconds 16.0
+        ]
+
   describe "jittered" do
     it "scales each delay within the requested range" do
       delays <- liftEffect do
