@@ -8,6 +8,7 @@ import Test.RIO.Fiber.CoreSpec as CoreSpec
 import Test.RIO.Fiber.DeferredSpec as DeferredSpec
 import Test.RIO.Fiber.HubSpec as HubSpec
 import Test.RIO.Fiber.LayerSpec as LayerSpec
+import Test.RIO.Fiber.MetricsSpec as MetricsSpec
 import Test.RIO.Fiber.PoolSpec as PoolSpec
 import Test.RIO.Fiber.QueueSpec as QueueSpec
 import Test.RIO.Fiber.RefSpec as RefSpec
@@ -35,6 +36,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   LayerSpec.spec
   HubSpec.spec
   PoolSpec.spec
+  MetricsSpec.spec
   ServicesSpec.spec
   StreamSpec.spec
   STMSpec.spec
