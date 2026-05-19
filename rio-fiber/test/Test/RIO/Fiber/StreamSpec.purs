@@ -13,6 +13,7 @@ import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
 import RIO.Fiber.Queue as Q
 import RIO.Fiber.Schedule as Sch
+import RIO.Fiber.Scope as Scope
 import RIO.Fiber.STM as STM
 import RIO.Fiber.STM.TQueue as TQ
 import RIO.Fiber.Stream as S
@@ -414,6 +415,89 @@ spec = describe "rio-fiber: Stream" do
     case out of
       Success xs -> xs `shouldEqual` [ Just 1, Nothing ]
       other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "acquireReleaseStream releases on natural Done" do
+    log <- liftEffect (Ref.new ([] :: Array String))
+    let
+      record s = F.liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) log)
+
+      prog :: F.RIO () () (Array Int)
+      prog = Scope.scoped \scope ->
+        S.runCollect
+          ( S.acquireReleaseStream
+              scope
+              (record "open" $> 5)
+              (\_ -> record "close")
+              (\n -> S.fromArray [ n, n + 1, n + 2 ])
+          )
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 5, 6, 7 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
+    seen <- liftEffect (Ref.read log)
+    seen `shouldEqual` [ "open", "close" ]
+
+  it "acquireReleaseStream releases when downstream halts early via take" do
+    log <- liftEffect (Ref.new ([] :: Array String))
+    let
+      record s = F.liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) log)
+
+      neverEnding :: Int -> S.Stream () () Int
+      neverEnding n = S.Stream do
+        _ <- pure unit
+        pure (S.Yield n (neverEnding (n + 1)))
+
+      prog :: F.RIO () () (Array Int)
+      prog = Scope.scoped \scope ->
+        S.runCollect
+          ( S.take 3
+              ( S.acquireReleaseStream
+                  scope
+                  (record "open" $> 100)
+                  (\_ -> record "close")
+                  neverEnding
+              )
+          )
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 100, 101, 102 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
+    seen <- liftEffect (Ref.read log)
+    seen `shouldEqual` [ "open", "close" ]
+
+  it "acquireReleaseStream releases when the consumer is interrupted" do
+    log <- liftEffect (Ref.new ([] :: Array String))
+    let
+      record s = F.liftEffect (Ref.modify_ (\xs -> xs <> [ s ]) log)
+
+      blocking :: Int -> S.Stream () () Int
+      blocking n = S.Stream do
+        F.sleep (Milliseconds 1000.0)
+        pure (S.Yield n (blocking (n + 1)))
+
+      consumer :: F.RIO () () Unit
+      consumer = Scope.scoped \scope ->
+        S.run
+          ( S.acquireReleaseStream
+              scope
+              (record "open" $> 7)
+              (\_ -> record "close")
+              blocking
+          )
+
+      prog :: F.RIO () () Unit
+      prog = do
+        fib <- F.fork consumer
+        F.sleep (Milliseconds 10.0)
+        F.interrupt fib
+        _ <- F.join fib
+        pure unit
+    _ <- runAff prog {}
+    _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
+    seen <- liftEffect (Ref.read log)
+    seen `shouldEqual` [ "open", "close" ]
 
 mkErr :: String -> Effect.Exception.Error
 mkErr = Effect.Exception.error

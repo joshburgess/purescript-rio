@@ -41,6 +41,7 @@ module RIO.Fiber.Stream
   , broadcast
   , share
   , timeoutPerPull
+  , acquireReleaseStream
   ) where
 
 import Prelude hiding (map)
@@ -65,6 +66,8 @@ import RIO.Fiber.Queue (Queue)
 import RIO.Fiber.Queue as Q
 import RIO.Fiber.Schedule (Schedule)
 import RIO.Fiber.Schedule as Sch
+import RIO.Fiber.Scope (Scope)
+import RIO.Fiber.Scope as Scope
 import RIO.Fiber.STM as STM
 import RIO.Fiber.STM.TQueue (TQueue)
 import RIO.Fiber.STM.TQueue as TQ
@@ -561,3 +564,28 @@ timeoutPerPull duration (Stream pull) = Stream do
     Nothing -> pure (Yield Nothing (timeoutPerPull duration (Stream pull)))
     Just Done -> pure Done
     Just (Yield a rest) -> pure (Yield (Just a) (timeoutPerPull duration rest))
+
+-- | Acquire a resource into a `Scope` on the first pull, then pull
+-- | from the use-stream built from that resource. The release is
+-- | registered with the supplied scope and runs at scope close,
+-- | regardless of how the consumer terminates: normal `Done`,
+-- | mid-stream typed failure, defect, interrupt, or an early stop
+-- | by an upstream `take` (the scope simply closes when the
+-- | enclosing `Scope.scoped` body exits).
+-- |
+-- | Usage pattern:
+-- |
+-- |     Scope.scoped \scope -> do
+-- |       let s = S.acquireReleaseStream scope openFile closeFile linesOf
+-- |       S.runCollect (S.take 100 s)
+acquireReleaseStream
+  :: forall r e a b
+   . Scope
+  -> RIO r e a
+  -> (a -> RIO r e Unit)
+  -> (a -> Stream r e b)
+  -> Stream r e b
+acquireReleaseStream scope acquire release use = Stream do
+  resource <- Scope.acquireRelease scope acquire release
+  case use resource of
+    Stream pull -> pull
