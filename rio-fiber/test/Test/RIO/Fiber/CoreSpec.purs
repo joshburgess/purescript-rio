@@ -146,6 +146,69 @@ spec = describe "rio-fiber: Core" do
       out <- runAff prog {}
       assertSuccess out 100
 
+  describe "forkInline" do
+    it "drives a sync-bodied child to completion before the parent's next op" do
+      ref <- liftEffect (Ref.new [])
+      let
+        push :: String -> Effect Unit
+        push s = Ref.modify_ (\xs -> xs <> [ s ]) ref
+
+        child :: F.RIO () () Unit
+        child = F.liftEffect (push "child")
+
+        prog :: F.RIO () () (Array String)
+        prog = do
+          _ <- F.forkInline child
+          F.liftEffect (push "parent")
+          F.liftEffect (Ref.read ref)
+      out <- runAff prog {}
+      assertSuccess out [ "child", "parent" ]
+
+    it "regular fork leaves the parent's next op observable before the child runs" do
+      ref <- liftEffect (Ref.new [])
+      let
+        push :: String -> Effect Unit
+        push s = Ref.modify_ (\xs -> xs <> [ s ]) ref
+
+        child :: F.RIO () () Unit
+        child = F.liftEffect (push "child")
+
+        prog :: F.RIO () () (Array String)
+        prog = do
+          f <- F.fork child
+          F.liftEffect (push "parent")
+          _ <- F.join f
+          F.liftEffect (Ref.read ref)
+      out <- runAff prog {}
+      assertSuccess out [ "parent", "child" ]
+
+    it "join on an inline-completed child resolves without suspending" do
+      let
+        child :: F.RIO () () Int
+        child = pure 21
+
+        prog :: F.RIO () () Int
+        prog = do
+          f <- F.forkInline child
+          a <- F.join f
+          pure (a + a)
+      out <- runAff prog {}
+      assertSuccess out 42
+
+    it "hands back a live handle when the child suspends" do
+      let
+        child :: F.RIO () () Int
+        child = F.async \cb -> do
+          scheduleResume (cb (Right 7))
+          pure (pure unit)
+
+        prog :: F.RIO () () Int
+        prog = do
+          f <- F.forkInline child
+          F.join f
+      out <- runAff prog {}
+      assertSuccess out 7
+
   describe "sleep" do
     it "suspends the fiber for approximately the requested duration" do
       let

@@ -19,6 +19,7 @@ module RIO.Fiber.Core
   , fail
   , failCause
   , fork
+  , forkInline
   , interrupt
   , join
   , liftEffect
@@ -115,6 +116,20 @@ async register = RIO
 -- | inherits the parent's environment at the point of fork.
 fork :: forall r e a. RIO r e a -> RIO r e (Fiber e a)
 fork (RIO op) = RIO (Internal.opFork op)
+
+-- | Like `fork` but drive the child synchronously to its first
+-- | suspension (or to completion) before returning the handle. For
+-- | sync-bodied children this means the child has already finished by
+-- | the time the parent observes the handle, and the subsequent `join`
+-- | resolves without going through the microtask scheduler.
+-- |
+-- | Use this when both sides of a fork would otherwise spend their
+-- | budget bouncing through `queueMicrotask`. The semantic difference
+-- | from `fork` shows up in ordering: with `fork` the parent runs its
+-- | next op first, then yields; with `forkInline` the child runs to
+-- | its first await before the parent continues.
+forkInline :: forall r e a. RIO r e a -> RIO r e (Fiber e a)
+forkInline (RIO op) = RIO (Internal.opForkInline op)
 
 -- | Suspend the current fiber until the target completes; propagate
 -- | its outcome (success / typed failure / defect / interrupt).

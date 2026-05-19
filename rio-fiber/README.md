@@ -48,10 +48,18 @@ main = launchAff_ do
 
 `RIO.Fiber.Core` re-exports the small set of primitives every
 program needs: `pure`, `bind`, `liftEffect`, `ask`, `asks`,
-`fail`, `catchAll`, `async`, `fork`, `join`, `interrupt`,
-`uninterruptible`, `bracket`, `ensuring`, `race`, `raceAll`,
-`parTraverse`, `zipPar`, `validatePar`, `timeout`, and the runners
-(`runRIO`, `runRIO'`, `runRIOCallback`).
+`fail`, `catchAll`, `async`, `fork`, `forkInline`, `join`,
+`interrupt`, `uninterruptible`, `bracket`, `ensuring`, `race`,
+`raceAll`, `parTraverse`, `zipPar`, `validatePar`, `timeout`, and
+the runners (`runRIO`, `runRIO'`, `runRIOCallback`).
+
+`forkInline` is the opt-in alternative to `fork`: it drives the
+child synchronously up to its first suspension (or completion)
+before returning the handle. A sync-bodied child finishes inline
+and a subsequent `join` resolves without touching the microtask
+scheduler. The ordering trade-off is visible: with `fork` the
+parent's next op observes the world before the child runs; with
+`forkInline` the child runs first.
 
 ## What's here
 

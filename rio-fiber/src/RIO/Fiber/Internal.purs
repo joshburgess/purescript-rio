@@ -30,6 +30,7 @@ module RIO.Fiber.Internal
   , opLocal
   , opAsync
   , opFork
+  , opForkInline
   , opJoin
   , opInterrupt
   , opEnsuring
@@ -120,6 +121,13 @@ foreign import opAsync
   -> Op r e a
 
 foreign import opFork :: forall r e a. Op r e a -> Op r e (Fiber e a)
+
+-- | Like `opFork` but drive the child synchronously up to its first
+-- | suspension (or completion) before returning the handle. If the
+-- | child's body is fully synchronous it completes inline and a later
+-- | `opJoin` resolves without scheduling.
+foreign import opForkInline :: forall r e a. Op r e a -> Op r e (Fiber e a)
+
 foreign import opJoin :: forall r e a. Fiber e a -> Op r e a
 foreign import opInterrupt :: forall r e a. Fiber e a -> Op r e Unit
 

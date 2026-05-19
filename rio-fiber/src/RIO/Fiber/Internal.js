@@ -35,6 +35,7 @@ const FREF_GET = 16;
 const FREF_SET = 17;
 const FREF_MODIFY = 18;
 const FAIL_CAUSE = 19;
+const FORK_INLINE = 20;
 
 // Continuation-stack frame tags.
 const K_BIND = 0; // next: a -> Op r e b
@@ -158,6 +159,15 @@ export const opAsync = function (register) {
 
 export const opFork = function (op) {
   return { _tag: FORK, op: op };
+};
+
+// Like opFork but steps the child synchronously before returning the
+// handle to the parent. If the child's body is fully sync, the child
+// completes inline and the parent's subsequent `join` resolves without
+// touching the microtask scheduler. If the child suspends, the parent
+// gets a live handle exactly as with opFork.
+export const opForkInline = function (op) {
+  return { _tag: FORK_INLINE, op: op };
 };
 
 export const opJoin = function (fiber) {
@@ -541,6 +551,17 @@ Fiber.prototype.step = function () {
           const child = new Fiber(op.op, this.env, this.frefs);
           scheduleFiber(child);
           this.value = child;
+          this.mode = M_OK;
+          break;
+        }
+        case FORK_INLINE: {
+          // Same as FORK but drive the child synchronously before we
+          // continue. Sync-bodied children complete here; suspending
+          // children hand back a live handle just like FORK.
+          this.frefsOwn = false;
+          const inlineChild = new Fiber(op.op, this.env, this.frefs);
+          inlineChild.step();
+          this.value = inlineChild;
           this.mode = M_OK;
           break;
         }
