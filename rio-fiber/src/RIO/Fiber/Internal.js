@@ -2194,6 +2194,45 @@ Fiber.prototype._stepInner = function () {
               }
               break;
             }
+            // Slow path: opA is an APPLY or MAP subtree (typical for
+            // the outer arms of `traverseArrayImpl`'s balanced tree).
+            // Drop K_APPLY2(f) as the bottom frame, then walk opA's
+            // own APPLY / MAP spine inline so the subtree dispatches
+            // its leaf with the unwind chain already in place. Saves
+            // one outer-loop dispatch per K_APPLY-into-APPLY transition.
+            if (opATag === APPLY || opATag === MAP) {
+              this.stack.push(new Op(-1, K_APPLY2, f, null));
+              let cur = opA;
+              while (true) {
+                const tag = cur._tag;
+                if (tag === APPLY) {
+                  const lhs = cur._1;
+                  const rhs = cur._2;
+                  if (lhs._tag === PURE && rhs._tag === PURE) {
+                    try {
+                      this.value = lhs._1(rhs._1);
+                      this.mode = M_OK;
+                    } catch (err) {
+                      this.value = err;
+                      this.mode = M_DIE;
+                    }
+                    break;
+                  }
+                  this.stack.push(new Op(-1, K_APPLY, rhs, null));
+                  cur = lhs;
+                  continue;
+                }
+                if (tag === MAP) {
+                  this.stack.push(new Op(-1, K_MAP, cur._1, null));
+                  cur = cur._2;
+                  continue;
+                }
+                this.current = cur;
+                this.value = null;
+                break;
+              }
+              break;
+            }
             this.stack.push(new Op(-1, K_APPLY2, f, null));
             this.current = opA;
             this.value = null;
