@@ -40,6 +40,11 @@ module RIO.Fiber.Internal
   , _newScope
   , _addFinalizerEff
   , _closeScope
+  , FiberRef
+  , _newFiberRef
+  , opGetFiberRef
+  , opSetFiberRef
+  , opModifyFiberRef
   ) where
 
 import Prelude
@@ -148,6 +153,19 @@ foreign import data Scope :: Type
 foreign import _newScope :: Effect Scope
 foreign import _addFinalizerEff :: Scope -> Effect Unit -> Effect Unit
 foreign import _closeScope :: Scope -> Effect Unit
+
+-- | A per-fiber mutable cell. Each fiber owns an isolated copy of
+-- | every `FiberRef` value; forking inherits the parent's value at
+-- | the moment of fork, and subsequent writes in either fiber are
+-- | not observed by the other. The phantom `a` is the cell's
+-- | element type.
+foreign import data FiberRef :: Type -> Type
+
+foreign import _newFiberRef :: forall a. a -> Effect (FiberRef a)
+foreign import opGetFiberRef :: forall r e a. FiberRef a -> Op r e a
+foreign import opSetFiberRef :: forall r e a. FiberRef a -> a -> Op r e Unit
+foreign import opModifyFiberRef
+  :: forall r e a. FiberRef a -> (a -> a) -> Op r e Unit
 
 -- | The full outcome of running a fiber. Includes interrupt as a
 -- | dedicated case; defects come through `Die`.

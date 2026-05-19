@@ -31,6 +31,9 @@ const UNINTERRUPTIBLE = 12;
 const RACE = 13;
 const PAR_TRAVERSE = 14;
 const PEEL = 15;
+const FREF_GET = 16;
+const FREF_SET = 17;
+const FREF_MODIFY = 18;
 
 // Continuation-stack frame tags.
 const K_BIND = 0; // next: a -> Op r e b
@@ -140,6 +143,31 @@ export const opPeel = function (op) {
   return { _tag: PEEL, op: op };
 };
 
+// FiberRef factories. Each FiberRef is a fresh JS object that doubles
+// as a map key; identity is structural so two distinct refs created
+// with the same initial value still address different slots.
+export const _newFiberRef = function (initial) {
+  return function () {
+    return { initial: initial };
+  };
+};
+
+export const opGetFiberRef = function (ref) {
+  return { _tag: FREF_GET, ref: ref };
+};
+
+export const opSetFiberRef = function (ref) {
+  return function (value) {
+    return { _tag: FREF_SET, ref: ref, value: value };
+  };
+};
+
+export const opModifyFiberRef = function (ref) {
+  return function (fn) {
+    return { _tag: FREF_MODIFY, ref: ref, fn: fn };
+  };
+};
+
 // Scope: a JS object owning a list of synchronous `Effect Unit`
 // finalizers. The MVP API is fire-and-forget: closeScope invokes
 // each finalizer in LIFO order and swallows individual throws so
@@ -178,7 +206,7 @@ export const _closeScope = function (scope) {
 
 // Fiber ----------------------------------------------------------------
 
-function Fiber(op, env) {
+function Fiber(op, env, frefs) {
   this.current = op;
   this.value = null;
   this.mode = M_OK;
@@ -193,6 +221,9 @@ function Fiber(op, env) {
   // act on it).
   this.mask = 0;
   this.canceller = null;
+  // Per-fiber state map keyed by FiberRef identity. Children copy
+  // this on fork so each fiber gets its own isolated namespace.
+  this.frefs = frefs || new Map();
 }
 
 Fiber.prototype._complete = function (result) {
@@ -397,7 +428,7 @@ Fiber.prototype.step = function () {
           return;
         }
         case FORK: {
-          const child = new Fiber(op.op, this.env);
+          const child = new Fiber(op.op, this.env, new Map(this.frefs));
           scheduleFiber(child);
           this.value = child;
           this.mode = M_OK;
@@ -434,8 +465,8 @@ Fiber.prototype.step = function () {
           continue;
         case RACE: {
           const self = this;
-          const leftFiber = new Fiber(op.left, this.env);
-          const rightFiber = new Fiber(op.right, this.env);
+          const leftFiber = new Fiber(op.left, this.env, new Map(this.frefs));
+          const rightFiber = new Fiber(op.right, this.env, new Map(this.frefs));
           let settled = false;
           let interruptedCount = 0;
           const onComplete = function (loser) {
@@ -485,7 +516,7 @@ Fiber.prototype.step = function () {
           let settled = false;
           for (let i = 0; i < n; i++) {
             const idx = i;
-            const child = new Fiber(fn(items[idx]), this.env);
+            const child = new Fiber(fn(items[idx]), this.env, new Map(this.frefs));
             fibers[idx] = child;
             child.observe(function (r) {
               if (settled) return;
@@ -515,6 +546,34 @@ Fiber.prototype.step = function () {
             }
           };
           return;
+        }
+        case FREF_GET: {
+          const ref = op.ref;
+          this.value = this.frefs.has(ref) ? this.frefs.get(ref) : ref.initial;
+          this.mode = M_OK;
+          break;
+        }
+        case FREF_SET: {
+          this.frefs.set(op.ref, op.value);
+          this.value = undefined;
+          this.mode = M_OK;
+          break;
+        }
+        case FREF_MODIFY: {
+          const ref = op.ref;
+          const prev = this.frefs.has(ref) ? this.frefs.get(ref) : ref.initial;
+          let next;
+          try {
+            next = op.fn(prev);
+          } catch (err) {
+            this.value = err;
+            this.mode = M_DIE;
+            break;
+          }
+          this.frefs.set(ref, next);
+          this.value = undefined;
+          this.mode = M_OK;
+          break;
         }
         default:
           this.value = new Error("rio-fiber: unknown Op tag " + op._tag);
