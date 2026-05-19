@@ -958,6 +958,47 @@ Fiber.prototype._stepInner = function () {
                 this.current = inner;
                 break bindLoop;
               }
+              case APPLY:
+              case MAP: {
+                // Inline the APPLY / MAP spine walk so the typical
+                // `do { xs <- traverse f arr; ... }` shape doesn't bounce
+                // through the outer-loop tick / interrupt / switch trio
+                // just to reach the apply tree. Push bindOp as its own
+                // K_BIND frame at the bottom, then stack K_APPLY / K_MAP
+                // frames while descending into the spine. The leaf becomes
+                // this.current and the unwind path folds back up through
+                // K_MAP / K_APPLY and finally K_BIND.
+                this.stack.push(bindOp);
+                let cur = inner;
+                while (true) {
+                  const tag = cur._tag;
+                  if (tag === APPLY) {
+                    const lhs = cur._1;
+                    const rhs = cur._2;
+                    if (lhs._tag === PURE && rhs._tag === PURE) {
+                      try {
+                        this.value = lhs._1(rhs._1);
+                        this.mode = M_OK;
+                      } catch (err) {
+                        this.value = err;
+                        this.mode = M_DIE;
+                      }
+                      break;
+                    }
+                    this.stack.push(new Op(-1, K_APPLY, rhs, null));
+                    cur = lhs;
+                    continue;
+                  }
+                  if (tag === MAP) {
+                    this.stack.push(new Op(-1, K_MAP, cur._1, null));
+                    cur = cur._2;
+                    continue;
+                  }
+                  this.current = cur;
+                  break;
+                }
+                break bindLoop;
+              }
               default:
                 // No fast path: reuse the bind op as its own K_BIND frame.
                 this.stack.push(bindOp);
