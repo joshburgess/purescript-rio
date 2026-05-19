@@ -78,6 +78,49 @@ spec = describe "rio-fiber: STM" do
       Success n -> n `shouldEqual` 5
       other -> fail ("expected Success, got " <> describeOutcome other)
 
+  it "orElse falls through to the second when the first retries" do
+    t <- liftEffect (STM.newTVar 0 :: _ (TVar Int))
+    let
+      prog :: F.RIO () () Int
+      prog = STM.atomically
+        (STM.retry `STM.orElse` STM.readTVar t)
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 0
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "orElse rolls back writes from the failed branch" do
+    t <- liftEffect (STM.newTVar 1 :: _ (TVar Int))
+    let
+      prog :: F.RIO () () Int
+      prog = do
+        _ <- STM.atomically
+          ((STM.writeTVar t 99 *> STM.retry) `STM.orElse` STM.writeTVar t 5)
+        STM.atomically (STM.readTVar t)
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 5
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "writes are buffered until commit" do
+    t <- liftEffect (STM.newTVar 0 :: _ (TVar Int))
+    -- inside a transaction, readTVar after writeTVar sees the staged
+    -- value; outside, the committed value is what landed.
+    let
+      prog :: F.RIO () () { staged :: Int, committed :: Int }
+      prog = do
+        staged <- STM.atomically do
+          STM.writeTVar t 7
+          STM.readTVar t
+        committed <- STM.atomically (STM.readTVar t)
+        pure { staged, committed }
+    out <- runAff prog {}
+    case out of
+      Success r -> do
+        r.staged `shouldEqual` 7
+        r.committed `shouldEqual` 7
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
   it "retry suspends the transaction until another commits" do
     t <- liftEffect (STM.newTVar 0 :: _ (TVar Int))
     let
