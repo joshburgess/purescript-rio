@@ -1500,6 +1500,13 @@ Fiber.prototype._stepInner = function () {
             }
             break;
           }
+          if (innerTag === FAIL) {
+            // `map f (throwError e)`: skip f, install the typed
+            // failure directly. Saves the K_MAP unwind round-trip.
+            this.value = inner._1;
+            this.mode = M_FAIL;
+            break;
+          }
           // Fallback: push the MAP op (doubles as K_MAP frame, _k=K_MAP).
           this.stack.push(op);
           this.current = inner;
