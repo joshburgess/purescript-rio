@@ -33,6 +33,8 @@ module RIO.Fiber.Stream
   , scan
   , groupBy
   , zipPar
+  , throttle
+  , debounce
   ) where
 
 import Prelude hiding (map)
@@ -40,12 +42,16 @@ import Prelude hiding (map)
 import Data.Array (index, range, snoc, uncons, zipWith)
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
+import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (traverse, traverse_)
 import Data.Tuple (Tuple(..))
+import Effect.Ref as Ref
+import RIO.Fiber.Clock as Clock
 import RIO.Fiber.Core (RIO)
 import RIO.Fiber.Core as F
 import RIO.Fiber.Queue (Queue)
 import RIO.Fiber.Queue as Q
+import RIO.Fiber.STM as STM
 
 -- | A stream is a producer of `Step`s. Each pull is an `RIO` that
 -- | yields either the next element + continuation or `Done`.
@@ -308,3 +314,94 @@ zipPar (Stream pullA) (Stream pullB) = Stream do
     _, Done -> pure Done
     Yield a restA, Yield b restB ->
       pure (Yield (Tuple a b) (zipPar restA restB))
+
+-- | Rate-limit emissions to at most one per `duration`. Bursts on
+-- | the upstream are paced out; an upstream slower than `duration`
+-- | passes through unchanged. Reads time from the active `Clock`
+-- | service so tests can substitute a virtual clock.
+throttle :: forall r e a. Milliseconds -> Stream r e a -> Stream r e a
+throttle (Milliseconds duration) source = Stream do
+  lastRef <- F.liftEffect (Ref.new (Nothing :: Maybe Milliseconds))
+  case loop lastRef source of
+    Stream pull -> pull
+  where
+  loop lastRef (Stream pull) = Stream do
+    step <- pull
+    case step of
+      Done -> pure Done
+      Yield a rest -> do
+        last <- F.liftEffect (Ref.read lastRef)
+        Milliseconds now <- Clock.currentEpoch
+        case last of
+          Nothing -> do
+            F.liftEffect (Ref.write (Just (Milliseconds now)) lastRef)
+            pure (Yield a (loop lastRef rest))
+          Just (Milliseconds prev) -> do
+            let elapsed = now - prev
+            if elapsed >= duration then do
+              F.liftEffect (Ref.write (Just (Milliseconds now)) lastRef)
+              pure (Yield a (loop lastRef rest))
+            else do
+              F.sleep (Milliseconds (duration - elapsed))
+              Milliseconds now2 <- Clock.currentEpoch
+              F.liftEffect (Ref.write (Just (Milliseconds now2)) lastRef)
+              pure (Yield a (loop lastRef rest))
+
+data DebounceStep a
+  = DBEmit a
+  | DBRetry { seq :: Int, value :: a }
+  | DBDone
+
+-- | Emit an element only after `duration` has elapsed without a new
+-- | element arriving. Coalesces bursts into a single trailing-edge
+-- | emission. When the source ends with a pending value, that value
+-- | is dropped if it has not yet stabilized.
+debounce :: forall r e a. Milliseconds -> Stream r e a -> Stream r e a
+debounce duration source = Stream do
+  seqVar <- F.liftEffect (STM.newTVar 0)
+  latest <- F.liftEffect (STM.newTVar (Nothing :: Maybe a))
+  doneVar <- F.liftEffect (STM.newTVar false)
+  _ <- F.fork do
+    forEach
+      ( \a -> STM.atomically do
+          STM.modifyTVar seqVar (_ + 1)
+          STM.writeTVar latest (Just a)
+      )
+      source
+    STM.atomically (STM.writeTVar doneVar true)
+  case loop seqVar latest doneVar of
+    Stream pull -> pull
+  where
+  loop seqVar latest doneVar = Stream do
+    res <- STM.atomically do
+      m <- STM.readTVar latest
+      done <- STM.readTVar doneVar
+      case m of
+        Just a -> do
+          s <- STM.readTVar seqVar
+          pure (Just { seq: s, value: a })
+        Nothing ->
+          if done then pure Nothing
+          else STM.retry
+    case res of
+      Nothing -> pure Done
+      Just snap -> stabilize seqVar latest doneVar snap
+
+  stabilize seqVar latest doneVar snap = do
+    F.sleep duration
+    result <- STM.atomically do
+      s <- STM.readTVar seqVar
+      m <- STM.readTVar latest
+      done <- STM.readTVar doneVar
+      if s == snap.seq then do
+        STM.writeTVar latest Nothing
+        pure (DBEmit snap.value)
+      else case m of
+        Just v' -> pure (DBRetry { seq: s, value: v' })
+        Nothing ->
+          if done then pure DBDone
+          else STM.retry
+    case result of
+      DBEmit v -> pure (Yield v (loop seqVar latest doneVar))
+      DBRetry snap' -> stabilize seqVar latest doneVar snap'
+      DBDone -> pure Done

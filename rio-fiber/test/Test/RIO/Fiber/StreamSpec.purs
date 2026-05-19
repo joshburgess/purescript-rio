@@ -2,6 +2,7 @@ module Test.RIO.Fiber.StreamSpec (spec) where
 
 import Prelude
 
+import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
@@ -175,6 +176,86 @@ spec = describe "rio-fiber: Stream" do
     case out of
       Success xs ->
         xs `shouldEqual` [ Tuple 1 "a", Tuple 2 "b" ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "throttle paces a fast source to one per duration" do
+    let
+      -- 5 elements with a 30 ms throttle should take at least ~120 ms
+      -- (4 inter-emission gaps); we check ordering and approximate
+      -- pacing via a single elapsed-time read in a single fiber.
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect
+        (S.throttle (Milliseconds 30.0) (S.fromArray [ 1, 2, 3, 4, 5 ]))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 1, 2, 3, 4, 5 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "throttle does not slow a source that is already slower than the rate" do
+    -- emit 3 elements paced by sleep (20 ms) into a queue, then
+    -- throttle at 5 ms; the output rate is governed by the producer.
+    q <- liftEffect (Q.make 4 :: _ (Q.Queue (Maybe Int)))
+    let
+      feed :: F.RIO () () Unit
+      feed = do
+        Q.offer q (Just 1)
+        F.sleep (Milliseconds 20.0)
+        Q.offer q (Just 2)
+        F.sleep (Milliseconds 20.0)
+        Q.offer q (Just 3)
+        Q.offer q Nothing
+
+      drained :: S.Stream () () Int
+      drained = S.Stream do
+        m <- Q.take q
+        case m of
+          Nothing -> pure S.Done
+          Just a -> pure (S.Yield a drained)
+
+      prog :: F.RIO () () (Array Int)
+      prog = do
+        feeder <- F.fork feed
+        result <- S.runCollect (S.throttle (Milliseconds 5.0) drained)
+        _ <- F.join feeder
+        pure result
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 1, 2, 3 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "debounce coalesces bursts into the trailing element" do
+    -- producer: emit 1, 2, 3 in rapid succession (5 ms apart), then
+    -- wait 60 ms, then 4 -- debounce(40ms) should yield [3, 4].
+    q <- liftEffect (Q.make 4 :: _ (Q.Queue (Maybe Int)))
+    let
+      feed :: F.RIO () () Unit
+      feed = do
+        Q.offer q (Just 1)
+        F.sleep (Milliseconds 5.0)
+        Q.offer q (Just 2)
+        F.sleep (Milliseconds 5.0)
+        Q.offer q (Just 3)
+        F.sleep (Milliseconds 80.0)
+        Q.offer q (Just 4)
+        F.sleep (Milliseconds 80.0)
+        Q.offer q Nothing
+
+      drained :: S.Stream () () Int
+      drained = S.Stream do
+        m <- Q.take q
+        case m of
+          Nothing -> pure S.Done
+          Just a -> pure (S.Yield a drained)
+
+      prog :: F.RIO () () (Array Int)
+      prog = do
+        feeder <- F.fork feed
+        result <- S.runCollect (S.debounce (Milliseconds 40.0) drained)
+        _ <- F.join feeder
+        pure result
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 3, 4 ]
       other -> fail ("expected Success, got " <> describeOutcome other)
 
   it "fromQueue + take pulls from a queue concurrently with a feeder" do
