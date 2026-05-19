@@ -1320,11 +1320,16 @@ Fiber.prototype._stepInner = function () {
           break;
         }
         case FOR_EACH: {
-          // Sequential traverse. Run fn(items[0]) and push a single
-          // K_FOR_EACH frame; the frame mutates `i` and `results` in
-          // place across iterations / resumptions so we pay one frame
-          // alloc + one results-array alloc per forEach, regardless of
-          // how many elements (or how many of them suspend).
+          // Sequential traverse. Mutates `i` and `results` in place
+          // across iterations / resumptions so we pay one frame alloc
+          // + one results-array alloc per forEach.
+          //
+          // Tight loop: as long as fn(items[i]) returns a PURE / SYNC
+          // leaf we fold the result and advance i without leaving this
+          // case. The frame only goes on the stack when the body is
+          // genuinely suspending (or branches into a non-trivial op).
+          // For pure / sync bodies the whole array runs in one outer
+          // dispatch with no per-element frame push / pop.
           const items = op.items;
           const n = items.length;
           if (n === 0) {
@@ -1333,23 +1338,57 @@ Fiber.prototype._stepInner = function () {
             break;
           }
           const fn = op.fn;
-          let firstOp;
-          try {
-            firstOp = fn(items[0]);
-          } catch (err) {
-            this.value = err;
-            this.mode = M_DIE;
+          const results = new Array(n);
+          let i = 0;
+          let bodyOp;
+          forEachFast: while (true) {
+            try {
+              bodyOp = fn(items[i]);
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+              break;
+            }
+            const btag = bodyOp._tag;
+            if (btag === PURE) {
+              results[i] = bodyOp.value;
+              i++;
+              if (i >= n) {
+                this.value = results;
+                this.mode = M_OK;
+                break;
+              }
+              continue forEachFast;
+            }
+            if (btag === SYNC) {
+              try {
+                results[i] = bodyOp.run();
+              } catch (err) {
+                this.value = err;
+                this.mode = M_DIE;
+                break forEachFast;
+              }
+              i++;
+              if (i >= n) {
+                this.value = results;
+                this.mode = M_OK;
+                break;
+              }
+              continue forEachFast;
+            }
+            // Suspending / structured body: install the frame and let
+            // the outer loop dispatch it.
+            this.stack.push({
+              _k: K_FOR_EACH,
+              fn: fn,
+              items: items,
+              n: n,
+              i: i,
+              results: results,
+            });
+            this.current = bodyOp;
             break;
           }
-          this.stack.push({
-            _k: K_FOR_EACH,
-            fn: fn,
-            items: items,
-            n: n,
-            i: 0,
-            results: new Array(n),
-          });
-          this.current = firstOp;
           continue;
         }
         case JOIN_ALL: {
@@ -1796,24 +1835,51 @@ Fiber.prototype._stepInner = function () {
           break;
         case K_FOR_EACH: {
           if (this.mode === M_OK) {
-            const i = frame.i;
-            frame.results[i] = this.value;
-            const nextI = i + 1;
-            if (nextI < frame.n) {
-              frame.i = nextI;
+            const results = frame.results;
+            const items = frame.items;
+            const n = frame.n;
+            const fn = frame.fn;
+            results[frame.i] = this.value;
+            let i = frame.i + 1;
+            // Tight unwind loop mirroring the FOR_EACH dispatch fast
+            // path. Fold PURE / SYNC bodies inline so the frame stays
+            // off the stack until something actually suspends.
+            forEachUnwind: while (i < n) {
               let nextOp;
               try {
-                nextOp = frame.fn(frame.items[nextI]);
+                nextOp = fn(items[i]);
               } catch (err) {
                 this.value = err;
                 this.mode = M_DIE;
-                break;
+                break forEachUnwind;
               }
+              const ntag = nextOp._tag;
+              if (ntag === PURE) {
+                results[i] = nextOp.value;
+                i++;
+                continue forEachUnwind;
+              }
+              if (ntag === SYNC) {
+                try {
+                  results[i] = nextOp.run();
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break forEachUnwind;
+                }
+                i++;
+                continue forEachUnwind;
+              }
+              // Suspending body: reinstall the frame at the new i
+              // and let the outer loop pick it up.
+              frame.i = i;
               this.stack.push(frame);
               this.current = nextOp;
               this.value = null;
-            } else {
-              this.value = frame.results;
+              break;
+            }
+            if (i >= n && this.mode === M_OK) {
+              this.value = results;
             }
           }
           // FAIL / DIE / INTERRUPT: discard the partial results and
