@@ -2457,6 +2457,15 @@ Fiber.prototype._stepInner = function () {
               }
               break;
             }
+            if (opATag === FAIL) {
+              // opA fails: skip applying `f` and install the typed
+              // failure directly. Saves the K_APPLY2 alloc + outer
+              // dispatch + pass-through that the fall-through path
+              // would do.
+              this.value = opA._1;
+              this.mode = M_FAIL;
+              break;
+            }
             // Slow path: opA is an APPLY or MAP subtree (typical for
             // the outer arms of `traverseArrayImpl`'s balanced tree).
             // Drop K_APPLY2(f) as the bottom frame, then walk opA's
