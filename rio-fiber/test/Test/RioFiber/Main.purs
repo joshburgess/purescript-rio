@@ -6,6 +6,7 @@ import Effect (Effect)
 import Test.RIO.Fiber.CauseSpec as CauseSpec
 import Test.RIO.Fiber.CoreSpec as CoreSpec
 import Test.RIO.Fiber.DeferredSpec as DeferredSpec
+import Test.RIO.Fiber.HubSpec as HubSpec
 import Test.RIO.Fiber.LayerSpec as LayerSpec
 import Test.RIO.Fiber.QueueSpec as QueueSpec
 import Test.RIO.Fiber.RefSpec as RefSpec
@@ -27,4 +28,5 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   QueueSpec.spec
   ScheduleSpec.spec
   LayerSpec.spec
+  HubSpec.spec
   StreamSpec.spec
