@@ -6,6 +6,7 @@ import Effect (Effect)
 import Test.RIO.Fiber.CauseSpec as CauseSpec
 import Test.RIO.Fiber.CoreSpec as CoreSpec
 import Test.RIO.Fiber.DeferredSpec as DeferredSpec
+import Test.RIO.Fiber.QueueSpec as QueueSpec
 import Test.RIO.Fiber.RefSpec as RefSpec
 import Test.RIO.Fiber.ScopeSpec as ScopeSpec
 import Test.RIO.Fiber.SemaphoreSpec as SemaphoreSpec
@@ -20,3 +21,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   RefSpec.spec
   DeferredSpec.spec
   SemaphoreSpec.spec
+  QueueSpec.spec
