@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
+import Data.Time.Duration (Milliseconds(..))
 import Data.Variant as Variant
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -25,15 +26,14 @@ type Recorded =
 -- A recording tracer for tests: every started span lands in `ref`.
 recordingTracer :: Ref.Ref (Array Recorded) -> Tracer
 recordingTracer ref = Tracer
-  { startSpan: \name initialAttrs -> do
-      attrsRef <- Ref.new initialAttrs
-      finishedRef <- Ref.new false
-      -- find the slot we'll grow as the span runs
+  { startSpan: \req -> do
+      attrsRef <- Ref.new req.attributes
       idx <- do
         xs <- Ref.read ref
         let i = Array.length xs
         Ref.write
-          (Array.snoc xs { name, attrs: initialAttrs, finished: false })
+          (Array.snoc xs
+            { name: req.name, attrs: req.attributes, finished: false })
           ref
         pure i
       pure
@@ -48,7 +48,6 @@ recordingTracer ref = Tracer
                   )
                   ref
             , finish: do
-                Ref.write true finishedRef
                 Ref.modify_
                   ( \xs -> case Array.modifyAt idx (\r -> r { finished = true }) xs of
                       Just xs' -> xs'
@@ -114,6 +113,98 @@ spec = describe "rio-fiber: Tracer" do
     case Array.head recorded of
       Just r -> r.finished `shouldEqual` true
       _ -> fail "expected at least one recorded span"
+
+  it "nested withSpan sees the outer span as its parent" do
+    tracker <- liftEffect (Ref.new ([] :: Array (Maybe String)))
+    let
+      tracer = Tracer
+        { startSpan: \req -> do
+            parentName <- case req.parent of
+              Nothing -> pure Nothing
+              Just (Span p) -> do
+                -- distinguish "has parent" from "no parent" by
+                -- recording the request name + Just unit-ish marker
+                p.addAttribute "child" req.name
+                pure (Just req.name)
+            Ref.modify_ (\xs -> Array.snoc xs parentName) tracker
+            pure
+              ( Span
+                  { addAttribute: \_ _ -> pure unit
+                  , finish: pure unit
+                  }
+              )
+        }
+
+      prog :: F.RIO () () Unit
+      prog = Tracer.withTracer tracer do
+        Tracer.withSpan "outer" [] \_ ->
+          Tracer.withSpan "inner" [] \_ -> pure unit
+    out <- runAff prog {}
+    case out of
+      Success _ -> pure unit
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    seen <- liftEffect (Ref.read tracker)
+    -- outer has no parent; inner sees outer
+    seen `shouldEqual` [ Nothing, Just "inner" ]
+
+  it "currentSpan reports the active span inside withSpan" do
+    recordedRef <- liftEffect (Ref.new ([] :: Array Recorded))
+    observed <- liftEffect (Ref.new (false :: Boolean))
+    let
+      prog :: F.RIO () () Unit
+      prog = Tracer.withTracer (recordingTracer recordedRef) do
+        Tracer.withSpan "active" [] \_ -> do
+          ms <- Tracer.currentSpan
+          F.liftEffect (Ref.write
+            (case ms of
+              Just _ -> true
+              Nothing -> false)
+            observed)
+    _ <- runAff prog {}
+    inside <- liftEffect (Ref.read observed)
+    inside `shouldEqual` true
+
+  it "currentSpan is Nothing outside any withSpan" do
+    observed <- liftEffect (Ref.new (true :: Boolean))
+    let
+      prog :: F.RIO () () Unit
+      prog = do
+        ms <- Tracer.currentSpan
+        F.liftEffect (Ref.write
+          (case ms of
+            Just _ -> true
+            Nothing -> false)
+          observed)
+    _ <- runAff prog {}
+    outside <- liftEffect (Ref.read observed)
+    outside `shouldEqual` false
+
+  it "forked fibers inherit the parent span" do
+    seen <- liftEffect (Ref.new ([] :: Array (Maybe String)))
+    let
+      tracer = Tracer
+        { startSpan: \req -> do
+            Ref.modify_ (\xs -> Array.snoc xs (map (\_ -> req.name) req.parent)) seen
+            pure
+              ( Span
+                  { addAttribute: \_ _ -> pure unit
+                  , finish: pure unit
+                  }
+              )
+        }
+
+      prog :: F.RIO () () Unit
+      prog = Tracer.withTracer tracer do
+        Tracer.withSpan "parent" [] \_ -> do
+          child <- F.fork do
+            -- give the parent body a moment to settle before opening
+            F.sleep (Milliseconds 1.0)
+            Tracer.withSpan "child" [] \_ -> pure unit
+          F.join child
+    _ <- runAff prog {}
+    xs <- liftEffect (Ref.read seen)
+    -- parent has no parent; child sees the parent span
+    xs `shouldEqual` [ Nothing, Just "child" ]
 
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"
