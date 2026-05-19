@@ -98,14 +98,28 @@ function modeToCause(mode, value) {
   }
 }
 
+// Fiber-completion result objects are uniformly shaped as
+// { mode, value } where `mode` is one of the M_* constants and
+// `value` is the payload (or null for M_INTERRUPT). Reading the
+// shape is one hidden-class read per dispatch instead of three
+// hasOwnProperty checks.
+function makeResult(mode, value) {
+  return { mode: mode, value: value };
+}
+
+const RESULT_INTERRUPT = { mode: M_INTERRUPT, value: null };
+
 // Convert a fiber-completion result object into a Cause. Mirrors
 // `modeToCause` for the result-object shape used by observers.
 function resultToCause(r) {
-  if (Object.prototype.hasOwnProperty.call(r, "ok")) return CAUSE_EMPTY;
-  if (Object.prototype.hasOwnProperty.call(r, "die")) return causeDie(r.die);
-  if (r.interrupted) return CAUSE_INTERRUPT;
-  if (Object.prototype.hasOwnProperty.call(r, "cause")) return r.cause;
-  return causeFail(r.fail);
+  switch (r.mode) {
+    case M_OK: return CAUSE_EMPTY;
+    case M_FAIL: return causeFail(r.value);
+    case M_DIE: return causeDie(r.value);
+    case M_INTERRUPT: return CAUSE_INTERRUPT;
+    case M_CAUSE: return r.value;
+    default: return CAUSE_EMPTY;
+  }
 }
 
 // Number of ops a fiber may execute before yielding to the microtask
@@ -400,48 +414,21 @@ Fiber.prototype.interrupt = function () {
 // Install the result of a completed async / join into the fiber's
 // (value, mode). Returns true if the fiber should continue stepping.
 Fiber.prototype._installResult = function (r) {
-  if (Object.prototype.hasOwnProperty.call(r, "die")) {
-    this.value = r.die;
-    this.mode = M_DIE;
-    return true;
-  }
-  if (r.interrupted) {
+  const m = r.mode;
+  if (m === M_INTERRUPT) {
     this.interrupted = true;
-    return true;
+  } else {
+    this.value = r.value;
+    this.mode = m;
   }
-  if (Object.prototype.hasOwnProperty.call(r, "ok")) {
-    this.value = r.ok;
-    this.mode = M_OK;
-    return true;
-  }
-  if (Object.prototype.hasOwnProperty.call(r, "cause")) {
-    this.value = r.cause;
-    this.mode = M_CAUSE;
-    return true;
-  }
-  // fail
-  this.value = r.fail;
-  this.mode = M_FAIL;
   return true;
 };
 
 Fiber.prototype._completeFromMode = function () {
-  switch (this.mode) {
-    case M_OK:
-      this._complete({ ok: this.value });
-      return;
-    case M_FAIL:
-      this._complete({ fail: this.value });
-      return;
-    case M_DIE:
-      this._complete({ die: this.value });
-      return;
-    case M_INTERRUPT:
-      this._complete({ interrupted: true });
-      return;
-    case M_CAUSE:
-      this._complete({ cause: this.value });
-      return;
+  if (this.mode === M_INTERRUPT) {
+    this._complete(RESULT_INTERRUPT);
+  } else {
+    this._complete(makeResult(this.mode, this.value));
   }
 };
 
@@ -495,11 +482,56 @@ Fiber.prototype.step = function () {
             this.mode = M_DIE;
           }
           break;
-        case BIND:
-          // Reuse the op as its own K_BIND frame; see opBind.
+        case BIND: {
+          // Fast paths for leaf inner ops. These cover the every-
+          // bind patterns in `do { x <- pure y; ... }` /
+          // `do { x <- liftEffect e; ... }` / `do { r <- ask; ... }`,
+          // and the very common case of joining an already-completed
+          // child fiber (e.g. fan-out where every forkInline child is
+          // already DONE by the time the parent traverses joins).
+          // Each fast path applies `next` to the leaf value directly
+          // without pushing a K_BIND frame or taking the value/mode
+          // round-trip.
+          const inner = op.op;
+          const innerTag = inner._tag;
+          if (innerTag === PURE) {
+            this.current = op.next(inner.value);
+            continue;
+          }
+          if (innerTag === SYNC) {
+            let v;
+            try {
+              v = inner.run();
+            } catch (err) {
+              this.value = err;
+              this.mode = M_DIE;
+              break;
+            }
+            this.current = op.next(v);
+            continue;
+          }
+          if (innerTag === ASK) {
+            this.current = op.next(this.env);
+            continue;
+          }
+          if (innerTag === JOIN) {
+            const target = inner.fiber;
+            if (target.status === F_DONE) {
+              const r = target.result;
+              if (r.mode === M_OK) {
+                this.current = op.next(r.value);
+                continue;
+              }
+              // For non-OK completed joins, install the result and
+              // unwind through the K_BIND frame so the error route
+              // (CATCH frames, etc.) sees it correctly.
+            }
+          }
+          // General path: reuse the op as its own K_BIND frame.
           this.stack.push(op);
-          this.current = op.op;
+          this.current = inner;
           continue;
+        }
         case FAIL:
           this.value = op.error;
           this.mode = M_FAIL;
@@ -528,7 +560,7 @@ Fiber.prototype.step = function () {
             return function () {
               if (settled) return;
               settled = true;
-              const r = { ok: a };
+              const r = makeResult(M_OK, a);
               if (self.status === F_RUNNING) {
                 syncResult = r;
               } else {
@@ -540,7 +572,7 @@ Fiber.prototype.step = function () {
             return function () {
               if (settled) return;
               settled = true;
-              const r = { fail: v };
+              const r = makeResult(M_FAIL, v);
               if (self.status === F_RUNNING) {
                 syncResult = r;
               } else {
@@ -632,20 +664,21 @@ Fiber.prototype.step = function () {
           const onComplete = function (loser) {
             return function (r) {
               if (settled) return;
-              if (Object.prototype.hasOwnProperty.call(r, "ok")) {
+              const m = r.mode;
+              if (m === M_OK) {
                 settled = true;
                 loser.interrupt();
                 self._resumeAsync(r);
                 return;
               }
-              if (r.interrupted) {
+              if (m === M_INTERRUPT) {
                 bothCompleted++;
                 if (bothCompleted === 2) {
                   settled = true;
                   if (firstFailure === null) {
-                    self._resumeAsync({ interrupted: true });
+                    self._resumeAsync(RESULT_INTERRUPT);
                   } else {
-                    self._resumeAsync({ cause: firstFailure });
+                    self._resumeAsync(makeResult(M_CAUSE, firstFailure));
                   }
                 }
                 return;
@@ -658,7 +691,9 @@ Fiber.prototype.step = function () {
                 return;
               }
               settled = true;
-              self._resumeAsync({ cause: causeBoth(firstFailure, thisCause) });
+              self._resumeAsync(
+                makeResult(M_CAUSE, causeBoth(firstFailure, thisCause))
+              );
             };
           };
           leftFiber.observe(onComplete(rightFiber));
@@ -697,12 +732,12 @@ Fiber.prototype.step = function () {
             fibers[idx] = child;
             child.observe(function (r) {
               if (settled) return;
-              if (Object.prototype.hasOwnProperty.call(r, "ok")) {
-                results[idx] = r.ok;
+              if (r.mode === M_OK) {
+                results[idx] = r.value;
                 pending--;
                 if (pending === 0) {
                   settled = true;
-                  self._resumeAsync({ ok: results });
+                  self._resumeAsync(makeResult(M_OK, results));
                 }
                 return;
               }
@@ -876,25 +911,9 @@ Fiber.prototype.step = function () {
           // captured outcome is the final word; if the caller wants
           // to re-propagate the interrupt they can do it from the
           // returned tagged result.
-          let result;
-          switch (this.mode) {
-            case M_OK:
-              result = { ok: this.value };
-              break;
-            case M_FAIL:
-              result = { fail: this.value };
-              break;
-            case M_DIE:
-              result = { die: this.value };
-              break;
-            case M_CAUSE:
-              result = { cause: this.value };
-              break;
-            default:
-              result = { interrupted: true };
-              break;
-          }
-          this.value = result;
+          this.value = this.mode === M_INTERRUPT
+            ? RESULT_INTERRUPT
+            : makeResult(this.mode, this.value);
           this.mode = M_OK;
           this.interrupted = false;
           break;
@@ -967,37 +986,39 @@ export const _fiberInterrupt = function (f) {
   };
 };
 
-// Tagged-result inspectors used by the PureScript wrapper.
+// Tagged-result inspectors used by the PureScript wrapper. All
+// result objects use the uniform { mode, value } shape so each
+// predicate is a single field read against a small integer.
 export const _resultIsOk = function (r) {
-  return Object.prototype.hasOwnProperty.call(r, "ok");
+  return r.mode === M_OK;
 };
 
 export const _resultIsFail = function (r) {
-  return Object.prototype.hasOwnProperty.call(r, "fail");
+  return r.mode === M_FAIL;
 };
 
 export const _resultIsInterrupted = function (r) {
-  return r.interrupted === true;
+  return r.mode === M_INTERRUPT;
 };
 
 export const _resultIsCause = function (r) {
-  return Object.prototype.hasOwnProperty.call(r, "cause");
+  return r.mode === M_CAUSE;
 };
 
 export const _resultOk = function (r) {
-  return r.ok;
+  return r.value;
 };
 
 export const _resultFail = function (r) {
-  return r.fail;
+  return r.value;
 };
 
 export const _resultDie = function (r) {
-  return r.die;
+  return r.value;
 };
 
 export const _resultCause = function (r) {
-  return r.cause;
+  return r.value;
 };
 
 // Cause-tree walkers. `_causeTag` returns the small integer matching
