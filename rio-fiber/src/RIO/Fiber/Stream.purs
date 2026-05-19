@@ -35,6 +35,11 @@ module RIO.Fiber.Stream
   , zipPar
   , throttle
   , debounce
+  , catchAll
+  , retry
+  , broadcast
+  , share
+  , timeoutPerPull
   ) where
 
 import Prelude hiding (map)
@@ -45,13 +50,22 @@ import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (traverse, traverse_)
 import Data.Tuple (Tuple(..))
+import Data.Either (Either(..))
+import Data.Variant (Variant)
 import Effect.Ref as Ref
+import RIO.Fiber.Cause (Cause)
+import RIO.Fiber.Cause as Cause
 import RIO.Fiber.Clock as Clock
 import RIO.Fiber.Core (RIO)
 import RIO.Fiber.Core as F
+import RIO.Fiber.Hub (Hub)
+import RIO.Fiber.Hub as Hub
 import RIO.Fiber.Queue (Queue)
 import RIO.Fiber.Queue as Q
+import RIO.Fiber.Schedule (Schedule)
+import RIO.Fiber.Schedule as Sch
 import RIO.Fiber.STM as STM
+import Unsafe.Coerce (unsafeCoerce)
 
 -- | A stream is a producer of `Step`s. Each pull is an `RIO` that
 -- | yields either the next element + continuation or `Done`.
@@ -405,3 +419,134 @@ debounce duration source = Stream do
       DBEmit v -> pure (Yield v (loop seqVar latest doneVar))
       DBRetry snap' -> stabilize seqVar latest doneVar snap'
       DBDone -> pure Done
+
+-- | Handle typed failures from the producer's pull. The handler
+-- | receives the failure and produces a replacement stream to
+-- | continue with. Elements emitted before the failure are preserved;
+-- | every emit after the handler fires comes from the handler's
+-- | stream.
+catchAll
+  :: forall r e e' a
+   . (Variant e -> Stream r e' a)
+  -> Stream r e a
+  -> Stream r e' a
+catchAll handler (Stream pull) = Stream do
+  result <- F.causeOf pull
+  case result of
+    Right Done -> pure Done
+    Right (Yield a rest) -> pure (Yield a (catchAll handler rest))
+    Left cause -> case Array.head (Cause.failures cause) of
+      Just v -> case handler v of
+        Stream pull' -> pull'
+      Nothing -> F.failCause (unsafeCoerceCause cause)
+  where
+  unsafeCoerceCause :: forall x y. Cause x -> Cause y
+  unsafeCoerceCause = unsafeCoerce
+
+-- | Retry the source stream from the beginning on typed failure,
+-- | consulting `schedule` between attempts. Elements yielded before
+-- | the failure are not replayed; if the schedule halts, the last
+-- | failure is re-raised.
+retry
+  :: forall r e a b
+   . Schedule (Variant e) b
+  -> Stream r e a
+  -> Stream r e a
+retry schedule source = Stream (pullWith schedule source)
+  where
+  pullWith sched s@(Stream p) = do
+    result <- F.causeOf p
+    case result of
+      Right Done -> pure Done
+      Right (Yield a rest) -> pure (Yield a (Stream (pullWith schedule rest)))
+      Left cause -> case Array.head (Cause.failures cause) of
+        Nothing -> F.failCause (unsafeCoerceCauseR cause)
+        Just v -> do
+          d <- F.liftEffect (stepSchedule sched v)
+          case d of
+            Sch.Halt _ -> F.fail v
+            Sch.Step _ delay next -> do
+              Clock.sleep delay
+              pullWith next s
+
+  stepSchedule (Sch.Schedule step) v = step v
+
+  unsafeCoerceCauseR :: forall x y. Cause x -> Cause y
+  unsafeCoerceCauseR = unsafeCoerce
+
+-- | Split a single producer into `n` independent consumer streams.
+-- | The source is pumped into a `Hub` from a forked fiber; each
+-- | returned stream is a separate subscriber with its own buffer of
+-- | size `capacity`. End-of-stream from the source closes every
+-- | output stream once the buffered elements drain.
+-- |
+-- | `publish` on the underlying hub uses default backpressure: if a
+-- | consumer falls behind by more than `capacity` items, the
+-- | publisher's forked fiber suspends until that consumer catches
+-- | up. This protects the slow consumer from losing elements at the
+-- | cost of slowing the publisher (and therefore every sibling).
+broadcast
+  :: forall r e a
+   . Int
+  -> Int
+  -> Stream r e a
+  -> RIO r e (Array (Stream r e a))
+broadcast n capacity source = do
+  hub <- F.liftEffect (Hub.make capacity :: _ (Hub (Maybe a)))
+  subs <- traverse (\_ -> Hub.subscribe hub) (range 1 (max 1 n))
+  _ <- F.fork do
+    forEach (\a -> Hub.publish hub (Just a)) source
+    Hub.publish hub Nothing
+  pure (subscriptionStream <$> subs)
+  where
+  subscriptionStream sub = Stream do
+    m <- Hub.take sub
+    case m of
+      Nothing -> pure Done
+      Just a -> pure (Yield a (subscriptionStream sub))
+
+-- | Run the source in the background and hand back an action that
+-- | yields a fresh subscriber stream every time it's invoked. Each
+-- | new subscriber observes elements published from its
+-- | subscription point forward (cold subscribers see only the future,
+-- | not the history). Use `share` to fan a hot publisher out to a
+-- | varying set of consumers; use `broadcast` when the consumer
+-- | count is known up front.
+share
+  :: forall r e a
+   . Int
+  -> Stream r e a
+  -> RIO r e (RIO r e (Stream r e a))
+share capacity source = do
+  hub <- F.liftEffect (Hub.make capacity :: _ (Hub (Maybe a)))
+  _ <- F.fork do
+    forEach (\a -> Hub.publish hub (Just a)) source
+    Hub.publish hub Nothing
+  pure (subscribe hub)
+  where
+  subscribe hub = do
+    sub <- Hub.subscribe hub
+    pure (loop sub)
+
+  loop sub = Stream do
+    m <- Hub.take sub
+    case m of
+      Nothing -> pure Done
+      Just a -> pure (Yield a (loop sub))
+
+-- | Wrap every pull from the source in a per-pull timeout. If the
+-- | pull does not produce a step within `duration`, the consumer
+-- | sees `Yield Nothing` and the stream continues with the same
+-- | source (the slow pull is interrupted). A successful pull yields
+-- | `Yield (Just a)`. End-of-stream propagates as a final `Done`.
+timeoutPerPull
+  :: forall r e a
+   . Milliseconds
+  -> Stream r e a
+  -> Stream r e (Maybe a)
+timeoutPerPull duration (Stream pull) = Stream do
+  result <- F.timeout duration pull
+  case result of
+    Nothing -> pure (Yield Nothing (timeoutPerPull duration (Stream pull)))
+    Just Done -> pure Done
+    Just (Yield a rest) -> pure (Yield (Just a) (timeoutPerPull duration rest))
