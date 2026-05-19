@@ -348,53 +348,68 @@ export const opForEach = function (fn) {
 //   * map f (Map g x)   => Map (f . g) x
 //   * apply (Pure f) ma => map f ma            (then re-fuse)
 //   * apply mf (Pure a) => map (\f -> f a) mf  (then re-fuse)
+// Hot path is small enough to fit V8's inlining budget: a single tag
+// check + a Pure / Map node alloc. The SYNC / MAP fusions live in
+// opMapSlow so the curried call site can stay inlineable. The Pure
+// fusion path here is the one a `map f (pure x)` chain hits every
+// iteration; folding it inline collapses the chain to a single Pure
+// at construction time, with no runtime dispatch involved.
 export const opMap = function (f) {
   return function (op) {
     const tag = op._tag;
     if (tag === PURE) {
       return new Op(PURE, -1, f(op._1), null);
     }
-    if (tag === SYNC) {
-      const run = op._1;
-      return new Op(SYNC, -1, function () {
-        return f(run());
-      }, null);
-    }
-    if (tag === MAP) {
-      const g = op._1;
-      return new Op(MAP, -1, function (x) {
-        return f(g(x));
-      }, op._2);
-    }
-    return new Op(MAP, -1, f, op);
+    return opMapSlow(f, op, tag);
   };
 };
 
+function opMapSlow(f, op, tag) {
+  if (tag === SYNC) {
+    const run = op._1;
+    return new Op(SYNC, -1, function () {
+      return f(run());
+    }, null);
+  }
+  if (tag === MAP) {
+    const g = op._1;
+    return new Op(MAP, -1, function (x) {
+      return f(g(x));
+    }, op._2);
+  }
+  return new Op(MAP, -1, f, op);
+}
+
+// Same inlining trick as opMap. The PURE/PURE leaf (which is what a
+// `pure f <*> pure a` chain hits every iteration) is in the hot path;
+// the degenerate-to-map cases live in opApplySlow.
 export const opApply = function (opF) {
   return function (opA) {
-    const tagF = opF._tag;
-    const tagA = opA._tag;
-    // Both sides are pure: collapse to a Pure carrying the applied
-    // value. This is the case `pure f <*> pure a` lands in.
-    if (tagF === PURE && tagA === PURE) {
+    if (opF._tag === PURE && opA._tag === PURE) {
       return new Op(PURE, -1, opF._1(opA._1), null);
     }
-    // Function arg is pure: degenerate to a map. Then re-run the map
-    // fusions on top of opA, so e.g. `pure f <*> pure g <*> ma`
-    // collapses through both sides.
-    if (tagF === PURE) {
-      return opMap(opF._1)(opA);
-    }
-    // Value arg is pure: degenerate to a map over the function arg.
-    if (tagA === PURE) {
-      const a = opA._1;
-      return opMap(function (g) {
-        return g(a);
-      })(opF);
-    }
-    return new Op(APPLY, -1, opF, opA);
+    return opApplySlow(opF, opA);
   };
 };
+
+function opApplySlow(opF, opA) {
+  const tagF = opF._tag;
+  const tagA = opA._tag;
+  // Function arg is pure: degenerate to a map. Then re-run the map
+  // fusions on top of opA, so e.g. `pure f <*> pure g <*> ma`
+  // collapses through both sides.
+  if (tagF === PURE) {
+    return opMap(opF._1)(opA);
+  }
+  // Value arg is pure: degenerate to a map over the function arg.
+  if (tagA === PURE) {
+    const a = opA._1;
+    return opMap(function (g) {
+      return g(a);
+    })(opF);
+  }
+  return new Op(APPLY, -1, opF, opA);
+}
 
 // Like opForkAll but each child is stepped synchronously before its
 // handle lands in the result array, mirroring opForkInline for the
@@ -2270,6 +2285,27 @@ function _flushPending() {
 export const _startFiber = function (op) {
   return function (env) {
     return function () {
+      // Fast path: a top-level PURE / SYNC op has no need for a Fiber.
+      // Both `runRIO'` on a smart-constructor-fused chain (`map (_ + 1)`
+      // over `pure 0`, `pure f <*> pure a`, ...) and `runRIO'` on a bare
+      // `liftEffect e` land here after construction, so handing back a
+      // DoneFiber stub directly skips the new Fiber + step() + unwind +
+      // resultToOutcome round-trip per call. Guarded on `_supervisors`
+      // so onStart / onEnd hooks still see every fiber when they're
+      // registered.
+      if (_supervisors.length === 0) {
+        const tag = op._tag;
+        if (tag === PURE) {
+          return new DoneFiber(M_OK, op._1);
+        }
+        if (tag === SYNC) {
+          try {
+            return new DoneFiber(M_OK, op._1());
+          } catch (err) {
+            return new DoneFiber(M_DIE, err);
+          }
+        }
+      }
       const f = new Fiber(op, env);
       f.step();
       return f;
