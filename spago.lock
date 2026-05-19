@@ -2009,6 +2009,7 @@
             "refs",
             "spec",
             "spec-node",
+            "tuples",
             "variant"
           ],
           "build_plan": [

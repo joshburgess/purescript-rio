@@ -6,6 +6,7 @@ import Data.Either (Either(..))
 import Data.DateTime.Instant (unInstant)
 import Data.Newtype (unwrap)
 import Data.Time.Duration (Milliseconds(..))
+import Data.Tuple (Tuple(..))
 import Data.Variant as Variant
 import Effect (Effect)
 import Effect.Aff (Aff)
@@ -290,6 +291,110 @@ spec = describe "rio-fiber: Core" do
         other -> fail ("expected Fail, got " <> describeOutcome other)
       seq <- liftEffect (Ref.read events)
       seq `shouldEqual` [ "acquire", "use", "release" ]
+
+  describe "race" do
+    it "returns the result of the side that finishes first" do
+      let
+        winner :: F.RIO () () Int
+        winner = pure 1
+
+        loser :: F.RIO () () Int
+        loser = F.sleep (Milliseconds 50.0) *> pure 2
+      out <- runAff (F.race winner loser) {}
+      assertSuccess out 1
+
+    it "is symmetric: right side wins when it finishes first" do
+      let
+        winner :: F.RIO () () Int
+        winner = pure 2
+
+        loser :: F.RIO () () Int
+        loser = F.sleep (Milliseconds 50.0) *> pure 1
+      out <- runAff (F.race loser winner) {}
+      assertSuccess out 2
+
+    it "interrupts the loser so its finalizer runs" do
+      loserFinalized <- liftEffect (Ref.new false)
+      let
+        winner :: F.RIO () () Int
+        winner = pure 1
+
+        -- A loser that suspends forever (no resume), with a
+        -- finalizer that should fire when race interrupts it.
+        loser :: F.RIO () () Int
+        loser = F.ensuring
+          (F.liftEffect (Ref.write true loserFinalized))
+          (F.async \_cb -> pure (pure unit))
+
+        prog :: F.RIO () () Int
+        prog = do
+          r <- F.race winner loser
+          -- give the loser microtask a chance to run its finalizer
+          F.sleep (Milliseconds 20.0)
+          pure r
+      out <- runAff prog {}
+      assertSuccess out 1
+      finalized <- liftEffect (Ref.read loserFinalized)
+      finalized `shouldEqual` true
+
+    it "propagates a typed failure from the winner" do
+      let
+        loud :: F.RIO () (boom :: String) Int
+        loud = F.fail (Variant.inj (Proxy :: _ "boom") "lost")
+
+        slow :: F.RIO () (boom :: String) Int
+        slow = F.sleep (Milliseconds 50.0) *> pure 0
+      out <- runAff (F.race loud slow) {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "lost"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+
+  describe "parTraverse" do
+    it "runs all in parallel and collects results in order" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = F.parTraverse (\n -> pure (n + 1)) [ 1, 2, 3 ]
+      out <- runAff prog {}
+      assertSuccess out [ 2, 3, 4 ]
+
+    it "returns an empty array for an empty input" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = F.parTraverse (\n -> pure (n + 1)) []
+      out <- runAff prog {}
+      assertSuccess out []
+
+    it "fails fast when one branch fails and interrupts the rest" do
+      siblingFinalized <- liftEffect (Ref.new false)
+      let
+        f :: Int -> F.RIO () (boom :: String) Int
+        f 2 = F.fail (Variant.inj (Proxy :: _ "boom") "two")
+        f _ = F.ensuring
+          (F.liftEffect (Ref.write true siblingFinalized))
+          (F.async \_cb -> pure (pure unit))
+
+        prog :: F.RIO () (boom :: String) (Array Int)
+        prog = F.parTraverse f [ 1, 2, 3 ]
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "two"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+      -- the surviving siblings should have been interrupted; their
+      -- finalizers ran.
+      finalized <- liftEffect (Ref.read siblingFinalized)
+      finalized `shouldEqual` true
+
+  describe "zipPar" do
+    it "runs both branches concurrently and pairs the results" do
+      let
+        prog :: F.RIO () () (Tuple Int String)
+        prog = F.zipPar (pure 1) (pure "two")
+      out <- runAff prog {}
+      assertSuccess out (Tuple 1 "two")
 
   describe "interrupt" do
     it "interrupting a suspended forked fiber fires its canceller and propagates Interrupted" do

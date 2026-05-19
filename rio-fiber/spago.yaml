@@ -31,4 +31,5 @@ package:
       - refs
       - spec
       - spec-node
+      - tuples
       - variant

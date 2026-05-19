@@ -31,6 +31,8 @@ module RIO.Fiber.Internal
   , opInterrupt
   , opEnsuring
   , opUninterruptible
+  , opRace
+  , opParTraverse
   ) where
 
 import Prelude
@@ -109,6 +111,17 @@ foreign import opEnsuring
 -- | are deferred (the flag remains set; the loop just doesn't act
 -- | on it) until the mask is released.
 foreign import opUninterruptible :: forall r e a. Op r e a -> Op r e a
+
+-- | Run two ops concurrently; resume with the first non-interrupted
+-- | outcome and interrupt the loser. If both are interrupted the
+-- | parent inherits the interrupt.
+foreign import opRace :: forall r e a. Op r e a -> Op r e a -> Op r e a
+
+-- | Fork one fiber per item and await all results in order. Fails
+-- | fast: the first non-success outcome interrupts the siblings and
+-- | resumes the parent with that outcome.
+foreign import opParTraverse
+  :: forall r e a b. (a -> Op r e b) -> Array a -> Op r e (Array b)
 
 -- | The full outcome of running a fiber. Includes interrupt as a
 -- | dedicated case; defects come through `Die`.

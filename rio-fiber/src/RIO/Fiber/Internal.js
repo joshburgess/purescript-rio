@@ -28,6 +28,8 @@ const JOIN = 9;
 const INTERRUPT = 10;
 const ENSURING = 11;
 const UNINTERRUPTIBLE = 12;
+const RACE = 13;
+const PAR_TRAVERSE = 14;
 
 // Continuation-stack frame tags.
 const K_BIND = 0; // next: a -> Op r e b
@@ -118,6 +120,18 @@ export const opEnsuring = function (finalizer) {
 
 export const opUninterruptible = function (op) {
   return { _tag: UNINTERRUPTIBLE, op: op };
+};
+
+export const opRace = function (left) {
+  return function (right) {
+    return { _tag: RACE, left: left, right: right };
+  };
+};
+
+export const opParTraverse = function (fn) {
+  return function (items) {
+    return { _tag: PAR_TRAVERSE, fn: fn, items: items };
+  };
 };
 
 // Fiber ----------------------------------------------------------------
@@ -236,12 +250,18 @@ Fiber.prototype.step = function () {
     // path so finalizers get a chance to run. Only consume when
     // we're not in a mask and not already in a failure unwind that
     // would override (interrupt has priority over typed failure but
-    // not over a die we're already carrying).
+    // not over a die we're already carrying). ENSURING and
+    // UNINTERRUPTIBLE are structural and must be processed even
+    // under interrupt so their frames get installed; the action
+    // they wrap is then interruptible on the next iteration.
     if (
       this.interrupted &&
       this.mask === 0 &&
       this.mode !== M_INTERRUPT &&
-      this.mode !== M_DIE
+      this.mode !== M_DIE &&
+      (this.current === null ||
+        (this.current._tag !== ENSURING &&
+          this.current._tag !== UNINTERRUPTIBLE))
     ) {
       this.current = null;
       this.mode = M_INTERRUPT;
@@ -370,6 +390,86 @@ Fiber.prototype.step = function () {
           this.stack.push({ _k: K_UNMASK });
           this.current = op.op;
           continue;
+        case RACE: {
+          const self = this;
+          const leftFiber = new Fiber(op.left, this.env);
+          const rightFiber = new Fiber(op.right, this.env);
+          let settled = false;
+          let interruptedCount = 0;
+          const onComplete = function (loser) {
+            return function (r) {
+              if (settled) return;
+              if (r.interrupted) {
+                interruptedCount++;
+                if (interruptedCount === 2) {
+                  settled = true;
+                  self._resumeAsync(r);
+                }
+                return;
+              }
+              settled = true;
+              loser.interrupt();
+              self._resumeAsync(r);
+            };
+          };
+          leftFiber.observe(onComplete(rightFiber));
+          rightFiber.observe(onComplete(leftFiber));
+          scheduleFiber(leftFiber);
+          scheduleFiber(rightFiber);
+          this.status = F_SUSPENDED;
+          this.canceller = function () {
+            leftFiber.interrupt();
+            rightFiber.interrupt();
+          };
+          return;
+        }
+        case PAR_TRAVERSE: {
+          const self = this;
+          const fn = op.fn;
+          const items = op.items;
+          const n = items.length;
+          if (n === 0) {
+            this.value = [];
+            this.mode = M_OK;
+            break;
+          }
+          const results = new Array(n);
+          const fibers = new Array(n);
+          let pending = n;
+          let settled = false;
+          for (let i = 0; i < n; i++) {
+            const idx = i;
+            const child = new Fiber(fn(items[idx]), this.env);
+            fibers[idx] = child;
+            child.observe(function (r) {
+              if (settled) return;
+              if (Object.prototype.hasOwnProperty.call(r, "ok")) {
+                results[idx] = r.ok;
+                pending--;
+                if (pending === 0) {
+                  settled = true;
+                  self._resumeAsync({ ok: results });
+                }
+                return;
+              }
+              settled = true;
+              for (let j = 0; j < n; j++) {
+                if (j !== idx) fibers[j].interrupt();
+              }
+              self._resumeAsync(r);
+            });
+          }
+          for (let i = 0; i < n; i++) {
+            scheduleFiber(fibers[i]);
+          }
+          this.status = F_SUSPENDED;
+          this.canceller = function () {
+            for (let i = 0; i < n; i++) {
+              fibers[i].interrupt();
+            }
+          };
+          return;
+        }
         default:
           this.value = new Error("rio-fiber: unknown Op tag " + op._tag);
           this.mode = M_DIE;
@@ -450,6 +550,10 @@ Fiber.prototype.step = function () {
 };
 
 Fiber.prototype._resumeAsync = function (r) {
+  // Late callbacks after interruption can arrive once the fiber has
+  // already completed (e.g. a child observer for a RACE loser whose
+  // result we no longer care about). Drop them silently.
+  if (this.status === F_DONE) return;
   this.canceller = null;
   this.status = F_RUNNING;
   this._installResult(r);

@@ -19,11 +19,15 @@ module RIO.Fiber.Core
   , interrupt
   , join
   , liftEffect
+  , parTraverse
+  , race
   , runRIO
   , runRIO'
   , runRIOCallback
   , sleep
   , uninterruptible
+  , zipPar
+  , zipWithPar
   ) where
 
 import Prelude
@@ -31,6 +35,7 @@ import Prelude
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
+import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect (Effect)
@@ -171,6 +176,43 @@ bracket
   -> RIO r e b
 bracket acquire release use = uninterruptible acquire >>=
   \resource -> ensuring (release resource) (use resource)
+
+-- | Run two actions concurrently; resume with whichever finishes
+-- | first and interrupt the loser. A typed failure or defect from
+-- | the winner short-circuits the race. If both are interrupted
+-- | externally the result is `Interrupted`.
+race :: forall r e a. RIO r e a -> RIO r e a -> RIO r e a
+race (RIO l) (RIO r) = RIO (Internal.opRace l r)
+
+-- | Run one fiber per element and collect the results in order.
+-- | Fail-fast: the first non-success outcome interrupts the
+-- | siblings and propagates to the caller.
+parTraverse
+  :: forall r e a b. (a -> RIO r e b) -> Array a -> RIO r e (Array b)
+parTraverse f xs = RIO
+  (Internal.opParTraverse (\a -> case f a of RIO m -> m) xs)
+
+-- | Run two actions concurrently; succeed with both results when
+-- | both complete. Fail-fast on the first failure or interrupt.
+zipPar :: forall r e a b. RIO r e a -> RIO r e b -> RIO r e (Tuple a b)
+zipPar = zipWithPar Tuple
+
+-- | Like `zipPar` but combine the two results with the given
+-- | function. Both branches run concurrently.
+zipWithPar
+  :: forall r e a b c
+   . (a -> b -> c)
+  -> RIO r e a
+  -> RIO r e b
+  -> RIO r e c
+zipWithPar f ra rb = do
+  pair <- parTraverse identity [ map Left ra, map Right rb ]
+  case pair of
+    [ Left x, Right y ] -> pure (f x y)
+    _ -> RIO
+      ( Internal.opLiftEffect
+          (throwException (error "rio-fiber: zipWithPar invariant violated"))
+      )
 
 foreign import data TimeoutId :: Type
 foreign import _setTimeout :: Number -> Effect Unit -> Effect TimeoutId
