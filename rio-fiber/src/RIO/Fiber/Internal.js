@@ -1652,6 +1652,29 @@ Fiber.prototype._stepInner = function () {
               }
               continue forEachFast;
             }
+            if (btag === ASK) {
+              results[i] = this.env;
+              i++;
+              if (i >= n) {
+                this.value = results;
+                this.mode = M_OK;
+                break;
+              }
+              continue forEachFast;
+            }
+            if (btag === FREF_GET) {
+              const ref = bodyOp._1;
+              const m = this.frefs;
+              results[i] =
+                (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
+              i++;
+              if (i >= n) {
+                this.value = results;
+                this.mode = M_OK;
+                break;
+              }
+              continue forEachFast;
+            }
             // Suspending / structured body: install the frame and let
             // the outer loop dispatch it.
             const fr = new ForEachFrame(fn, items, results);
@@ -1904,6 +1927,16 @@ Fiber.prototype._stepInner = function () {
                   }
                   case ASK: {
                     const next = bindOp._2(this.env);
+                    if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
+                    this.current = next;
+                    break kbindLoop;
+                  }
+                  case FREF_GET: {
+                    const ref = inner._1;
+                    const m = this.frefs;
+                    const next = bindOp._2(
+                      (m !== null && m.has(ref)) ? m.get(ref) : ref.initial
+                    );
                     if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                     this.current = next;
                     break kbindLoop;
@@ -2177,6 +2210,19 @@ Fiber.prototype._stepInner = function () {
                 i++;
                 continue forEachUnwind;
               }
+              if (ntag === ASK) {
+                results[i] = this.env;
+                i++;
+                continue forEachUnwind;
+              }
+              if (ntag === FREF_GET) {
+                const ref = nextOp._1;
+                const m = this.frefs;
+                results[i] =
+                  (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
+                i++;
+                continue forEachUnwind;
+              }
               // Suspending body: reinstall the frame at the new i
               // and let the outer loop pick it up.
               frame.i = i;
@@ -2325,6 +2371,19 @@ Fiber.prototype._stepInner = function () {
             if (opATag === ASK) {
               try {
                 this.value = f(this.env);
+                this.mode = M_OK;
+              } catch (err) {
+                this.value = err;
+                this.mode = M_DIE;
+              }
+              break;
+            }
+            if (opATag === FREF_GET) {
+              const ref = opA._1;
+              const m = this.frefs;
+              const v = (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
+              try {
+                this.value = f(v);
                 this.mode = M_OK;
               } catch (err) {
                 this.value = err;
