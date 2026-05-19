@@ -18,18 +18,16 @@ import Prelude
 
 import Benchmarks.Harness (benchAffWith)
 import Data.Array (range) as Array
-import Data.Either (Either(..))
 import Data.Traversable (traverse)
-import Effect.Aff (Aff, Canceler(..), makeAff)
+import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
+import RIO.Fiber.Aff (runAff) as F
 import RIO.Fiber.Core (Outcome, RIO)
-import RIO.Fiber.Core as F
+import RIO.Fiber.Core (fork, join, parTraverse) as F
 
 runFiberAff :: forall e a. RIO () e a -> Aff (Outcome e a)
-runFiberAff rio = makeAff \cb -> do
-  cancel <- F.runRIOCallback rio {} (cb <<< Right)
-  pure (Canceler \_ -> liftEffect cancel)
+runFiberAff rio = F.runAff rio {}
 
 fiberBindChain :: Int -> RIO () () Int
 fiberBindChain n = go 0 n

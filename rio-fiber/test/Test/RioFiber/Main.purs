@@ -3,6 +3,7 @@ module Test.RioFiber.Main where
 import Prelude
 
 import Effect (Effect)
+import Test.RIO.Fiber.AffSpec as AffSpec
 import Test.RIO.Fiber.CauseSpec as CauseSpec
 import Test.RIO.Fiber.CoreSpec as CoreSpec
 import Test.RIO.Fiber.DeferredSpec as DeferredSpec
@@ -35,6 +36,7 @@ main :: Effect Unit
 main = runSpecAndExitProcess [ consoleReporter ] do
   CoreSpec.spec
   CauseSpec.spec
+  AffSpec.spec
   ScopeSpec.spec
   RefSpec.spec
   DeferredSpec.spec
