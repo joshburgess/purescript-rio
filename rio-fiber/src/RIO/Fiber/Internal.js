@@ -272,14 +272,69 @@ export const opForEach = function (fn) {
 // dominated by allocation churn. MAP / APPLY carry the function value
 // directly so the runtime can fold it into the result without a PURE
 // round-trip.
+//
+// The smart constructors below also fuse at construction time, so a
+// 1000-deep `map` chain becomes one MAP node holding the composed
+// function rather than 1000 nested MAP ops. The savings show up
+// before the interpreter even gets a look at the tree, which matches
+// what `Aff` does in its `Map` / `Bind` smart constructors. Fusions:
+//
+//   * map f (Pure a)    => Pure (f a)
+//   * map f (Sync io)   => Sync (\_ -> f (io()))
+//   * map f (Map g x)   => Map (f . g) x
+//   * apply (Pure f) ma => map f ma            (then re-fuse)
+//   * apply mf (Pure a) => map (\f -> f a) mf  (then re-fuse)
 export const opMap = function (f) {
   return function (op) {
+    const tag = op._tag;
+    if (tag === PURE) {
+      return { _tag: PURE, value: f(op.value) };
+    }
+    if (tag === SYNC) {
+      const run = op.run;
+      return {
+        _tag: SYNC,
+        run: function () {
+          return f(run());
+        },
+      };
+    }
+    if (tag === MAP) {
+      const g = op.f;
+      return {
+        _tag: MAP,
+        f: function (x) {
+          return f(g(x));
+        },
+        op: op.op,
+      };
+    }
     return { _tag: MAP, f: f, op: op };
   };
 };
 
 export const opApply = function (opF) {
   return function (opA) {
+    const tagF = opF._tag;
+    const tagA = opA._tag;
+    // Both sides are pure: collapse to a Pure carrying the applied
+    // value. This is the case `pure f <*> pure a` lands in.
+    if (tagF === PURE && tagA === PURE) {
+      return { _tag: PURE, value: opF.value(opA.value) };
+    }
+    // Function arg is pure: degenerate to a map. Then re-run the map
+    // fusions on top of opA, so e.g. `pure f <*> pure g <*> ma`
+    // collapses through both sides.
+    if (tagF === PURE) {
+      return opMap(opF.value)(opA);
+    }
+    // Value arg is pure: degenerate to a map over the function arg.
+    if (tagA === PURE) {
+      const a = opA.value;
+      return opMap(function (g) {
+        return g(a);
+      })(opF);
+    }
     return { _tag: APPLY, opF: opF, opA: opA };
   };
 };
