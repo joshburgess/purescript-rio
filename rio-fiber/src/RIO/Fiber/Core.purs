@@ -55,7 +55,7 @@ import RIO.Fiber.Cause (Cause)
 import RIO.Fiber.Cause as Cause
 import RIO.Fiber.Clock (sleep)
 import RIO.Fiber.Clock (sleep) as Exports
-import RIO.Fiber.Internal (Fiber, Outcome(..), RIO(..))
+import RIO.Fiber.Internal (Fiber, Outcome, RIO(..))
 import RIO.Fiber.Internal (Fiber, Outcome(..), RIO, observeFiber, runFiber, startFiber) as Exports
 import RIO.Fiber.Internal as Internal
 import Unsafe.Coerce (unsafeCoerce)
@@ -268,15 +268,14 @@ interrupt f = RIO (Internal.opInterrupt f)
 -- | the program suspends (e.g. on `async` or `join`), this runner
 -- | raises a JS exception; use `runRIOCallback` for async programs.
 -- | Defects are re-raised as exceptions.
+-- |
+-- | Goes through the fused `_runFiberSyncEither` FFI: the OK and Fail
+-- | paths build `Right` / `Left` in JS and return them directly; the
+-- | Die / Interrupt / suspended paths throw from JS. Skips the layered
+-- | `runFiberSync` -> `resultToOutcome` -> Outcome -> Maybe -> Either
+-- | pipeline that the previous implementation walked through.
 runRIO :: forall e a. RIO () e a -> Effect (Either (Variant e) a)
-runRIO m = do
-  res <- Internal.runFiberSync m {}
-  case res of
-    Just (Success a) -> pure (Right a)
-    Just (Fail v) -> pure (Left v)
-    Just (Die err) -> throwException err
-    Just Interrupted -> throwException (error "rio-fiber: program was interrupted")
-    Nothing -> throwException (error "rio-fiber: program suspended; use runRIOCallback")
+runRIO (RIO op) = Internal._runFiberSyncEither op {}
 
 -- | Run an `RIO` with both rows discharged. The error row is
 -- | uninhabited so the result is returned unwrapped. Same sync

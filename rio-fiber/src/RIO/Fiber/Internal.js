@@ -1,5 +1,7 @@
 "use strict";
 
+import { Right as _Right, Left as _Left } from "../Data.Either/index.js";
+
 // Internal interpreter for the rio-fiber prototype.
 //
 // `Op` is a tagged-object instruction tree built by the FFI factories
@@ -2355,7 +2357,6 @@ export const _fiberInterrupt = function (f) {
 export const _runFiberSyncOrThrow = function (op) {
   return function (env) {
     return function () {
-      let f;
       if (_supervisors.length === 0) {
         const tag = op._tag;
         if (tag === PURE) {
@@ -2364,12 +2365,9 @@ export const _runFiberSyncOrThrow = function (op) {
         if (tag === SYNC) {
           return op._1();
         }
-        f = new Fiber(op, env);
-        f.step();
-      } else {
-        f = new Fiber(op, env);
-        f.step();
       }
+      const f = new Fiber(op, env);
+      f.step();
       if (f.status !== F_DONE) {
         throw new Error("rio-fiber: program suspended; use runRIOCallback");
       }
@@ -2394,6 +2392,63 @@ export const _runFiberSyncOrThrow = function (op) {
       // (the error row is uninhabited), but defend against misuse by
       // throwing a JS error rather than silently returning a Variant.
       throw new Error("rio-fiber: typed failure escaped runRIO'");
+    };
+  };
+};
+
+// Fused synchronous runner for `runRIO`. Same idea as
+// `_runFiberSyncOrThrow` but the typed-failure path becomes a `Left
+// variant`, returned through the Either constructors the PS side
+// already pattern-matches. Defects / interrupts / suspensions still
+// throw (unchanged from the layered runner). Skips the resultToOutcome
+// + Maybe wrap + Outer Outcome -> Either pattern match.
+//
+// Imports `Right` / `Left` from `Data.Either`'s compiled output, which
+// is a tiny dependency on a long-stable encoding. The PS runRIO does
+// `instanceof Right / instanceof Left` already, so we have to use the
+// real constructors.
+export const _runFiberSyncEither = function (op) {
+  return function (env) {
+    return function () {
+      if (_supervisors.length === 0) {
+        const tag = op._tag;
+        if (tag === PURE) {
+          return new _Right(op._1);
+        }
+        if (tag === SYNC) {
+          return new _Right(op._1());
+        }
+      }
+      const f = new Fiber(op, env);
+      f.step();
+      if (f.status !== F_DONE) {
+        throw new Error("rio-fiber: program suspended; use runRIOCallback");
+      }
+      const mode = f.mode;
+      if (mode === M_OK) {
+        return new _Right(f.value);
+      }
+      if (mode === M_FAIL) {
+        return new _Left(f.value);
+      }
+      if (mode === M_DIE) {
+        throw f.value;
+      }
+      if (mode === M_INTERRUPT) {
+        throw new Error("rio-fiber: program was interrupted");
+      }
+      // M_CAUSE: peel a representative leaf and either return it as
+      // Left (Fail) or throw it (Die / Interrupt).
+      const c = f.value;
+      const cTag = c._c;
+      if (cTag === 1) {
+        return new _Left(c.fail);
+      }
+      const leaf = _causeRepresentative(c);
+      if (leaf === null) {
+        throw new Error("rio-fiber: program was interrupted");
+      }
+      throw leaf;
     };
   };
 };
