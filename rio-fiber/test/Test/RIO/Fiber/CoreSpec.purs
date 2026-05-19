@@ -262,6 +262,163 @@ spec = describe "rio-fiber: Core" do
             `shouldEqual` "nope"
         other -> fail ("expected Fail, got " <> describeOutcome other)
 
+  describe "forkAllInline / joinAll" do
+    it "forks every body and joins the results in order" do
+      let
+        bodies :: Array (F.RIO () () Int)
+        bodies = map pure [ 10, 20, 30, 40 ]
+
+        prog :: F.RIO () () (Array Int)
+        prog = do
+          fibs <- F.forkAllInline bodies
+          F.joinAll fibs
+      out <- runAff prog {}
+      assertSuccess out [ 10, 20, 30, 40 ]
+
+    it "returns [] on an empty array" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = do
+          fibs <- F.forkAllInline ([] :: Array (F.RIO () () Int))
+          F.joinAll fibs
+      out <- runAff prog {}
+      assertSuccess out []
+
+    it "drives sync-bodied children synchronously before returning" do
+      ref <- liftEffect (Ref.new [])
+      let
+        body :: Int -> F.RIO () () Int
+        body n = do
+          F.liftEffect (Ref.modify_ (\xs -> xs <> [ n ]) ref)
+          pure n
+
+        prog :: F.RIO () () (Array Int)
+        prog = do
+          fibs <- F.forkAllInline (map body [ 1, 2, 3 ])
+          F.joinAll fibs
+      out <- runAff prog {}
+      assertSuccess out [ 1, 2, 3 ]
+      seen <- liftEffect (Ref.read ref)
+      seen `shouldEqual` [ 1, 2, 3 ]
+
+    it "still suspends on async bodies" do
+      let
+        body :: Int -> F.RIO () () Int
+        body n = F.async \cb -> do
+          scheduleResume (cb (Right (n * 100)))
+          pure (pure unit)
+
+        prog :: F.RIO () () (Array Int)
+        prog = do
+          fibs <- F.forkAllInline (map body [ 1, 2, 3 ])
+          F.joinAll fibs
+      out <- runAff prog {}
+      assertSuccess out [ 100, 200, 300 ]
+
+    it "propagates a sync failure from any child via joinAll" do
+      let
+        ok :: Int -> F.RIO () (boom :: String) Int
+        ok n = pure n
+
+        bad :: F.RIO () (boom :: String) Int
+        bad = F.fail (Variant.inj (Proxy :: _ "boom") "nope")
+
+        prog :: F.RIO () (boom :: String) (Array Int)
+        prog = do
+          fibs <- F.forkAllInline [ ok 1, bad, ok 3 ]
+          F.joinAll fibs
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "nope"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+
+  describe "Functor (opMap)" do
+    it "satisfies identity: map identity = identity" do
+      out <- runAff (map identity (pure 7) :: F.RIO () () Int) {}
+      assertSuccess out 7
+
+    it "satisfies composition: map (f <<< g) = map f <<< map g" do
+      let
+        f = (_ * 3)
+        g = (_ + 1)
+        lhs = map (f <<< g) (pure 4 :: F.RIO () () Int)
+        rhs = map f (map g (pure 4 :: F.RIO () () Int))
+      lOut <- runAff lhs {}
+      rOut <- runAff rhs {}
+      assertSuccess lOut 15
+      assertSuccess rOut 15
+
+    it "maps through a suspending op" do
+      let
+        body :: F.RIO () () Int
+        body = F.async \cb -> do
+          scheduleResume (cb (Right 6))
+          pure (pure unit)
+      out <- runAff (map (_ * 7) body) {}
+      assertSuccess out 42
+
+    it "propagates failure through map" do
+      let
+        prog :: F.RIO () (boom :: String) Int
+        prog = map (_ + 1)
+          (F.fail (Variant.inj (Proxy :: _ "boom") "kaboom"))
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "kaboom"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+
+  describe "Apply (opApply)" do
+    it "applies a pure function to a pure value" do
+      out <- runAff (pure (_ + 1) <*> pure 41 :: F.RIO () () Int) {}
+      assertSuccess out 42
+
+    it "satisfies identity: pure identity <*> v = v" do
+      out <- runAff (pure identity <*> pure 7 :: F.RIO () () Int) {}
+      assertSuccess out 7
+
+    it "threads through two suspending ops in left-to-right order" do
+      ref <- liftEffect (Ref.new [])
+      let
+        tag :: String -> Int -> F.RIO () () Int
+        tag s n = F.async \cb -> do
+          Ref.modify_ (\xs -> xs <> [ s ]) ref
+          scheduleResume (cb (Right n))
+          pure (pure unit)
+
+        prog :: F.RIO () () Int
+        prog = (tag "f" 0 *> pure (_ + 1)) <*> tag "a" 41
+      out <- runAff prog {}
+      assertSuccess out 42
+      seen <- liftEffect (Ref.read ref)
+      seen `shouldEqual` [ "f", "a" ]
+
+    it "propagates failure from the function arg" do
+      let
+        prog :: F.RIO () (boom :: String) Int
+        prog = F.fail (Variant.inj (Proxy :: _ "boom") "nope") <*> pure 1
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "nope"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+
+    it "propagates failure from the value arg" do
+      let
+        prog :: F.RIO () (boom :: String) Int
+        prog = pure (_ + 1) <*>
+          F.fail (Variant.inj (Proxy :: _ "boom") "nope")
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "nope"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+
   describe "forEach" do
     it "runs the body for each element and collects results in order" do
       let
