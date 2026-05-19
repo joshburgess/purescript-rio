@@ -1219,6 +1219,25 @@ Fiber.prototype._stepInner = function () {
             this.mode = M_OK;
             break;
           }
+          // Fast path: precompute the bodies in one pass. If every
+          // body is a PURE leaf, fold their values into the result
+          // array without allocating fibers, observers, schedule
+          // entries, or a canceller. The semantics are unchanged
+          // (PURE bodies have no observable interleaving).
+          const bodies = new Array(n);
+          let allPure = true;
+          for (let i = 0; i < n; i++) {
+            const body = fn(items[i]);
+            bodies[i] = body;
+            if (body._tag !== PURE) allPure = false;
+          }
+          if (allPure && _supervisors.length === 0) {
+            const results = new Array(n);
+            for (let i = 0; i < n; i++) results[i] = bodies[i]._1;
+            this.value = results;
+            this.mode = M_OK;
+            break;
+          }
           const results = new Array(n);
           const fibers = new Array(n);
           let pending = n;
@@ -1226,7 +1245,7 @@ Fiber.prototype._stepInner = function () {
           this.frefsOwn = false;
           for (let i = 0; i < n; i++) {
             const idx = i;
-            const child = new Fiber(fn(items[idx]), this.env, this.frefs);
+            const child = new Fiber(bodies[idx], this.env, this.frefs);
             fibers[idx] = child;
             child.observe(function (r) {
               if (settled) return;
