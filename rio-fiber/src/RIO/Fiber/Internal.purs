@@ -45,6 +45,9 @@ module RIO.Fiber.Internal
   , opGetFiberRef
   , opSetFiberRef
   , opModifyFiberRef
+  , opFailCause
+  , JSCause
+  , causeToJS
   ) where
 
 import Prelude
@@ -167,6 +170,47 @@ foreign import opSetFiberRef :: forall r e a. FiberRef a -> a -> Op r e Unit
 foreign import opModifyFiberRef
   :: forall r e a. FiberRef a -> (a -> a) -> Op r e Unit
 
+-- | Opaque JS-side representation of a `Cause` carried through the
+-- | interpreter. Built by `causeToJS` and walked by `jsToCause`.
+foreign import data JSCause :: Row Type -> Type
+
+foreign import opFailCause :: forall r e a. JSCause e -> Op r e a
+
+foreign import _causeEmpty :: forall e. JSCause e
+foreign import _causeFail :: forall e. Variant e -> JSCause e
+foreign import _causeDie :: forall e. Error -> JSCause e
+foreign import _causeInterrupt :: forall e. JSCause e
+foreign import _causeThen :: forall e. JSCause e -> JSCause e -> JSCause e
+foreign import _causeBoth :: forall e. JSCause e -> JSCause e -> JSCause e
+
+foreign import _causeTag :: forall e. JSCause e -> Int
+foreign import _causeFailValue :: forall e. JSCause e -> Variant e
+foreign import _causeDieValue :: forall e. JSCause e -> Error
+foreign import _causeLeft :: forall e. JSCause e -> JSCause e
+foreign import _causeRight :: forall e. JSCause e -> JSCause e
+
+-- | Convert a `Cause` to its JS representation for the interpreter.
+causeToJS :: forall e. Cause e -> JSCause e
+causeToJS Cause.Empty = _causeEmpty
+causeToJS (Cause.Fail v) = _causeFail v
+causeToJS (Cause.Die err) = _causeDie err
+causeToJS Cause.Interrupt = _causeInterrupt
+causeToJS (Cause.Then a b) = _causeThen (causeToJS a) (causeToJS b)
+causeToJS (Cause.Both a b) = _causeBoth (causeToJS a) (causeToJS b)
+
+-- | Reconstruct a `Cause` from a JS Cause tree.
+jsToCause :: forall e. JSCause e -> Cause e
+jsToCause c =
+  let
+    t = _causeTag c
+  in
+    if t == 0 then Cause.Empty
+    else if t == 1 then Cause.Fail (_causeFailValue c)
+    else if t == 2 then Cause.Die (_causeDieValue c)
+    else if t == 3 then Cause.Interrupt
+    else if t == 4 then Cause.Then (jsToCause (_causeLeft c)) (jsToCause (_causeRight c))
+    else Cause.Both (jsToCause (_causeLeft c)) (jsToCause (_causeRight c))
+
 -- | The full outcome of running a fiber. Includes interrupt as a
 -- | dedicated case; defects come through `Die`.
 data Outcome e a
@@ -195,16 +239,43 @@ foreign import _fiberInterrupt :: forall e a. Fiber e a -> Effect Unit
 foreign import _resultIsOk :: forall e a. FiberResult e a -> Boolean
 foreign import _resultIsFail :: forall e a. FiberResult e a -> Boolean
 foreign import _resultIsInterrupted :: forall e a. FiberResult e a -> Boolean
+foreign import _resultIsCause :: forall e a. FiberResult e a -> Boolean
 foreign import _resultOk :: forall e a. FiberResult e a -> a
 foreign import _resultFail :: forall e a. FiberResult e a -> Variant e
 foreign import _resultDie :: forall e a. FiberResult e a -> Error
+foreign import _resultCause :: forall e a. FiberResult e a -> JSCause e
 
 resultToOutcome :: forall e a. FiberResult e a -> Outcome e a
 resultToOutcome r
   | _resultIsOk r = Success (_resultOk r)
   | _resultIsFail r = Fail (_resultFail r)
   | _resultIsInterrupted r = Interrupted
+  | _resultIsCause r = causeToOutcome (jsToCause (_resultCause r))
   | otherwise = Die (_resultDie r)
+
+-- | Project a composed `Cause` onto the flat `Outcome` view, which
+-- | only has a leaf shape per failure mode. Defects shadow typed
+-- | failures (defect dominates), and interrupts dominate typed
+-- | failures. A pure composition of typed failures keeps the first
+-- | leaf.
+causeToOutcome :: forall e a. Cause e -> Outcome e a
+causeToOutcome c = case findLeaf c of
+  Just leaf -> leaf
+  Nothing -> Interrupted
+  where
+  findLeaf :: Cause e -> Maybe (Outcome e a)
+  findLeaf Cause.Empty = Nothing
+  findLeaf (Cause.Die err) = Just (Die err)
+  findLeaf Cause.Interrupt = Just Interrupted
+  findLeaf (Cause.Fail v) = Just (Fail v)
+  findLeaf (Cause.Then a b) = preferDefect (findLeaf a) (findLeaf b)
+  findLeaf (Cause.Both a b) = preferDefect (findLeaf a) (findLeaf b)
+
+  preferDefect :: Maybe (Outcome e a) -> Maybe (Outcome e a) -> Maybe (Outcome e a)
+  preferDefect (Just (Die e)) _ = Just (Die e)
+  preferDefect _ (Just (Die e)) = Just (Die e)
+  preferDefect (Just x) _ = Just x
+  preferDefect Nothing y = y
 
 -- | Convert a `FiberResult` (the JS-tagged outcome carried by `peel`)
 -- | into an `Either (Cause e) a`. `Right` carries the success value;
@@ -217,6 +288,7 @@ peelToCauseEither r
   | _resultIsOk r = Right (_resultOk r)
   | _resultIsFail r = Left (Cause.fail (_resultFail r))
   | _resultIsInterrupted r = Left Cause.interrupt
+  | _resultIsCause r = Left (jsToCause (_resultCause r))
   | otherwise = Left (Cause.die (_resultDie r))
 
 -- | Start a fiber executing the given program against `env`. Returns

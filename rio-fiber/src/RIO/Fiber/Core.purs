@@ -17,6 +17,7 @@ module RIO.Fiber.Core
   , die
   , ensuring
   , fail
+  , failCause
   , fork
   , interrupt
   , join
@@ -62,6 +63,12 @@ asks f = map f ask
 -- | Raise a typed failure on the chosen tag.
 fail :: forall r e a. Variant e -> RIO r e a
 fail v = RIO (Internal.opFail v)
+
+-- | Raise a structured `Cause` directly. Useful when re-raising a
+-- | cause captured via `causeOf`, or when reporting two independent
+-- | leaf failures together.
+failCause :: forall r e a. Cause e -> RIO r e a
+failCause c = RIO (Internal.opFailCause (Internal.causeToJS c))
 
 -- | Crash the fiber with a JS defect. Goes through the normal
 -- | unwind path (finalizers run) and surfaces as `Die err` at the

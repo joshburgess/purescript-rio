@@ -34,6 +34,7 @@ const PEEL = 15;
 const FREF_GET = 16;
 const FREF_SET = 17;
 const FREF_MODIFY = 18;
+const FAIL_CAUSE = 19;
 
 // Continuation-stack frame tags.
 const K_BIND = 0; // next: a -> Op r e b
@@ -55,6 +56,46 @@ const M_OK = 0;       // success: value carries an `a`
 const M_FAIL = 1;     // typed failure: value carries a Variant e
 const M_DIE = 2;      // defect: value carries a JS Error
 const M_INTERRUPT = 3; // interrupt requested: value unused
+// Composed cause: value carries a JS Cause object. Used when two
+// independent failures need to be reported together (action + finalizer
+// in K_AFTER_FIN; parallel branches in race/parTraverse if extended).
+const M_CAUSE = 4;
+
+// JS-side Cause tags. The PureScript Cause data type is reconstructed
+// from these by walking the tree in `peelToCauseEither`.
+const C_EMPTY = 0;
+const C_FAIL = 1;
+const C_DIE = 2;
+const C_INTERRUPT = 3;
+const C_THEN = 4;
+const C_BOTH = 5;
+
+const CAUSE_EMPTY = { _c: C_EMPTY };
+const CAUSE_INTERRUPT = { _c: C_INTERRUPT };
+
+function causeFail(v) { return { _c: C_FAIL, fail: v }; }
+function causeDie(e) { return { _c: C_DIE, die: e }; }
+function causeThen(a, b) {
+  if (a._c === C_EMPTY) return b;
+  if (b._c === C_EMPTY) return a;
+  return { _c: C_THEN, left: a, right: b };
+}
+function causeBoth(a, b) {
+  if (a._c === C_EMPTY) return b;
+  if (b._c === C_EMPTY) return a;
+  return { _c: C_BOTH, left: a, right: b };
+}
+
+function modeToCause(mode, value) {
+  switch (mode) {
+    case M_OK: return CAUSE_EMPTY;
+    case M_FAIL: return causeFail(value);
+    case M_DIE: return causeDie(value);
+    case M_INTERRUPT: return CAUSE_INTERRUPT;
+    case M_CAUSE: return value;
+    default: return CAUSE_EMPTY;
+  }
+}
 
 // Number of ops a fiber may execute before yielding to the microtask
 // queue. Matches the Effect / ZIO default order of magnitude; tuned
@@ -288,6 +329,11 @@ Fiber.prototype._installResult = function (r) {
     this.mode = M_OK;
     return true;
   }
+  if (Object.prototype.hasOwnProperty.call(r, "cause")) {
+    this.value = r.cause;
+    this.mode = M_CAUSE;
+    return true;
+  }
   // fail
   this.value = r.fail;
   this.mode = M_FAIL;
@@ -307,6 +353,9 @@ Fiber.prototype._completeFromMode = function () {
       return;
     case M_INTERRUPT:
       this._complete({ interrupted: true });
+      return;
+    case M_CAUSE:
+      this._complete({ cause: this.value });
       return;
   }
 };
@@ -332,6 +381,7 @@ Fiber.prototype.step = function () {
       this.mask === 0 &&
       this.mode !== M_INTERRUPT &&
       this.mode !== M_DIE &&
+      this.mode !== M_CAUSE &&
       (this.current === null ||
         (this.current._tag !== ENSURING &&
           this.current._tag !== UNINTERRUPTIBLE))
@@ -547,6 +597,19 @@ Fiber.prototype.step = function () {
           };
           return;
         }
+        case FAIL_CAUSE: {
+          // Empty causes succeed (no failure to report); anything
+          // else unwinds with M_CAUSE so the structured leaves are
+          // visible at the top.
+          if (op.cause._c === C_EMPTY) {
+            this.value = undefined;
+            this.mode = M_OK;
+          } else {
+            this.value = op.cause;
+            this.mode = M_CAUSE;
+          }
+          break;
+        }
         case FREF_GET: {
           const ref = op.ref;
           this.value = this.frefs.has(ref) ? this.frefs.get(ref) : ref.initial;
@@ -590,7 +653,8 @@ Fiber.prototype.step = function () {
         this.interrupted &&
         this.mask === 0 &&
         this.mode !== M_INTERRUPT &&
-        this.mode !== M_DIE
+        this.mode !== M_DIE &&
+        this.mode !== M_CAUSE
       ) {
         this.mode = M_INTERRUPT;
         this.value = null;
@@ -634,14 +698,29 @@ Fiber.prototype.step = function () {
         }
         case K_AFTER_FIN: {
           this.mask--;
-          // Finalizer just completed.
-          //   - If it succeeded: restore the saved action outcome.
-          //   - If it raised: the finalizer's failure wins (we lose
-          //     the action's outcome). Tracking both is what Cause
-          //     is for; until that lands we keep the latest.
-          if (this.mode === M_OK) {
+          // Finalizer just completed. Compose its outcome with the
+          // saved action outcome through `Cause.then_`:
+          //   - both succeeded: drop back to the action's success value
+          //   - either failed: propagate the composed Cause
+          //   - both failed: both leaves are visible in the Cause
+          if (this.mode === M_OK && frame.savedMode === M_OK) {
+            this.value = frame.savedValue;
+            this.mode = M_OK;
+          } else if (this.mode === M_OK) {
+            // finalizer ok; restore action's failure exactly
             this.value = frame.savedValue;
             this.mode = frame.savedMode;
+          } else if (frame.savedMode === M_OK) {
+            // action ok, finalizer failed; propagate finalizer
+            // (mode/value already in place)
+          } else {
+            // both non-ok: compose
+            const combined = causeThen(
+              modeToCause(frame.savedMode, frame.savedValue),
+              modeToCause(this.mode, this.value),
+            );
+            this.value = combined;
+            this.mode = M_CAUSE;
           }
           break;
         }
@@ -664,6 +743,9 @@ Fiber.prototype.step = function () {
               break;
             case M_DIE:
               result = { die: this.value };
+              break;
+            case M_CAUSE:
+              result = { cause: this.value };
               break;
             default:
               result = { interrupted: true };
@@ -755,6 +837,10 @@ export const _resultIsInterrupted = function (r) {
   return r.interrupted === true;
 };
 
+export const _resultIsCause = function (r) {
+  return Object.prototype.hasOwnProperty.call(r, "cause");
+};
+
 export const _resultOk = function (r) {
   return r.ok;
 };
@@ -765,4 +851,46 @@ export const _resultFail = function (r) {
 
 export const _resultDie = function (r) {
   return r.die;
+};
+
+export const _resultCause = function (r) {
+  return r.cause;
+};
+
+// Cause-tree walkers. `_causeTag` returns the small integer matching
+// C_EMPTY / C_FAIL / C_DIE / C_INTERRUPT / C_THEN / C_BOTH so the
+// PureScript side can dispatch.
+export const _causeTag = function (c) {
+  return c._c;
+};
+export const _causeFailValue = function (c) {
+  return c.fail;
+};
+export const _causeDieValue = function (c) {
+  return c.die;
+};
+export const _causeLeft = function (c) {
+  return c.left;
+};
+export const _causeRight = function (c) {
+  return c.right;
+};
+
+// Smart constructors for the JS-side Cause tree. PureScript code uses
+// these to build a Cause for `failCause`. The shapes are private to
+// the interpreter; the PS side reconstructs a `Cause e` from them via
+// the walker accessors above.
+export const _causeEmpty = CAUSE_EMPTY;
+export const _causeFail = function (v) { return causeFail(v); };
+export const _causeDie = function (e) { return causeDie(e); };
+export const _causeInterrupt = CAUSE_INTERRUPT;
+export const _causeThen = function (a) {
+  return function (b) { return causeThen(a, b); };
+};
+export const _causeBoth = function (a) {
+  return function (b) { return causeBoth(a, b); };
+};
+
+export const opFailCause = function (c) {
+  return { _tag: FAIL_CAUSE, cause: c };
 };

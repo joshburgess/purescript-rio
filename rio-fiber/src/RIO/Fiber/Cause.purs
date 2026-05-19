@@ -7,12 +7,12 @@
 -- | `Both` composes causes that arose in parallel (two race losers,
 -- | two fork-join branches).
 -- |
--- | The MVP exposes the data type and the introspection helpers but
--- | does NOT yet wire Cause through every interpreter mode (a
--- | failing finalizer after a failing action still overwrites the
--- | original cause). Users can reach for `causeOf` to capture the
--- | full leaf cause of any failure mode (typed, defect, interrupt).
--- | Richer compositional tracking lands in a later phase.
+-- | The interpreter composes causes at finalizer boundaries: a
+-- | failing finalizer after a failing action produces `Then action fin`
+-- | rather than overwriting one with the other. Users see the
+-- | composed cause through `causeOf`, or can raise one directly with
+-- | `failCause`. Parallel composition (`Both`) is reserved for future
+-- | `race` / `parTraverse` use cases that report multiple branches.
 module RIO.Fiber.Cause
   ( Cause(..)
   , empty

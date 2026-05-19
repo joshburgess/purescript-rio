@@ -84,3 +84,31 @@ spec = describe "rio-fiber: Cause" do
       case out of
         F.Success (Left (Die err)) -> message err `shouldEqual` "boom"
         _ -> fail "expected Left (Cause.Die ...)"
+
+    it "composes action + finalizer failure as Cause.Then" do
+      let
+        action :: F.RIO () (oops :: String) Int
+        action = F.fail (Variant.inj (Proxy :: _ "oops") "action")
+
+        prog :: F.RIO () () (Either (Cause (oops :: String)) Int)
+        prog = F.causeOf
+          (F.ensuring (F.die (error "fin")) action)
+      out <- runAff prog {}
+      case out of
+        F.Success (Left (Then (Fail _) (Die err))) ->
+          message err `shouldEqual` "fin"
+        _ -> fail "expected Left (Cause.Then (Fail _) (Die _))"
+
+    it "failCause round-trips through causeOf" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.then_
+          (Cause.fail (Variant.inj (Proxy :: _ "oops") "x"))
+          Cause.interrupt
+
+        prog :: F.RIO () () (Either (Cause (oops :: String)) Int)
+        prog = F.causeOf (F.failCause c :: F.RIO () (oops :: String) Int)
+      out <- runAff prog {}
+      case out of
+        F.Success (Left (Then (Fail _) Interrupt)) -> pure unit
+        _ -> fail "expected Then (Fail _) Interrupt"
