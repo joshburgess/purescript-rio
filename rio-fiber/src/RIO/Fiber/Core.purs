@@ -21,6 +21,7 @@ module RIO.Fiber.Core
   , forEach
   , fork
   , forkAll
+  , forkAllInline
   , forkInline
   , interrupt
   , join
@@ -115,23 +116,88 @@ async register = RIO
         Left v -> onFail v
   )
 
+-- | # Fork family
+-- |
+-- | Four ops cover the fan-out cases. They differ on two axes:
+-- |
+-- |   * **Shape**: one child (`fork` / `forkInline`) vs a batch
+-- |     (`forkAll` / `forkAllInline`).
+-- |   * **Scheduling**: queued (`fork` / `forkAll`) vs inline
+-- |     (`forkInline` / `forkAllInline`).
+-- |
+-- | The matrix:
+-- |
+-- |     |          | queued     | inline           |
+-- |     | -------- | ---------- | ---------------- |
+-- |     | one      | fork       | forkInline       |
+-- |     | batch    | forkAll    | forkAllInline    |
+-- |
+-- | **Queued vs inline.** A queued fork enqueues the child to start at
+-- | the next scheduler tick; the parent runs its next op first and the
+-- | child's first instruction lands on a fresh microtask. An inline
+-- | fork drives the child synchronously to its first suspension (or to
+-- | completion) before the parent's next op runs. For sync-bodied
+-- | children (the body is `pure` / `liftEffect` / pure binds with no
+-- | `async` or `join`), inline fork finishes the child in place, and
+-- | the matching `join` resolves without going through
+-- | `queueMicrotask`. For children that genuinely suspend, the two
+-- | scheduling modes converge after the first await.
+-- |
+-- | **One vs batch.** The batch variants take an `Array (RIO r e a)`
+-- | and walk it in a single JS loop, so a fan-out of N fibers costs
+-- | one op dispatch instead of N nested binds. `forkAll xs` is
+-- | semantically `traverse fork xs` but skips the ~2N BIND nodes that
+-- | `traverseArrayImpl` would build; same for `forkAllInline xs` vs
+-- | `traverse forkInline xs`.
+-- |
+-- | **Picking one.**
+-- |
+-- |   * One sync-bodied child you're about to `join`: `forkInline`.
+-- |     Saves the microtask hop on both sides.
+-- |   * One genuinely concurrent child (does I/O, sleeps, awaits a
+-- |     ref): `fork`. The microtask hop costs nothing when the child
+-- |     was going to suspend anyway.
+-- |   * Batch fan-out of mostly-sync children: `forkAllInline`. Skips
+-- |     the per-element bind chain AND the per-child microtask hop.
+-- |   * Batch fan-out of genuinely concurrent children: `forkAll`.
+-- |     Skips the per-element bind chain; keeps the queued scheduling
+-- |     that lets siblings interleave naturally.
+-- |
+-- | Inline scheduling does NOT change observable semantics: an
+-- | `interrupt` issued after the parent observes the handle still
+-- | wins, parent / child ordering after the first suspension is the
+-- | same as `fork`, and the child sees the same environment. The only
+-- | observable difference is microbenchmark wall time when the child
+-- | is sync-bodied.
+-- |
+-- | All four ops return the fiber handle(s); pair them with `join`,
+-- | `joinAll`, or `interrupt` to consume the result.
+
 -- | Fork a child fiber that runs concurrently. Returns the fiber
 -- | handle so callers can `join` or `interrupt` it. The child
 -- | inherits the parent's environment at the point of fork.
+-- |
+-- | The child is queued: it starts at the next scheduler tick, after
+-- | the parent has run its next op. For sync-bodied children you mean
+-- | to `join` immediately, `forkInline` skips the microtask hop on
+-- | both sides; see the fork-family doc block above for the full
+-- | matrix.
 fork :: forall r e a. RIO r e a -> RIO r e (Fiber e a)
 fork (RIO op) = RIO (Internal.opFork op)
 
--- | Like `fork` but drive the child synchronously to its first
--- | suspension (or to completion) before returning the handle. For
--- | sync-bodied children this means the child has already finished by
--- | the time the parent observes the handle, and the subsequent `join`
--- | resolves without going through the microtask scheduler.
+-- | Inline variant of `fork`. Drives the child synchronously to its
+-- | first suspension (or to completion) before returning the handle.
+-- | For sync-bodied children this means the child has already
+-- | finished by the time the parent observes the handle, and the
+-- | subsequent `join` resolves without going through the microtask
+-- | scheduler.
 -- |
 -- | Use this when both sides of a fork would otherwise spend their
 -- | budget bouncing through `queueMicrotask`. The semantic difference
 -- | from `fork` shows up in ordering: with `fork` the parent runs its
 -- | next op first, then yields; with `forkInline` the child runs to
--- | its first await before the parent continues.
+-- | its first await before the parent continues. Past the first
+-- | await, the two variants behave identically.
 forkInline :: forall r e a. RIO r e a -> RIO r e (Fiber e a)
 forkInline (RIO op) = RIO (Internal.opForkInline op)
 
@@ -140,12 +206,36 @@ forkInline (RIO op) = RIO (Internal.opForkInline op)
 join :: forall r e a. Fiber e a -> RIO r e a
 join f = RIO (Internal.opJoin f)
 
--- | Fork one fiber per element of the array, returning the handles in
--- | order. Equivalent to `traverse fork xs` but goes through a single
--- | specialized op that walks the array in JS, so a fan-out of N
--- | fibers costs one op dispatch instead of N nested binds.
+-- | Batch variant of `fork`. Forks one fiber per element of the
+-- | array, returning the handles in order. Equivalent to
+-- | `traverse fork xs` but goes through a single specialized op that
+-- | walks the array in JS, so a fan-out of N fibers costs one op
+-- | dispatch instead of N nested binds.
+-- |
+-- | Each child is queued (same scheduling as `fork`). For batches
+-- | where the bodies are sync-bodied, prefer `forkAllInline`.
 forkAll :: forall r e a. Array (RIO r e a) -> RIO r e (Array (Fiber e a))
 forkAll xs = RIO (Internal.opForkAll (coerceOps xs))
+  where
+  coerceOps :: Array (RIO r e a) -> Array (Internal.Op r e a)
+  coerceOps = unsafeCoerce
+
+-- | Inline batch variant. Forks one fiber per element of the array,
+-- | driving each child synchronously to its first suspension (or to
+-- | completion) before moving on. Equivalent to
+-- | `traverse forkInline xs` but goes through a single specialized op
+-- | so a fan-out of N fibers costs one op dispatch instead of N
+-- | nested binds.
+-- |
+-- | This is the right pick when you have a batch of mostly-sync
+-- | children you intend to `joinAll` immediately: it eliminates both
+-- | the per-element bind chain (saved by being a batch op) and the
+-- | per-child microtask hop (saved by being inline). For batches of
+-- | genuinely concurrent children, `forkAll` is the right pick; the
+-- | inline savings collapse to nothing once each child suspends.
+forkAllInline
+  :: forall r e a. Array (RIO r e a) -> RIO r e (Array (Fiber e a))
+forkAllInline xs = RIO (Internal.opForkAllInline (coerceOps xs))
   where
   coerceOps :: Array (RIO r e a) -> Array (Internal.Op r e a)
   coerceOps = unsafeCoerce
