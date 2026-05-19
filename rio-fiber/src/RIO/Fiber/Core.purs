@@ -200,10 +200,12 @@ bracket
 bracket acquire release use = uninterruptible acquire >>=
   \resource -> ensuring (release resource) (use resource)
 
--- | Run two actions concurrently; resume with whichever finishes
--- | first and interrupt the loser. A typed failure or defect from
--- | the winner short-circuits the race. If both are interrupted
--- | externally the result is `Interrupted`.
+-- | Run two actions concurrently; the first success wins and
+-- | interrupts the loser. A single failure waits for the other side
+-- | to settle: if the other side succeeds, that success still wins;
+-- | if the other side also fails, the two causes are composed with
+-- | `Cause.both`. If both branches are interrupted externally the
+-- | result is `Interrupted`.
 race :: forall r e a. RIO r e a -> RIO r e a -> RIO r e a
 race (RIO l) (RIO r) = RIO (Internal.opRace l r)
 

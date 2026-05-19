@@ -2,6 +2,7 @@ module Test.RIO.Fiber.CoreSpec (spec) where
 
 import Prelude
 
+import Data.Array as Array
 import Data.Either (Either(..))
 import Data.DateTime.Instant (unInstant)
 import Data.Maybe (Maybe(..))
@@ -14,6 +15,7 @@ import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Effect.Now (now)
 import Effect.Ref as Ref
+import RIO.Fiber.Cause as Cause
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
 import Test.RIO.Fiber.Helpers (runAff)
@@ -338,19 +340,44 @@ spec = describe "rio-fiber: Core" do
       finalized <- liftEffect (Ref.read loserFinalized)
       finalized `shouldEqual` true
 
-    it "propagates a typed failure from the winner" do
+    it "a single failure waits for the other side; success still wins" do
       let
         loud :: F.RIO () (boom :: String) Int
         loud = F.fail (Variant.inj (Proxy :: _ "boom") "lost")
 
         slow :: F.RIO () (boom :: String) Int
-        slow = F.sleep (Milliseconds 50.0) *> pure 0
+        slow = F.sleep (Milliseconds 20.0) *> pure 7
       out <- runAff (F.race loud slow) {}
+      assertSuccess out 7
+
+    it "if both branches fail, race resumes with both causes composed" do
+      let
+        l :: F.RIO () (boom :: String) Int
+        l = F.fail (Variant.inj (Proxy :: _ "boom") "left")
+
+        r :: F.RIO () (boom :: String) Int
+        r = F.sleep (Milliseconds 10.0) *>
+          F.fail (Variant.inj (Proxy :: _ "boom") "right")
+
+        prog :: F.RIO () () (Either (Array String) Int)
+        prog = do
+          ec <- F.causeOf (F.race l r)
+          pure case ec of
+            Right n -> Right n
+            Left cause ->
+              Left
+                ( map
+                    (Variant.case_ # Variant.on (Proxy :: _ "boom") identity)
+                    (Cause.failures cause)
+                )
+      out <- runAff prog {}
       case out of
-        Fail v ->
-          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
-            `shouldEqual` "lost"
-        other -> fail ("expected Fail, got " <> describeOutcome other)
+        Success (Left names) -> do
+          (Array.length names) `shouldEqual` 2
+          (Array.elem "left" names) `shouldEqual` true
+          (Array.elem "right" names) `shouldEqual` true
+        Success (Right _) -> fail "expected Left (composed failures), got Right"
+        other -> fail ("expected Success, got " <> describeOutcome other)
 
   describe "raceAll" do
     it "returns the fastest of many" do

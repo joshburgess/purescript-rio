@@ -97,6 +97,16 @@ function modeToCause(mode, value) {
   }
 }
 
+// Convert a fiber-completion result object into a Cause. Mirrors
+// `modeToCause` for the result-object shape used by observers.
+function resultToCause(r) {
+  if (Object.prototype.hasOwnProperty.call(r, "ok")) return CAUSE_EMPTY;
+  if (Object.prototype.hasOwnProperty.call(r, "die")) return causeDie(r.die);
+  if (r.interrupted) return CAUSE_INTERRUPT;
+  if (Object.prototype.hasOwnProperty.call(r, "cause")) return r.cause;
+  return causeFail(r.fail);
+}
+
 // Number of ops a fiber may execute before yielding to the microtask
 // queue. Matches the Effect / ZIO default order of magnitude; tuned
 // for V8's inlining of tight switch dispatches.
@@ -543,25 +553,48 @@ Fiber.prototype.step = function () {
           this.current = op.op;
           continue;
         case RACE: {
+          // Success on either side wins immediately and interrupts the
+          // loser. A single failure waits for the other side: if the
+          // other succeeds, that success wins; if the other also fails
+          // (or got interrupted while failing), the two causes are
+          // composed with `Both`. If both sides end in pure interrupt
+          // (no failure observed), the race itself is interrupted.
           const self = this;
           const leftFiber = new Fiber(op.left, this.env, new Map(this.frefs));
           const rightFiber = new Fiber(op.right, this.env, new Map(this.frefs));
           let settled = false;
-          let interruptedCount = 0;
+          let firstFailure = null; // Cause held while waiting for the other side
+          let bothCompleted = 0;
           const onComplete = function (loser) {
             return function (r) {
               if (settled) return;
+              if (Object.prototype.hasOwnProperty.call(r, "ok")) {
+                settled = true;
+                loser.interrupt();
+                self._resumeAsync(r);
+                return;
+              }
               if (r.interrupted) {
-                interruptedCount++;
-                if (interruptedCount === 2) {
+                bothCompleted++;
+                if (bothCompleted === 2) {
                   settled = true;
-                  self._resumeAsync(r);
+                  if (firstFailure === null) {
+                    self._resumeAsync({ interrupted: true });
+                  } else {
+                    self._resumeAsync({ cause: firstFailure });
+                  }
                 }
                 return;
               }
+              // failure: fail, die, or cause
+              const thisCause = resultToCause(r);
+              if (firstFailure === null) {
+                firstFailure = thisCause;
+                bothCompleted++;
+                return;
+              }
               settled = true;
-              loser.interrupt();
-              self._resumeAsync(r);
+              self._resumeAsync({ cause: causeBoth(firstFailure, thisCause) });
             };
           };
           leftFiber.observe(onComplete(rightFiber));
