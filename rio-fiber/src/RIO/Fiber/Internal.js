@@ -1439,21 +1439,37 @@ Fiber.prototype._stepInner = function () {
           // Evaluate opF first; K_APPLY then captures the resulting
           // function and kicks off opA. K_APPLY2 finally calls f(v).
           // Folds the PURE / PURE leaf to skip both frames entirely.
-          const opF = op._1;
-          const opA = op._2;
-          if (opF._tag === PURE && opA._tag === PURE) {
-            try {
-              this.value = opF._1(opA._1);
-              this.mode = M_OK;
-            } catch (err) {
-              this.value = err;
-              this.mode = M_DIE;
+          //
+          // Spine collapse: traverseArrayImpl builds a balanced tree of
+          // `apply(apply(... ) y) z`, so opF is itself an APPLY on the
+          // way down. Walk that spine here, pushing one K_APPLY per
+          // level, so a depth-N tree pays one outer-loop dispatch
+          // instead of N. Stops at any non-APPLY (typically a MAP that
+          // carries the leaf function); the outer loop picks up there.
+          let curF = op._1;
+          let curA = op._2;
+          while (true) {
+            if (curF._tag === PURE && curA._tag === PURE) {
+              try {
+                this.value = curF._1(curA._1);
+                this.mode = M_OK;
+              } catch (err) {
+                this.value = err;
+                this.mode = M_DIE;
+              }
+              break;
             }
-            break;
+            this.stack.push(new Op(-1, K_APPLY, curA, null));
+            if (curF._tag !== APPLY) {
+              this.current = curF;
+              break;
+            }
+            const innerF = curF._1;
+            curA = curF._2;
+            curF = innerF;
           }
-          this.stack.push(new Op(-1, K_APPLY, opA, null));
-          this.current = opF;
-          continue;
+          if (this.current !== null) continue;
+          break;
         }
         case FORK_ALL_INLINE: {
           // Batch variant of FORK_INLINE: spawn N fibers, drive each
