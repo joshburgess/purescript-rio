@@ -104,6 +104,47 @@ spec = describe "rio-fiber: Hub" do
         r.second `shouldEqual` false
       other -> fail ("expected Success, got " <> describeOutcome other)
 
+  it "publishDropNew per-subscriber drops only on full subs" do
+    hub <- liftEffect (Hub.make 1 :: _ (Hub.Hub Int))
+    let
+      prog :: F.RIO () () { fast :: Int, slowFirst :: Int }
+      prog = do
+        slow <- Hub.subscribe hub
+        fast <- Hub.subscribe hub
+        Hub.publishDropNew hub 1
+        -- both received the first; both queues full now
+        -- drain fast so it can accept more; slow stays full
+        a <- Hub.take fast
+        Hub.publishDropNew hub 2 -- slow drops, fast accepts
+        b <- Hub.take fast
+        s1 <- Hub.take slow
+        Hub.unsubscribe slow
+        Hub.unsubscribe fast
+        -- a + b = 1 + 2 = 3; s1 = 1 (its only slot, never freed in time)
+        pure { fast: a + b, slowFirst: s1 }
+    out <- runAff prog {}
+    case out of
+      Success r -> do
+        r.fast `shouldEqual` 3
+        r.slowFirst `shouldEqual` 1
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "publishDropOld evicts oldest in full subs" do
+    hub <- liftEffect (Hub.make 1 :: _ (Hub.Hub Int))
+    let
+      prog :: F.RIO () () Int
+      prog = do
+        sub <- Hub.subscribe hub
+        Hub.publishDropOld hub 1
+        Hub.publishDropOld hub 2 -- evicts 1, accepts 2
+        a <- Hub.take sub
+        Hub.unsubscribe sub
+        pure a
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 2
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"
 describeOutcome (Fail _) = "Fail"

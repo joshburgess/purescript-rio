@@ -17,6 +17,8 @@ module RIO.Fiber.Hub
   , make
   , publish
   , tryPublish
+  , publishDropNew
+  , publishDropOld
   , subscribe
   , subscribeScoped
   , unsubscribe
@@ -79,6 +81,28 @@ tryPublish (Hub ref) a = do
   st <- liftEffect (Ref.read ref)
   results <- traverse (\{ queue } -> Q.tryOffer queue a) st.subs
   pure (all identity results)
+
+-- | Publish, but drop the message for any subscriber whose queue is
+-- | full instead of blocking. Other subscribers still receive it.
+-- | Never suspends.
+publishDropNew :: forall r e a. Hub a -> a -> RIO r e Unit
+publishDropNew (Hub ref) a = do
+  st <- liftEffect (Ref.read ref)
+  for_ st.subs \{ queue } -> void (Q.tryOffer queue a)
+
+-- | Publish, but if a subscriber's queue is full evict its oldest
+-- | element and offer the new one. Never suspends; never drops the
+-- | publisher's message (though it does drop a per-subscriber backlog
+-- | element).
+publishDropOld :: forall r e a. Hub a -> a -> RIO r e Unit
+publishDropOld (Hub ref) a = do
+  st <- liftEffect (Ref.read ref)
+  for_ st.subs \{ queue } -> do
+    accepted <- Q.tryOffer queue a
+    when (not accepted) do
+      _ <- Q.tryTake queue
+      _ <- Q.tryOffer queue a
+      pure unit
 
 -- | Subscribe. The returned `Subscription` must be released with
 -- | `unsubscribe` (or use `subscribeScoped`).
