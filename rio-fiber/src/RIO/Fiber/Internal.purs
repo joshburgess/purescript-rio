@@ -3,10 +3,13 @@
 -- | This is the rio-fiber prototype: a custom fiber runtime rather than
 -- | `Effect.Aff`. The `Op` instruction tree is foreign-imported and built
 -- | by FFI smart constructors; the step interpreter in `Internal.js`
--- | reads the tag and dispatches in a tight loop. The MVP supports pure
--- | values, synchronous effects, bind, typed failure, catch-all,
--- | environment reads, async, fork / join / interrupt. Tick-budgeted
--- | preemption and richer Cause tracking land in later phases.
+-- | reads the tag and dispatches in a tight loop. The runtime supports
+-- | pure values, synchronous effects, bind, typed failure, catch-all,
+-- | environment reads, async, fork / join / interrupt, ensuring /
+-- | uninterruptible, race / parTraverse, FiberRef, peel, and structured
+-- | Cause composition. The step loop is tick-budgeted: each fiber may
+-- | execute up to `TICK_BUDGET` ops before yielding to the microtask
+-- | queue, so a long synchronous chain cannot monopolise the event loop.
 module RIO.Fiber.Internal
   ( RIO(..)
   , Op
