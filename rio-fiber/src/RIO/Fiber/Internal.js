@@ -37,6 +37,11 @@ const F_RUNNING = 0;
 const F_SUSPENDED = 1;
 const F_DONE = 2;
 
+// Number of ops a fiber may execute before yielding to the microtask
+// queue. Matches the Effect / ZIO default order of magnitude; tuned
+// for V8's inlining of tight switch dispatches.
+const TICK_BUDGET = 2048;
+
 // Op factories ---------------------------------------------------------
 
 export const opPure = function (a) {
@@ -177,7 +182,15 @@ Fiber.prototype._installResult = function (r) {
 };
 
 Fiber.prototype.step = function () {
+  let ticks = TICK_BUDGET;
   while (true) {
+    if (--ticks < 0) {
+      // Yield to the microtask queue so sibling fibers can make
+      // progress. Fiber state lives on `this`, so the next step()
+      // call picks up exactly where we left off.
+      scheduleFiber(this);
+      return;
+    }
     if (this.interrupted) {
       this._complete({ interrupted: true });
       return;

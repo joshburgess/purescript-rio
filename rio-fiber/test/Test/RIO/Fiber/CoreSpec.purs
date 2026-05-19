@@ -138,6 +138,32 @@ spec = describe "rio-fiber: Core" do
       out <- runAff prog {}
       assertSuccess out 100
 
+  describe "preemption" do
+    it "yields after the tick budget so a sibling fiber can run" do
+      ref <- liftEffect (Ref.new 0)
+      let
+        -- A sibling that writes once.
+        sibling :: F.RIO () () Unit
+        sibling = F.liftEffect (Ref.write 1 ref)
+
+        -- A long synchronous chain that should exceed the default
+        -- TICK_BUDGET (currently 2048). Without preemption the
+        -- parent would drive its whole chain to completion before
+        -- the sibling ever ran, so the ref read at the end would
+        -- be 0. With preemption, the parent yields mid-chain,
+        -- the sibling runs, and the read sees 1.
+        busy :: Int -> F.RIO () () Unit
+        busy 0 = pure unit
+        busy n = pure unit *> busy (n - 1)
+
+        prog :: F.RIO () () Int
+        prog = do
+          _ <- F.fork sibling
+          busy 5000
+          F.liftEffect (Ref.read ref)
+      out <- runAff prog {}
+      assertSuccess out 1
+
   describe "interrupt" do
     it "interrupting a suspended forked fiber fires its canceller and propagates Interrupted" do
       ref <- liftEffect (Ref.new false)
