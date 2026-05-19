@@ -13,6 +13,8 @@ module Benchmarks.Harness
   ( benchAff
   , benchAffWith
   , benchAffResult
+  , benchSyncWith
+  , benchSyncResult
   , AffBenchResult
   , withUnits
   ) where
@@ -25,6 +27,7 @@ import Data.Foldable (for_)
 import Data.Int (toNumber)
 import Data.Number (infinity, max, min, sqrt)
 import Data.Number.Format (toStringWith, fixed)
+import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
@@ -76,6 +79,59 @@ benchAffResult n action = do
   sum2Ns <- liftEffect (Ref.read sum2Ref)
   minNs <- liftEffect (Ref.read minRef)
   maxNs <- liftEffect (Ref.read maxRef)
+  let
+    n' = toNumber n
+    mean = sumNs / n'
+    variance = (sum2Ns - n' * mean * mean) / (n' - 1.0)
+    stdDev = if variance < 0.0 then 0.0 else sqrt variance
+  pure
+    { mean
+    , stdDev
+    , min: minNs
+    , max: maxNs
+    , iterations: n
+    }
+
+-- | Native-Effect variant of `benchAffWith`. Times an `Effect Unit`
+-- | directly, with no `Aff` involvement at any point. Use this for
+-- | runtimes that expose a synchronous runner so the measurement does
+-- | not include a per-iteration `makeAff` round-trip. rio-fiber's
+-- | `runRIO'` is the canonical caller; an `Effect` that completes
+-- | synchronously fits here, anything that suspends does not (use
+-- | `benchAffWith` for those).
+benchSyncWith :: Int -> String -> Effect Unit -> Aff Unit
+benchSyncWith n label action = do
+  res <- liftEffect (benchSyncResult n action)
+  liftEffect do
+    log ("--- " <> label <> " (" <> show n <> " iterations) ---")
+    log ("mean   = " <> withUnits res.mean)
+    log ("stddev = " <> withUnits res.stdDev)
+    log ("min    = " <> withUnits res.min)
+    log ("max    = " <> withUnits res.max)
+
+-- | Raw stats version of `benchSyncWith`, mirroring `benchAffResult`.
+-- | The whole loop runs in `Effect` so the harness itself contributes
+-- | no Aff overhead to the measurement.
+benchSyncResult :: Int -> Effect Unit -> Effect AffBenchResult
+benchSyncResult n action = do
+  sumRef <- Ref.new 0.0
+  sum2Ref <- Ref.new 0.0
+  minRef <- Ref.new infinity
+  maxRef <- Ref.new 0.0
+  for_ (replicate n unit) \_ -> do
+    startNs <- hrtimeNs
+    action
+    endNs <- hrtimeNs
+    let elapsedNs = endNs - startNs
+    _ <- Ref.modify (_ + elapsedNs) sumRef
+    _ <- Ref.modify (_ + elapsedNs * elapsedNs) sum2Ref
+    _ <- Ref.modify (_ `min` elapsedNs) minRef
+    _ <- Ref.modify (_ `max` elapsedNs) maxRef
+    pure unit
+  sumNs <- Ref.read sumRef
+  sum2Ns <- Ref.read sum2Ref
+  minNs <- Ref.read minRef
+  maxNs <- Ref.read maxRef
   let
     n' = toNumber n
     mean = sumNs / n'
