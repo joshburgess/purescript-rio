@@ -19,9 +19,11 @@ module RIO.Fiber.Core
   , fail
   , failCause
   , fork
+  , forkAll
   , forkInline
   , interrupt
   , join
+  , joinAll
   , liftEffect
   , parTraverse
   , race
@@ -55,6 +57,7 @@ import RIO.Fiber.Clock (sleep) as Exports
 import RIO.Fiber.Internal (Fiber, Outcome(..), RIO(..))
 import RIO.Fiber.Internal (Fiber, Outcome(..), RIO, observeFiber, runFiber, startFiber) as Exports
 import RIO.Fiber.Internal as Internal
+import Unsafe.Coerce (unsafeCoerce)
 
 -- | Lift a synchronous `Effect` into `RIO`.
 liftEffect :: forall r e a. Effect a -> RIO r e a
@@ -135,6 +138,24 @@ forkInline (RIO op) = RIO (Internal.opForkInline op)
 -- | its outcome (success / typed failure / defect / interrupt).
 join :: forall r e a. Fiber e a -> RIO r e a
 join f = RIO (Internal.opJoin f)
+
+-- | Fork one fiber per element of the array, returning the handles in
+-- | order. Equivalent to `traverse fork xs` but goes through a single
+-- | specialized op that walks the array in JS, so a fan-out of N
+-- | fibers costs one op dispatch instead of N nested binds.
+forkAll :: forall r e a. Array (RIO r e a) -> RIO r e (Array (Fiber e a))
+forkAll xs = RIO (Internal.opForkAll (coerceOps xs))
+  where
+  coerceOps :: Array (RIO r e a) -> Array (Internal.Op r e a)
+  coerceOps = unsafeCoerce
+
+-- | Wait on a batch of pre-forked fibers and collect their results
+-- | in order. Suspends until every fiber completes; the first non-
+-- | success outcome propagates to the caller. Sibling fibers are not
+-- | interrupted on failure (they were forked outside this call's
+-- | scope; use `interrupt` explicitly to cancel them).
+joinAll :: forall r e a. Array (Fiber e a) -> RIO r e (Array a)
+joinAll fs = RIO (Internal.opJoinAll fs)
 
 -- | Request interruption of the target fiber. Best-effort: the
 -- | target completes with `Interrupted` at its next safe point.

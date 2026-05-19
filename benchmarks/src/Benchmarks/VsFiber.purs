@@ -24,7 +24,7 @@ import Effect.Class (liftEffect)
 import Effect.Console (log)
 import RIO.Fiber.Aff (runAff) as F
 import RIO.Fiber.Core (Outcome, RIO)
-import RIO.Fiber.Core (fork, forkInline, join, parTraverse) as F
+import RIO.Fiber.Core (fork, forkAll, forkInline, join, joinAll, parTraverse) as F
 
 runFiberAff :: forall e a. RIO () e a -> Aff (Outcome e a)
 runFiberAff rio = F.runAff rio {}
@@ -95,6 +95,19 @@ runVsFiber = do
         )
     )
 
+  -- Workload 5: identical fan-out via the specialized forkAll / joinAll
+  -- ops. These walk the array in a single JS-side loop, so they should
+  -- beat the traverse-built fork/join chains by skipping the per-element
+  -- BIND nodes that `traverseArrayImpl` builds.
+  benchAffWith sampleCount
+    "rio-fiber fan-out/fan-in (forkAll x16 + joinAll)"
+    ( void
+        ( runFiberAff do
+            fibs <- F.forkAll (map fiberChild fanArr)
+            F.joinAll fibs
+        )
+    )
+
   liftEffect do
     log ""
     log "Reading the table: compare each rio-fiber row to the matching"
@@ -102,5 +115,6 @@ runVsFiber = do
     log "per-iteration cost (one makeAff round-trip) that is paid by"
     log "every rio-fiber row here. The forkInline row isolates the"
     log "savings from skipping the per-fork microtask hop for sync-"
-    log "bodied children."
+    log "bodied children. The forkAll / joinAll row isolates the savings"
+    log "from skipping the per-element bind chain that traverse builds."
     log ""

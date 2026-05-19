@@ -209,6 +209,59 @@ spec = describe "rio-fiber: Core" do
       out <- runAff prog {}
       assertSuccess out 7
 
+  describe "forkAll / joinAll" do
+    it "forks every body and joins the results in order" do
+      let
+        bodies :: Array (F.RIO () () Int)
+        bodies = map pure [ 1, 2, 3, 4, 5 ]
+
+        prog :: F.RIO () () (Array Int)
+        prog = do
+          fibs <- F.forkAll bodies
+          F.joinAll fibs
+      out <- runAff prog {}
+      assertSuccess out [ 1, 2, 3, 4, 5 ]
+
+    it "joinAll returns [] for an empty fiber array" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = F.joinAll []
+      out <- runAff prog {}
+      assertSuccess out []
+
+    it "joinAll awaits children that suspend on async" do
+      let
+        body :: Int -> F.RIO () () Int
+        body n = F.async \cb -> do
+          scheduleResume (cb (Right (n * 10)))
+          pure (pure unit)
+
+        prog :: F.RIO () () (Array Int)
+        prog = do
+          fibs <- F.forkAll (map body [ 1, 2, 3 ])
+          F.joinAll fibs
+      out <- runAff prog {}
+      assertSuccess out [ 10, 20, 30 ]
+
+    it "joinAll propagates the first failure it observes" do
+      let
+        ok :: Int -> F.RIO () (boom :: String) Int
+        ok n = pure n
+
+        bad :: F.RIO () (boom :: String) Int
+        bad = F.fail (Variant.inj (Proxy :: _ "boom") "nope")
+
+        prog :: F.RIO () (boom :: String) (Array Int)
+        prog = do
+          fibs <- F.forkAll [ ok 1, bad, ok 3 ]
+          F.joinAll fibs
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "nope"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+
   describe "sleep" do
     it "suspends the fiber for approximately the requested duration" do
       let

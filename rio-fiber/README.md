@@ -51,10 +51,11 @@ main = launchAff_ do
 
 `RIO.Fiber.Core` re-exports the small set of primitives every
 program needs: `pure`, `bind`, `liftEffect`, `ask`, `asks`,
-`fail`, `catchAll`, `async`, `fork`, `forkInline`, `join`,
-`interrupt`, `uninterruptible`, `bracket`, `ensuring`, `race`,
-`raceAll`, `parTraverse`, `zipPar`, `validatePar`, `timeout`, and
-the runners (`runRIO`, `runRIO'`, `runRIOCallback`).
+`fail`, `catchAll`, `async`, `fork`, `forkInline`, `forkAll`,
+`join`, `joinAll`, `interrupt`, `uninterruptible`, `bracket`,
+`ensuring`, `race`, `raceAll`, `parTraverse`, `zipPar`,
+`validatePar`, `timeout`, and the runners (`runRIO`, `runRIO'`,
+`runRIOCallback`).
 
 `forkInline` is the opt-in alternative to `fork`: it drives the
 child synchronously up to its first suspension (or completion)
@@ -63,6 +64,16 @@ and a subsequent `join` resolves without touching the microtask
 scheduler. The ordering trade-off is visible: with `fork` the
 parent's next op observes the world before the child runs; with
 `forkInline` the child runs first.
+
+`forkAll` and `joinAll` are the array-shaped variants. They walk
+the array in a single op dispatch (no per-element bind chain),
+so a fan-out of N children pays a single specialized step
+instead of the ~2N BIND nodes that `traverse fork xs` would
+build. `joinAll` waits on every fiber and resumes with the
+results in order; the first non-success outcome propagates and
+sibling fibers are left alone. On the workspace benchmarks
+`forkAll x16 + joinAll` runs at roughly 5x the speed of
+`forkAff x16 + joinFiber`.
 
 ## What's here
 
@@ -151,6 +162,7 @@ parent's next op observes the world before the child runs; with
 | STM atomicity | One commit per event-loop turn (shared with `Aff` scheduling) | Same model, plus retry on `TVar` change without spinning |
 | Bind hot path | About 33 ns per `bind` in the workspace bench | About 10 ns per `bind` (BIND fuses common leaf ops in the step loop) |
 | Fork hot path | About the same as `forkAff` | At parity with `forkAff` on `fork x16 + join each` once V8 is warm; the bench variant that runs second wins by ~10% over the one that runs first because of JIT compile cost |
+| Array fan-out | `traverse forkAff` builds a per-element bind chain | `forkAll` / `joinAll` are specialized ops; `forkAll x16 + joinAll` runs at roughly 5x the speed of `forkAff x16 + joinFiber` |
 
 Use `rio` for code that already lives on `Aff` and only needs the
 three-channel type. Use `rio-fiber` when you need any of the

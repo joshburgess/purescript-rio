@@ -36,6 +36,8 @@ const FREF_SET = 17;
 const FREF_MODIFY = 18;
 const FAIL_CAUSE = 19;
 const FORK_INLINE = 20;
+const FORK_ALL = 21;
+const JOIN_ALL = 22;
 
 // Continuation-stack frame tags.
 const K_BIND = 0; // next: a -> Op r e b
@@ -151,7 +153,7 @@ function resultToCause(r) {
 // Number of ops a fiber may execute before yielding to the microtask
 // queue. Matches the Effect / ZIO default order of magnitude; tuned
 // for V8's inlining of tight switch dispatches.
-const TICK_BUDGET = 2048;
+const TICK_BUDGET = 4096;
 
 // Op factories ---------------------------------------------------------
 
@@ -226,6 +228,22 @@ export const opForkInline = function (op) {
 
 export const opJoin = function (fiber) {
   return { _tag: JOIN, fiber: fiber };
+};
+
+// Specialized array fork: take N ops and produce N fiber handles in
+// one step. Equivalent to `traverse fork ops` but skips the per-element
+// BIND chain (which `traverseArrayImpl` builds as a balanced ~2N-node
+// tree). The handler walks the array in a tight JS loop.
+export const opForkAll = function (ops) {
+  return { _tag: FORK_ALL, ops: ops };
+};
+
+// Specialized array join: take N fiber handles and produce their N
+// results in order. Suspends until all complete; on the first non-OK
+// outcome the parent propagates that outcome (sibling fibers continue
+// running unmolested, matching ZIO's `Fiber.joinAll` semantics).
+export const opJoinAll = function (fibers) {
+  return { _tag: JOIN_ALL, fibers: fibers };
 };
 
 export const opInterrupt = function (fiber) {
@@ -975,6 +993,100 @@ Fiber.prototype.step = function () {
             this.mode = M_CAUSE;
           }
           break;
+        }
+        case FORK_ALL: {
+          // Walk the input array and spawn one fiber per op in a tight
+          // JS loop. PURE leaves get a DoneFiber stub; everything else
+          // goes through the scheduler exactly as case FORK does.
+          // Equivalent to `traverse fork ops` but skips the per-element
+          // BIND chain that traverseArrayImpl would build.
+          const ops = op.ops;
+          const n = ops.length;
+          const out = new Array(n);
+          if (n === 0) {
+            this.value = out;
+            this.mode = M_OK;
+            break;
+          }
+          this.frefsOwn = false;
+          const supEmpty = _supervisors.length === 0;
+          for (let i = 0; i < n; i++) {
+            const body = ops[i];
+            if (body._tag === PURE && supEmpty) {
+              out[i] = new DoneFiber(M_OK, body.value);
+            } else {
+              const child = new Fiber(body, this.env, this.frefs);
+              scheduleFiber(child);
+              out[i] = child;
+            }
+          }
+          this.value = out;
+          this.mode = M_OK;
+          break;
+        }
+        case JOIN_ALL: {
+          // Wait on a batch of pre-forked fibers. Synchronously drive
+          // any that are still in the run queue (matches case JOIN's
+          // queue-rendezvous fast path), collect successes in place,
+          // and propagate the first non-OK outcome we see. If anything
+          // is still pending after the sync pass, suspend and register
+          // observers for the rest.
+          const fibers = op.fibers;
+          const n = fibers.length;
+          if (n === 0) {
+            this.value = [];
+            this.mode = M_OK;
+            break;
+          }
+          const self = this;
+          const results = new Array(n);
+          let pending = n;
+          let failed = false;
+          for (let i = 0; i < n; i++) {
+            const target = fibers[i];
+            if (target.queued) {
+              target.queued = false;
+              target.step();
+            }
+            if (target.status === F_DONE) {
+              if (target.mode !== M_OK) {
+                this._installResult(target);
+                failed = true;
+                break;
+              }
+              results[i] = target.value;
+              pending--;
+            }
+          }
+          if (failed) break;
+          if (pending === 0) {
+            this.value = results;
+            this.mode = M_OK;
+            break;
+          }
+          let settled = false;
+          this.status = F_SUSPENDED;
+          this.canceller = null;
+          for (let j = 0; j < n; j++) {
+            const target = fibers[j];
+            if (target.status === F_DONE) continue;
+            const idx = j;
+            target.observe(function (r) {
+              if (settled) return;
+              if (r.mode === M_OK) {
+                results[idx] = r.value;
+                pending--;
+                if (pending === 0) {
+                  settled = true;
+                  self._resumeAsync(makeResult(M_OK, results));
+                }
+                return;
+              }
+              settled = true;
+              self._resumeAsync(r);
+            });
+          }
+          return;
         }
         case FREF_GET: {
           const ref = op.ref;

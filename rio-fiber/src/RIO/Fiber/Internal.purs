@@ -32,7 +32,9 @@ module RIO.Fiber.Internal
   , opAsync
   , opFork
   , opForkInline
+  , opForkAll
   , opJoin
+  , opJoinAll
   , opInterrupt
   , opEnsuring
   , opUninterruptible
@@ -137,6 +139,16 @@ foreign import opForkInline :: forall r e a. Op r e a -> Op r e (Fiber e a)
 
 foreign import opJoin :: forall r e a. Fiber e a -> Op r e a
 foreign import opInterrupt :: forall r e a. Fiber e a -> Op r e Unit
+
+-- | Specialized array fork: spawn one fiber per op and return the
+-- | handles in order. Equivalent to `traverse fork ops` but bypasses
+-- | the per-element bind chain that `traverse` would build.
+foreign import opForkAll :: forall r e a. Array (Op r e a) -> Op r e (Array (Fiber e a))
+
+-- | Specialized array join: wait on a batch of pre-forked fibers and
+-- | resume with their results in order. Suspends until every fiber
+-- | completes (or the first non-success outcome propagates).
+foreign import opJoinAll :: forall r e a. Array (Fiber e a) -> Op r e (Array a)
 
 -- | Attach a finalizer that runs after the action regardless of how
 -- | it terminates: success, typed failure, defect, or interrupt. The

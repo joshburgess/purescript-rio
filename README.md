@@ -352,7 +352,11 @@ boundary.
 
 On the workspace benchmarks the bind hot path is roughly 4x
 faster than `Aff`; `fork x16 + join each` is at parity with
-`forkAff` once V8's JIT is warm. See
+`forkAff` once V8's JIT is warm; and the specialized
+`forkAll x16 + joinAll` array fan-out runs at roughly 5x the
+speed of `forkAff x16 + joinFiber` (it walks the array in a
+single op dispatch instead of the per-element bind chain
+`traverse fork` builds). See
 [`rio-fiber/README.md`](./rio-fiber/README.md) for the full
 surface and the side-by-side comparison table.
 
