@@ -351,6 +351,45 @@ spec = describe "rio-fiber: Core" do
             `shouldEqual` "lost"
         other -> fail ("expected Fail, got " <> describeOutcome other)
 
+  describe "raceAll" do
+    it "returns the fastest of many" do
+      let
+        slow :: Milliseconds -> Int -> F.RIO () () Int
+        slow ms n = F.sleep ms *> pure n
+
+        prog :: F.RIO () () Int
+        prog = F.raceAll
+          [ slow (Milliseconds 50.0) 1
+          , slow (Milliseconds 10.0) 2
+          , slow (Milliseconds 30.0) 3
+          ]
+      out <- runAff prog {}
+      assertSuccess out 2
+
+    it "interrupts every loser" do
+      finalizedA <- liftEffect (Ref.new false)
+      finalizedC <- liftEffect (Ref.new false)
+      let
+        winner :: F.RIO () () Int
+        winner = pure 99
+
+        loser :: Ref.Ref Boolean -> F.RIO () () Int
+        loser ref = F.ensuring
+          (F.liftEffect (Ref.write true ref))
+          (F.async \_cb -> pure (pure unit))
+
+        prog :: F.RIO () () Int
+        prog = do
+          r <- F.raceAll [ loser finalizedA, winner, loser finalizedC ]
+          F.sleep (Milliseconds 20.0)
+          pure r
+      out <- runAff prog {}
+      assertSuccess out 99
+      a <- liftEffect (Ref.read finalizedA)
+      c <- liftEffect (Ref.read finalizedC)
+      a `shouldEqual` true
+      c `shouldEqual` true
+
   describe "parTraverse" do
     it "runs all in parallel and collects results in order" do
       let

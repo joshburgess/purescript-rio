@@ -24,6 +24,7 @@ module RIO.Fiber.Core
   , liftEffect
   , parTraverse
   , race
+  , raceAll
   , runRIO
   , runRIO'
   , runRIOCallback
@@ -35,7 +36,9 @@ module RIO.Fiber.Core
 
 import Prelude
 
+import Data.Array (uncons)
 import Data.Either (Either(..))
+import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
@@ -200,6 +203,14 @@ bracket acquire release use = uninterruptible acquire >>=
 -- | externally the result is `Interrupted`.
 race :: forall r e a. RIO r e a -> RIO r e a -> RIO r e a
 race (RIO l) (RIO r) = RIO (Internal.opRace l r)
+
+-- | Race a non-empty array of actions; resume with the first
+-- | outcome and interrupt the rest. An empty array raises a defect:
+-- | a race with nothing to race has no defined winner.
+raceAll :: forall r e a. Array (RIO r e a) -> RIO r e a
+raceAll xs = case uncons xs of
+  Nothing -> die (error "rio-fiber: raceAll on an empty array")
+  Just { head, tail } -> foldl race head tail
 
 -- | Run the wrapped action and capture its leaf cause on failure.
 -- | A success becomes `Right a`; a typed failure / defect / interrupt
