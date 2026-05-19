@@ -4,76 +4,182 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Variant as Variant
+import Effect (Effect)
+import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
+import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
+import Test.RIO.Fiber.Helpers (runAff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Type.Proxy (Proxy(..))
 
 spec :: Spec Unit
 spec = describe "rio-fiber: Core" do
-  it "pure returns its argument" do
-    res <- liftEffect (F.runRIO' (pure 42 :: F.RIO () () Int))
-    res `shouldEqual` 42
+  describe "synchronous core" do
+    it "pure returns its argument" do
+      out <- runAff (pure 42 :: F.RIO () () Int) {}
+      assertSuccess out 42
 
-  it "map composes through bind" do
-    let
-      prog :: F.RIO () () Int
-      prog = map (_ + 1) (pure 41)
-    res <- liftEffect (F.runRIO' prog)
-    res `shouldEqual` 42
+    it "map composes through bind" do
+      out <- runAff (map (_ + 1) (pure 41) :: F.RIO () () Int) {}
+      assertSuccess out 42
 
-  it "bind threads results in order" do
-    let
-      prog :: F.RIO () () Int
-      prog = do
-        a <- pure 10
-        b <- pure 20
-        pure (a + b)
-    res <- liftEffect (F.runRIO' prog)
-    res `shouldEqual` 30
+    it "bind threads results in order" do
+      let
+        prog :: F.RIO () () Int
+        prog = do
+          a <- pure 10
+          b <- pure 20
+          pure (a + b)
+      out <- runAff prog {}
+      assertSuccess out 30
 
-  it "liftEffect runs synchronous effects" do
-    ref <- liftEffect (Ref.new 0)
-    let
-      prog :: F.RIO () () Int
-      prog = do
-        _ <- F.liftEffect (Ref.write 7 ref)
-        F.liftEffect (Ref.read ref)
-    res <- liftEffect (F.runRIO' prog)
-    res `shouldEqual` 7
+    it "liftEffect runs synchronous effects" do
+      ref <- liftEffect (Ref.new 0)
+      let
+        prog :: F.RIO () () Int
+        prog = do
+          _ <- F.liftEffect (Ref.write 7 ref)
+          F.liftEffect (Ref.read ref)
+      out <- runAff prog {}
+      assertSuccess out 7
 
-  it "fail surfaces a typed failure on Left" do
-    let
-      prog :: F.RIO () (boom :: String) Int
-      prog = F.fail (Variant.inj (Proxy :: _ "boom") "kaboom")
-    res <- liftEffect (F.runRIO prog)
-    case res of
-      Right _ -> fail "expected typed failure, got success"
-      Left v ->
-        (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
-          `shouldEqual` "kaboom"
+    it "fail surfaces a typed failure" do
+      let
+        prog :: F.RIO () (boom :: String) Int
+        prog = F.fail (Variant.inj (Proxy :: _ "boom") "kaboom")
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "kaboom"
+        _ -> fail "expected typed failure"
 
-  it "catchAll recovers from a typed failure" do
-    let
-      raised :: F.RIO () (boom :: String) Int
-      raised = F.fail (Variant.inj (Proxy :: _ "boom") "nope")
+    it "catchAll recovers from a typed failure" do
+      let
+        raised :: F.RIO () (boom :: String) Int
+        raised = F.fail (Variant.inj (Proxy :: _ "boom") "nope")
 
-      recovered :: F.RIO () () Int
-      recovered = F.catchAll
-        ( \v ->
-            (Variant.case_ # Variant.on (Proxy :: _ "boom") (\_ -> pure 99)) v
-        )
-        raised
-    res <- liftEffect (F.runRIO' recovered)
-    res `shouldEqual` 99
+        recovered :: F.RIO () () Int
+        recovered = F.catchAll
+          ( \v ->
+              (Variant.case_ # Variant.on (Proxy :: _ "boom") (\_ -> pure 99)) v
+          )
+          raised
+      out <- runAff recovered {}
+      assertSuccess out 99
 
-  it "ask returns the environment record" do
-    let
-      prog :: F.RIO (greet :: String) () String
-      prog = F.asks _.greet
-    res <- liftEffect (F.runFiber prog { greet: "hello" })
-    case res of
-      Right s -> s `shouldEqual` "hello"
-      Left _ -> fail "expected success, got failure"
+    it "ask returns the environment record" do
+      let
+        prog :: F.RIO (greet :: String) () String
+        prog = F.asks _.greet
+      out <- runAff prog { greet: "hello" }
+      assertSuccess out "hello"
+
+  describe "async" do
+    it "resumes from a synchronous callback" do
+      let
+        prog :: F.RIO () () Int
+        prog = F.async \cb -> do
+          cb (Right 42)
+          pure (pure unit)
+      out <- runAff prog {}
+      assertSuccess out 42
+
+    it "resumes from an asynchronous callback" do
+      let
+        prog :: F.RIO () () Int
+        prog = F.async \cb -> do
+          scheduleResume (cb (Right 7))
+          pure (pure unit)
+      out <- runAff prog {}
+      assertSuccess out 7
+
+    it "surfaces a typed failure from async" do
+      let
+        prog :: F.RIO () (boom :: String) Int
+        prog = F.async \cb -> do
+          cb (Left (Variant.inj (Proxy :: _ "boom") "from-async"))
+          pure (pure unit)
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "from-async"
+        _ -> fail "expected typed failure"
+
+  describe "fork / join" do
+    it "fork-then-join returns the child's result" do
+      let
+        child :: F.RIO () () Int
+        child = pure 21
+
+        prog :: F.RIO () () Int
+        prog = do
+          f <- F.fork child
+          a <- F.join f
+          pure (a + a)
+      out <- runAff prog {}
+      assertSuccess out 42
+
+    it "join awaits an asynchronous child" do
+      let
+        child :: F.RIO () () Int
+        child = F.async \cb -> do
+          scheduleResume (cb (Right 100))
+          pure (pure unit)
+
+        prog :: F.RIO () () Int
+        prog = do
+          f <- F.fork child
+          F.join f
+      out <- runAff prog {}
+      assertSuccess out 100
+
+  describe "interrupt" do
+    it "interrupting a suspended forked fiber fires its canceller and propagates Interrupted" do
+      ref <- liftEffect (Ref.new false)
+      let
+        neverResume :: F.RIO () () Int
+        neverResume = F.async \_cb ->
+          pure (Ref.write true ref)
+
+        yieldOnce :: F.RIO () () Unit
+        yieldOnce = F.async \cb -> do
+          scheduleResume (cb (Right unit))
+          pure (pure unit)
+
+        prog :: F.RIO () () Unit
+        prog = do
+          f <- F.fork neverResume
+          -- yield so neverResume gets scheduled, runs, and suspends.
+          yieldOnce
+          F.interrupt f
+          _ <- F.join f
+          pure unit
+      out <- runAff prog {}
+      case out of
+        Interrupted -> do
+          cancelled <- liftEffect (Ref.read ref)
+          cancelled `shouldEqual` true
+        other -> fail ("expected Interrupted, got " <> describeOutcome other)
+
+assertSuccess
+  :: forall e a
+   . Eq a
+  => Show a
+  => Outcome e a
+  -> a
+  -> Aff Unit
+assertSuccess (Success a) expected = a `shouldEqual` expected
+assertSuccess other _ = fail ("expected Success, got " <> describeOutcome other)
+
+describeOutcome :: forall e a. Outcome e a -> String
+describeOutcome (Success _) = "Success"
+describeOutcome (Fail _) = "Fail"
+describeOutcome (Die _) = "Die"
+describeOutcome Interrupted = "Interrupted"
+
+foreign import scheduleResume :: Effect Unit -> Effect Unit
