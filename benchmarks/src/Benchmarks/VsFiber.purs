@@ -24,7 +24,7 @@ import Effect.Class (liftEffect)
 import Effect.Console (log)
 import RIO.Fiber.Aff (runAff) as F
 import RIO.Fiber.Core (Outcome, RIO)
-import RIO.Fiber.Core (forEach, fork, forkAll, forkInline, join, joinAll, parTraverse) as F
+import RIO.Fiber.Core (forEach, fork, forkAll, forkAllInline, forkInline, join, joinAll, parTraverse) as F
 
 runFiberAff :: forall e a. RIO () e a -> Aff (Outcome e a)
 runFiberAff rio = F.runAff rio {}
@@ -40,6 +40,26 @@ fiberBindChain n = go 0 n
 
 fiberChild :: Int -> RIO () () Int
 fiberChild n = pure (n + 1)
+
+-- | Workload 7 helper: stack N `map (_ + 1)` calls on top of a single
+-- | `pure`. Each layer goes through the Functor instance, which is
+-- | backed by `opMap`.
+mapChain :: Int -> RIO () () Int
+mapChain n = go n (pure 0)
+  where
+  go :: Int -> RIO () () Int -> RIO () () Int
+  go 0 acc = acc
+  go k acc = go (k - 1) (map (_ + 1) acc)
+
+-- | Workload 7 helper: stack N `<*>` applications of `pure (_ + 1)` on
+-- | top of a single `pure`. Each layer goes through the Apply
+-- | instance, which is backed by `opApply`.
+applyChain :: Int -> RIO () () Int
+applyChain n = go n (pure 0)
+  where
+  go :: Int -> RIO () () Int -> RIO () () Int
+  go 0 acc = acc
+  go k acc = go (k - 1) (pure (_ + 1) <*> acc)
 
 runVsFiber :: Aff Unit
 runVsFiber = do
@@ -108,6 +128,19 @@ runVsFiber = do
         )
     )
 
+  -- Workload 5b: forkAllInline, the inline variant of forkAll. For
+  -- sync-bodied children the per-child microtask hop disappears, so
+  -- this row should beat workload 5 by roughly the same factor that
+  -- forkInline beats fork on workload 4.
+  benchAffWith sampleCount
+    "rio-fiber fan-out/fan-in (forkAllInline x16 + joinAll)"
+    ( void
+        ( runFiberAff do
+            fibs <- F.forkAllInline (map fiberChild fanArr)
+            F.joinAll fibs
+        )
+    )
+
   -- Workload 6: sequential traverse over a 32-element array. Compares
   -- `traverse` (Prelude / Data.Traversable) against the specialized
   -- `forEach` op: traverse builds the same ~2N-node bind chain that
@@ -125,6 +158,26 @@ runVsFiber = do
     ( void
         ( runFiberAff
             (F.forEach (\n -> pure (n + 1) :: RIO () () Int) parArr)
+        )
+    )
+
+  -- Workload 7: pure map / apply through the dedicated OP_MAP and
+  -- OP_APPLY ops. The default Functor / Apply derived from Bind would
+  -- emit a BIND + PURE + closure per node; OP_MAP / OP_APPLY collapse
+  -- that into a single op + K frame. Both rows here exercise tight
+  -- map / apply chains so the saved allocations show up.
+  benchAffWith sampleCount
+    "rio-fiber map chain (1000 maps over pure)"
+    ( void
+        ( runFiberAff
+            (mapChain 1000 :: RIO () () Int)
+        )
+    )
+  benchAffWith sampleCount
+    "rio-fiber apply chain (1000 applies over pure)"
+    ( void
+        ( runFiberAff
+            (applyChain 1000 :: RIO () () Int)
         )
     )
 

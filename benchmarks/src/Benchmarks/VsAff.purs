@@ -59,6 +59,39 @@ rioChild n = pure (n + 1)
 affChild :: Int -> Aff Int
 affChild n = pure (n + 1)
 
+-- | Workload 5 helper: stack N `map (_ + 1)` calls on top of a single
+-- | `pure`. Mirrors the rio-fiber `mapChain` so the per-layer Functor
+-- | overhead is directly comparable across RIO, Aff, and rio-fiber.
+rioMapChain :: Int -> RIO () () Int
+rioMapChain n = go n (pure 0)
+  where
+  go :: Int -> RIO () () Int -> RIO () () Int
+  go 0 acc = acc
+  go k acc = go (k - 1) (map (_ + 1) acc)
+
+affMapChain :: Int -> Aff Int
+affMapChain n = go n (pure 0)
+  where
+  go :: Int -> Aff Int -> Aff Int
+  go 0 acc = acc
+  go k acc = go (k - 1) (map (_ + 1) acc)
+
+-- | Workload 5 helper: stack N `<*>` applications of `pure (_ + 1)`
+-- | on top of a single `pure`. Mirrors the rio-fiber `applyChain`.
+rioApplyChain :: Int -> RIO () () Int
+rioApplyChain n = go n (pure 0)
+  where
+  go :: Int -> RIO () () Int -> RIO () () Int
+  go 0 acc = acc
+  go k acc = go (k - 1) (pure (_ + 1) <*> acc)
+
+affApplyChain :: Int -> Aff Int
+affApplyChain n = go n (pure 0)
+  where
+  go :: Int -> Aff Int -> Aff Int
+  go 0 acc = acc
+  go k acc = go (k - 1) (pure (_ + 1) <*> acc)
+
 -- | Run every head-to-head pair. Called from `Benchmarks.Main`.
 runVsAff :: Aff Unit
 runVsAff = do
@@ -135,6 +168,25 @@ runVsAff = do
         fibs <- traverse (\n -> forkAff (affChild n)) fanArr
         traverse joinFiber fibs
     )
+
+  -- Workload 5: pure map / apply chains. Mirrors the rio-fiber rows in
+  -- VsFiber so the per-layer Functor / Apply overhead is comparable
+  -- across RIO (Aff-backed), raw Aff, and rio-fiber. RIO's default
+  -- Functor / Apply are derived from Bind, so each layer pays a BIND +
+  -- PURE allocation; rio-fiber's dedicated OP_MAP / OP_APPLY collapse
+  -- that into a single op + K frame.
+  benchAffWith sampleCount
+    "RIO map chain (1000 maps over pure)"
+    (void (runRIO' (rioMapChain 1000)))
+  benchAffWith sampleCount
+    "Aff map chain (1000 maps over pure)"
+    (void (affMapChain 1000))
+  benchAffWith sampleCount
+    "RIO apply chain (1000 applies over pure)"
+    (void (runRIO' (rioApplyChain 1000)))
+  benchAffWith sampleCount
+    "Aff apply chain (1000 applies over pure)"
+    (void (affApplyChain 1000))
 
   -- Workload 4: sequential traverse over a 32-element array with pure
   -- work. Mirrors the RIO and rio-fiber sequential-traverse rows so the
