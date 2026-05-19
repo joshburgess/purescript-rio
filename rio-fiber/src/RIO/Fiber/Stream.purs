@@ -35,6 +35,9 @@ module RIO.Fiber.Stream
   , mapAccum
   , intersperse
   , flatMap
+  , chunked
+  , unchunked
+  , mapChunks
   , groupBy
   , zipPar
   , throttle
@@ -365,6 +368,41 @@ flatMap f (Stream pull) = Stream do
     case s of
       Done -> case after of Stream p2 -> p2
       Yield b rest -> pure (Yield b (appendStream rest after))
+
+-- | Group consecutive elements into fixed-size chunks. The final
+-- | chunk is whatever remains when the upstream ends and may be
+-- | shorter than `size`. `size <= 0` collapses to one chunk per
+-- | element so downstream gets the same shape.
+chunked :: forall r e a. Int -> Stream r e a -> Stream r e (Array a)
+chunked n source = Stream (go [] source)
+  where
+  cap = max 1 n
+  go acc (Stream pull) = do
+    s <- pull
+    case s of
+      Done ->
+        if Array.null acc then pure Done
+        else pure (Yield acc empty)
+      Yield a rest ->
+        let acc' = snoc acc a
+        in
+          if Array.length acc' >= cap then
+            pure (Yield acc' (Stream (go [] rest)))
+          else go acc' rest
+
+-- | Flatten a chunked stream back into individual elements.
+unchunked :: forall r e a. Stream r e (Array a) -> Stream r e a
+unchunked = flatMap fromArray
+
+-- | Apply a pure function to each chunk. Useful for batched
+-- | transforms that work better on arrays than element-at-a-time
+-- | (e.g. SIMD-friendly arithmetic, batched encoding).
+mapChunks
+  :: forall r e a b
+   . (Array a -> Array b)
+  -> Stream r e (Array a)
+  -> Stream r e (Array b)
+mapChunks = map
 
 -- | Partition the input into adjacent runs sharing a key. Each
 -- | emitted element is a non-empty array; consecutive arrays have

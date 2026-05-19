@@ -222,6 +222,57 @@ spec = describe "rio-fiber: Stream" do
       Success xs -> xs `shouldEqual` [ 1, 1, 3, 3, 5, 5 ]
       other -> fail ("expected Success, got " <> describeOutcome other)
 
+  it "chunked groups consecutive elements into fixed-size arrays" do
+    let
+      prog :: F.RIO () () (Array (Array Int))
+      prog = S.runCollect (S.chunked 3 (S.fromArray [ 1, 2, 3, 4, 5, 6, 7 ]))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ [ 1, 2, 3 ], [ 4, 5, 6 ], [ 7 ] ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "chunked emits an empty stream for an empty source" do
+    let
+      prog :: F.RIO () () (Array (Array Int))
+      prog = S.runCollect (S.chunked 4 (S.fromArray []))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` []
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "unchunked flattens a chunked stream back to elements" do
+    let
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect
+        (S.unchunked (S.fromArray [ [ 1, 2 ], [], [ 3 ], [ 4, 5, 6 ] ]))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` [ 1, 2, 3, 4, 5, 6 ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "mapChunks transforms each chunk in place" do
+    let
+      prog :: F.RIO () () (Array (Array Int))
+      prog = S.runCollect
+        ( S.mapChunks (map (_ * 10))
+            (S.chunked 2 (S.fromArray [ 1, 2, 3, 4, 5 ]))
+        )
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual`
+        [ [ 10, 20 ], [ 30, 40 ], [ 50 ] ]
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "chunked then unchunked round-trips" do
+    let
+      input = [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
+      prog :: F.RIO () () (Array Int)
+      prog = S.runCollect (S.unchunked (S.chunked 4 (S.fromArray input)))
+    out <- runAff prog {}
+    case out of
+      Success xs -> xs `shouldEqual` input
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
   it "groupBy splits into adjacent runs by key" do
     let
       prog :: F.RIO () () (Array (Array Int))
