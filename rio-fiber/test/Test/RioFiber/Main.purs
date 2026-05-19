@@ -20,6 +20,7 @@ import Test.RIO.Fiber.STMSpec as STMSpec
 import Test.RIO.Fiber.StreamSpec as StreamSpec
 import Test.RIO.Fiber.SupervisorSpec as SupervisorSpec
 import Test.RIO.Fiber.TestClockSpec as TestClockSpec
+import Test.RIO.Fiber.TracerSpec as TracerSpec
 import Test.Spec.Reporter.Console (consoleReporter)
 import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
@@ -42,3 +43,4 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   STMSpec.spec
   SupervisorSpec.spec
   TestClockSpec.spec
+  TracerSpec.spec
