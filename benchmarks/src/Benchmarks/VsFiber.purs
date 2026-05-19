@@ -24,7 +24,7 @@ import Effect.Class (liftEffect)
 import Effect.Console (log)
 import RIO.Fiber.Aff (runAff) as F
 import RIO.Fiber.Core (Outcome, RIO)
-import RIO.Fiber.Core (fork, forkAll, forkInline, join, joinAll, parTraverse) as F
+import RIO.Fiber.Core (forEach, fork, forkAll, forkInline, join, joinAll, parTraverse) as F
 
 runFiberAff :: forall e a. RIO () e a -> Aff (Outcome e a)
 runFiberAff rio = F.runAff rio {}
@@ -108,6 +108,26 @@ runVsFiber = do
         )
     )
 
+  -- Workload 6: sequential traverse over a 32-element array. Compares
+  -- `traverse` (Prelude / Data.Traversable) against the specialized
+  -- `forEach` op: traverse builds the same ~2N-node bind chain that
+  -- forkAll/joinAll were designed to replace; forEach replaces it with
+  -- a single K_FOR_EACH frame that the interpreter advances in place.
+  benchAffWith sampleCount
+    "rio-fiber sequential traverse (32 elements, pure work)"
+    ( void
+        ( runFiberAff
+            (traverse (\n -> pure (n + 1) :: RIO () () Int) parArr)
+        )
+    )
+  benchAffWith sampleCount
+    "rio-fiber sequential forEach (32 elements, pure work)"
+    ( void
+        ( runFiberAff
+            (F.forEach (\n -> pure (n + 1) :: RIO () () Int) parArr)
+        )
+    )
+
   liftEffect do
     log ""
     log "Reading the table: compare each rio-fiber row to the matching"
@@ -117,4 +137,6 @@ runVsFiber = do
     log "savings from skipping the per-fork microtask hop for sync-"
     log "bodied children. The forkAll / joinAll row isolates the savings"
     log "from skipping the per-element bind chain that traverse builds."
+    log "The forEach row vs sequential-traverse isolates the same gain"
+    log "for the non-forking traverse case."
     log ""

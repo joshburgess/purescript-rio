@@ -18,6 +18,7 @@ module RIO.Fiber.Core
   , ensuring
   , fail
   , failCause
+  , forEach
   , fork
   , forkAll
   , forkInline
@@ -156,6 +157,17 @@ forkAll xs = RIO (Internal.opForkAll (coerceOps xs))
 -- | scope; use `interrupt` explicitly to cancel them).
 joinAll :: forall r e a. Array (Fiber e a) -> RIO r e (Array a)
 joinAll fs = RIO (Internal.opJoinAll fs)
+
+-- | Sequential traverse over an array. Runs `f item` for each item
+-- | in order and collects the results. The first non-success outcome
+-- | propagates and discards any partial results.
+-- |
+-- | Equivalent to `traverse f xs` but goes through a specialized op
+-- | that holds a single interpreter frame for the whole walk, so a
+-- | traverse of N elements pays one frame allocation instead of the
+-- | ~2N bind nodes that `traverseArrayImpl` would build.
+forEach :: forall r e a b. (a -> RIO r e b) -> Array a -> RIO r e (Array b)
+forEach f xs = RIO (Internal.opForEach (\a -> case f a of RIO m -> m) xs)
 
 -- | Request interruption of the target fiber. Best-effort: the
 -- | target completes with `Interrupted` at its next safe point.

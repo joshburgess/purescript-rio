@@ -40,6 +40,7 @@ module RIO.Fiber.Internal
   , opUninterruptible
   , opRace
   , opParTraverse
+  , opForEach
   , opPeel
   , FiberResult
   , peelToCauseEither
@@ -170,6 +171,12 @@ foreign import opRace :: forall r e a. Op r e a -> Op r e a -> Op r e a
 -- | fast: the first non-success outcome interrupts the siblings and
 -- | resumes the parent with that outcome.
 foreign import opParTraverse
+  :: forall r e a b. (a -> Op r e b) -> Array a -> Op r e (Array b)
+
+-- | Sequential traverse: run `fn item` for each item in order and
+-- | collect the results. Bypasses the bind chain that the generic
+-- | `Traversable` instance for `Array` would build.
+foreign import opForEach
   :: forall r e a b. (a -> Op r e b) -> Array a -> Op r e (Array b)
 
 -- | Run the wrapped op and capture its outcome (success, typed

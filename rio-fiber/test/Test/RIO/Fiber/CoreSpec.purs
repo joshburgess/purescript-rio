@@ -262,6 +262,55 @@ spec = describe "rio-fiber: Core" do
             `shouldEqual` "nope"
         other -> fail ("expected Fail, got " <> describeOutcome other)
 
+  describe "forEach" do
+    it "runs the body for each element and collects results in order" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = F.forEach (\n -> pure (n * 10)) [ 1, 2, 3, 4 ]
+      out <- runAff prog {}
+      assertSuccess out [ 10, 20, 30, 40 ]
+
+    it "returns [] on an empty array" do
+      out <- runAff (F.forEach (\(n :: Int) -> pure n) [] :: F.RIO () () (Array Int)) {}
+      assertSuccess out []
+
+    it "runs sequentially: side effects observe earlier iterations" do
+      ref <- liftEffect (Ref.new [])
+      let
+        body :: Int -> F.RIO () () Int
+        body n = do
+          F.liftEffect (Ref.modify_ (\xs -> xs <> [ n ]) ref)
+          pure n
+      _ <- runAff (F.forEach body [ 1, 2, 3 ]) {}
+      seen <- liftEffect (Ref.read ref)
+      seen `shouldEqual` [ 1, 2, 3 ]
+
+    it "suspends and resumes through async bodies" do
+      let
+        body :: Int -> F.RIO () () Int
+        body n = F.async \cb -> do
+          scheduleResume (cb (Right (n + 100)))
+          pure (pure unit)
+      out <- runAff (F.forEach body [ 1, 2, 3 ]) {}
+      assertSuccess out [ 101, 102, 103 ]
+
+    it "propagates the first failure and discards later iterations" do
+      ref <- liftEffect (Ref.new [])
+      let
+        body :: Int -> F.RIO () (boom :: String) Int
+        body n = do
+          F.liftEffect (Ref.modify_ (\xs -> xs <> [ n ]) ref)
+          if n == 2 then F.fail (Variant.inj (Proxy :: _ "boom") "stop")
+          else pure n
+      out <- runAff (F.forEach body [ 1, 2, 3, 4 ]) {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "stop"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+      seen <- liftEffect (Ref.read ref)
+      seen `shouldEqual` [ 1, 2 ]
+
   describe "sleep" do
     it "suspends the fiber for approximately the requested duration" do
       let
