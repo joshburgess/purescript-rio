@@ -64,6 +64,7 @@ import Effect (Effect)
 import Effect.Exception (Error)
 import RIO.Fiber.Cause (Cause)
 import RIO.Fiber.Cause as Cause
+import Unsafe.Coerce (unsafeCoerce)
 
 -- | Opaque instruction tree built by FFI factories and stepped by the
 -- | interpreter. Users never construct or pattern-match on it.
@@ -91,7 +92,12 @@ instance applicativeRIO :: Applicative (RIO r e) where
   pure = RIO <<< opPure
 
 instance bindRIO :: Bind (RIO r e) where
-  bind (RIO m) k = RIO (opBind m (\a -> case k a of RIO m' -> m'))
+  -- `k` returns `RIO r e b`, which is a newtype wrapper over `Op r e b`.
+  -- The naive `\a -> case k a of RIO m' -> m'` compiles to an extra
+  -- closure-per-bind on the hot path even though the unwrap is a runtime
+  -- no-op. unsafeCoerce strips the wrapper at the type level so opBind
+  -- receives `k` directly.
+  bind (RIO m) k = RIO (opBind m (unsafeCoerce k))
 
 instance monadRIO :: Monad (RIO r e)
 

@@ -113,18 +113,23 @@ const RESULT_INTERRUPT = { mode: M_INTERRUPT, value: null };
 // a PURE / SYNC body produces a child whose result is known before we
 // hand the handle to the parent; allocating a full Fiber object (14
 // fields + supervisor loop + a step() round-trip) just to satisfy a
-// later JOIN is wasteful. A `DoneFiber` exposes only the surface that
-// JOIN, _fiberIsDone, _fiberResult, _fiberObserve, and _fiberInterrupt
-// actually touch.
-function DoneFiber(result) {
+// later JOIN is wasteful. A `DoneFiber` carries the same fields JOIN
+// and the FFI helpers read off a real `Fiber` (status / result /
+// queued) plus mode / value inlined so the {mode, value} result
+// object doesn't need a separate allocation: `this.result = this`
+// makes `target.result.mode` and `target.result.value` resolve via
+// the same hidden class.
+function DoneFiber(mode, value) {
   this.queued = false;
   this.status = F_DONE;
-  this.result = result;
+  this.mode = mode;
+  this.value = value;
+  this.result = this;
 }
 DoneFiber.prototype.observe = function (cb) {
   // Match Fiber.observe's "already done" branch: deliver the result
   // immediately on the same call stack the joiner is on.
-  cb(this.result);
+  cb(this);
 };
 DoneFiber.prototype.interrupt = function () {
   // Already complete; interruption is a no-op.
@@ -387,7 +392,13 @@ function Fiber(op, env, frefs) {
 Fiber.prototype._complete = function (result) {
   if (this.status === F_DONE) return;
   this.status = F_DONE;
-  this.result = result;
+  // Mirror DoneFiber's shape: store mode/value as direct fields and
+  // self-ref `result`. JOIN and the FFI inspectors then read mode /
+  // value off any "done thing" via the same hidden class, regardless
+  // of whether it's a real Fiber or a DoneFiber stub.
+  this.mode = result.mode;
+  this.value = result.value;
+  this.result = this;
   for (let i = 0; i < _supervisors.length; i++) {
     try {
       _supervisors[i].onEnd(this.id)();
@@ -398,7 +409,7 @@ Fiber.prototype._complete = function (result) {
   if (obs !== null) {
     for (let i = 0; i < obs.length; i++) {
       try {
-        obs[i](result);
+        obs[i](this);
       } catch (_) {
         // observers must not throw into the fiber; swallow.
       }
@@ -408,7 +419,7 @@ Fiber.prototype._complete = function (result) {
 
 Fiber.prototype.observe = function (cb) {
   if (this.status === F_DONE) {
-    cb(this.result);
+    cb(this);
   } else if (this.observers === null) {
     this.observers = [cb];
   } else {
@@ -518,115 +529,149 @@ Fiber.prototype.step = function () {
           // joining an already-completed child. Each fast path applies
           // `next` to the leaf value directly without pushing a K_BIND
           // frame or taking the value/mode round-trip.
-          const inner = op.op;
-          const innerTag = inner._tag;
-          if (innerTag === PURE) {
-            this.current = op.next(inner.value);
-            continue;
-          }
-          if (innerTag === SYNC) {
-            let v;
-            try {
-              v = inner.run();
-            } catch (err) {
-              this.value = err;
-              this.mode = M_DIE;
-              break;
-            }
-            this.current = op.next(v);
-            continue;
-          }
-          if (innerTag === ASK) {
-            this.current = op.next(this.env);
-            continue;
-          }
-          if (innerTag === FORK) {
-            // PURE-bodied fork has no observable side effect, so the
-            // "child runs after parent's next op" invariant is
-            // preserved even if we settle the result eagerly. We still
-            // route through the full Fiber path when a supervisor is
-            // watching so onStart / onEnd stay consistent. SYNC bodies
-            // are NOT eligible: their effect must wait for the
-            // microtask drain.
-            const body = inner.op;
-            if (body._tag === PURE && _supervisors.length === 0) {
-              const stub = new DoneFiber(makeResult(M_OK, body.value));
-              this.current = op.next(stub);
-              continue;
-            }
-            this.frefsOwn = false;
-            const child = new Fiber(body, this.env, this.frefs);
-            scheduleFiber(child);
-            this.current = op.next(child);
-            continue;
-          }
-          if (innerTag === FORK_INLINE) {
-            // Leaf-bodied forkInline: same DoneFiber shortcut as FORK
-            // above. Even without supervisors we keep the alloc step
-            // path so onStart / onEnd stay consistent.
-            const body = inner.op;
-            const bodyTag = body._tag;
-            if (_supervisors.length === 0) {
-              if (bodyTag === PURE) {
-                const stub = new DoneFiber(makeResult(M_OK, body.value));
-                this.current = op.next(stub);
-                continue;
+          //
+          // The inner loop chains consecutive fast-path BINDs without
+          // bouncing through the outer switch. A traverse-style chain
+          // of forks or joins fires every step here without paying the
+          // per-step interrupt / tick / dispatch cost. Nested BINDs are
+          // also handled here: when `inner._tag === BIND` the outer
+          // bind goes onto the stack as its own K_BIND frame and the
+          // loop descends.
+          let bindOp = op;
+          bindLoop: while (true) {
+            const inner = bindOp.op;
+            switch (inner._tag) {
+              case PURE: {
+                const next = bindOp.next(inner.value);
+                if (next._tag === BIND) { bindOp = next; continue bindLoop; }
+                this.current = next;
+                break bindLoop;
               }
-              if (bodyTag === SYNC) {
-                let v;
-                let m;
-                try {
-                  v = body.run();
-                  m = M_OK;
-                } catch (err) {
-                  v = err;
-                  m = M_DIE;
+              case BIND: {
+                // Nested bind: push the outer as a K_BIND frame and
+                // descend without leaving this switch.
+                this.stack.push(bindOp);
+                bindOp = inner;
+                continue bindLoop;
+              }
+              case FORK: {
+                const body = inner.op;
+                if (body._tag === PURE && _supervisors.length === 0) {
+                  const next = bindOp.next(new DoneFiber(M_OK, body.value));
+                  if (next._tag === BIND) { bindOp = next; continue bindLoop; }
+                  this.current = next;
+                  break bindLoop;
                 }
-                const stub = new DoneFiber(makeResult(m, v));
-                this.current = op.next(stub);
-                continue;
+                this.frefsOwn = false;
+                const child = new Fiber(body, this.env, this.frefs);
+                scheduleFiber(child);
+                const next = bindOp.next(child);
+                if (next._tag === BIND) { bindOp = next; continue bindLoop; }
+                this.current = next;
+                break bindLoop;
               }
-            }
-            this.frefsOwn = false;
-            const inlineChild = new Fiber(body, this.env, this.frefs);
-            inlineChild.step();
-            this.current = op.next(inlineChild);
-            continue;
-          }
-          if (innerTag === FREF_GET) {
-            const ref = inner.ref;
-            const m = this.frefs;
-            this.current = op.next(
-              (m !== null && m.has(ref)) ? m.get(ref) : ref.initial
-            );
-            continue;
-          }
-          if (innerTag === JOIN) {
-            const target = inner.fiber;
-            // If the target is sitting in the run queue waiting for
-            // its first step, drive it synchronously here. Sync-bodied
-            // children complete; async-bodied children suspend, and we
-            // fall through to the general suspending path.
-            if (target.queued) {
-              target.queued = false;
-              target.step();
-            }
-            if (target.status === F_DONE) {
-              const r = target.result;
-              if (r.mode === M_OK) {
-                this.current = op.next(r.value);
-                continue;
+              case JOIN: {
+                const target = inner.fiber;
+                if (target.queued) {
+                  target.queued = false;
+                  target.step();
+                }
+                if (target.status === F_DONE) {
+                  if (target.mode === M_OK) {
+                    const next = bindOp.next(target.value);
+                    if (next._tag === BIND) {
+                      bindOp = next;
+                      continue bindLoop;
+                    }
+                    this.current = next;
+                    break bindLoop;
+                  }
+                  // Non-OK completed join: skip K_BIND, unwind.
+                  this._installResult(target);
+                  break bindLoop;
+                }
+                // General suspending path.
+                this.stack.push(bindOp);
+                this.current = inner;
+                break bindLoop;
               }
-              // Non-OK completed join: install the result and skip
-              // the K_BIND entirely so the unwind walks to the next
-              // frame (CATCH / ENSURING / etc.).
-              this._installResult(r);
-              continue;
+              case SYNC: {
+                let v;
+                try {
+                  v = inner.run();
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break bindLoop;
+                }
+                const next = bindOp.next(v);
+                if (next._tag === BIND) { bindOp = next; continue bindLoop; }
+                this.current = next;
+                break bindLoop;
+              }
+              case ASK: {
+                const next = bindOp.next(this.env);
+                if (next._tag === BIND) { bindOp = next; continue bindLoop; }
+                this.current = next;
+                break bindLoop;
+              }
+              case FORK_INLINE: {
+                const body = inner.op;
+                const bodyTag = body._tag;
+                if (_supervisors.length === 0) {
+                  if (bodyTag === PURE) {
+                    const next = bindOp.next(new DoneFiber(M_OK, body.value));
+                    if (next._tag === BIND) {
+                      bindOp = next;
+                      continue bindLoop;
+                    }
+                    this.current = next;
+                    break bindLoop;
+                  }
+                  if (bodyTag === SYNC) {
+                    let v;
+                    let m;
+                    try {
+                      v = body.run();
+                      m = M_OK;
+                    } catch (err) {
+                      v = err;
+                      m = M_DIE;
+                    }
+                    const next = bindOp.next(new DoneFiber(m, v));
+                    if (next._tag === BIND) {
+                      bindOp = next;
+                      continue bindLoop;
+                    }
+                    this.current = next;
+                    break bindLoop;
+                  }
+                }
+                this.frefsOwn = false;
+                const inlineChild = new Fiber(body, this.env, this.frefs);
+                inlineChild.step();
+                const next = bindOp.next(inlineChild);
+                if (next._tag === BIND) { bindOp = next; continue bindLoop; }
+                this.current = next;
+                break bindLoop;
+              }
+              case FREF_GET: {
+                const ref = inner.ref;
+                const m = this.frefs;
+                const next = bindOp.next(
+                  (m !== null && m.has(ref)) ? m.get(ref) : ref.initial
+                );
+                if (next._tag === BIND) { bindOp = next; continue bindLoop; }
+                this.current = next;
+                break bindLoop;
+              }
+              default:
+                // No fast path: reuse the bind op as its own K_BIND frame.
+                this.stack.push(bindOp);
+                this.current = inner;
+                break bindLoop;
             }
           }
-          // General path: reuse the op as its own K_BIND frame.
-          this.stack.push(op);
-          this.current = inner;
           continue;
         }
         case FAIL:
@@ -701,7 +746,7 @@ Fiber.prototype.step = function () {
           // the parent's next op stays observable before they run).
           const body = op.op;
           if (body._tag === PURE && _supervisors.length === 0) {
-            this.value = new DoneFiber(makeResult(M_OK, body.value));
+            this.value = new DoneFiber(M_OK, body.value);
             this.mode = M_OK;
             break;
           }
@@ -721,7 +766,7 @@ Fiber.prototype.step = function () {
           const bodyTag = body._tag;
           if (_supervisors.length === 0) {
             if (bodyTag === PURE) {
-              this.value = new DoneFiber(makeResult(M_OK, body.value));
+              this.value = new DoneFiber(M_OK, body.value);
               this.mode = M_OK;
               break;
             }
@@ -735,7 +780,7 @@ Fiber.prototype.step = function () {
                 v = err;
                 m = M_DIE;
               }
-              this.value = new DoneFiber(makeResult(m, v));
+              this.value = new DoneFiber(m, v);
               this.mode = M_OK;
               break;
             }
@@ -755,7 +800,7 @@ Fiber.prototype.step = function () {
             target.step();
           }
           if (target.status === F_DONE) {
-            this._installResult(target.result);
+            this._installResult(target);
             break;
           }
           this.status = F_SUSPENDED;
