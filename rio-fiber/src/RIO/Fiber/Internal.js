@@ -163,53 +163,117 @@ function resultToCause(r) {
 // for V8's inlining of tight switch dispatches.
 const TICK_BUDGET = 4096;
 
+// Single hidden class for every Op node AND every continuation frame.
+// The constructor always assigns _tag, _k, _1, _2 in the same order,
+// so V8 builds one hidden class for the whole instruction set and the
+// dispatcher's `op._tag` read stays monomorphic. (This is the same
+// trick `Effect.Aff` uses with its `new Aff(tag, _1, _2, _3)`.)
+//
+// _tag is the dispatch tag (PURE / SYNC / BIND / ...) or -1 for
+// frames that aren't also ops (K_MAP, K_APPLY, ...). _k is the
+// unwind tag (K_BIND / K_CATCH / ...) or -1 for ops that don't
+// double as a frame (PURE / SYNC / FORK / ...). BIND / CATCH /
+// ENSURING set both, so the op object can be pushed directly onto
+// the stack as its own K_BIND / K_CATCH / K_ENSURE frame, saving
+// one allocation per bind / catch / ensure on the hot path. _1 and
+// _2 carry the payload; layouts are documented in the smart-
+// constructor block below.
+function Op(tag, k, _1, _2) {
+  this._tag = tag;
+  this._k = k;
+  this._1 = _1;
+  this._2 = _2;
+}
+
+// K_FOR_EACH carries five fields (fn, items, n, i, results) plus the
+// mutable `i` cursor that the unwind handler advances in place. It
+// gets its own class so the four-slot Op shape stays clean.
+function ForEachFrame(fn, items, results) {
+  this._k = K_FOR_EACH;
+  this.fn = fn;
+  this.items = items;
+  this.n = items.length;
+  this.i = 0;
+  this.results = results;
+}
+
 // Op factories ---------------------------------------------------------
+//
+// Slot layout (per tag):
+//   PURE            : _1 = value
+//   SYNC            : _1 = run thunk
+//   BIND            : _1 = inner op,        _2 = next continuation
+//   FAIL            : _1 = Variant error
+//   CATCH           : _1 = inner op,        _2 = handler
+//   LOCAL           : _1 = transform fn,    _2 = inner op
+//   ASYNC           : _1 = register
+//   FORK / FORK_INLINE: _1 = body op
+//   JOIN / INTERRUPT  : _1 = target fiber
+//   ENSURING        : _1 = action,          _2 = finalizer
+//   UNINTERRUPTIBLE : _1 = inner op
+//   RACE            : _1 = left op,         _2 = right op
+//   PAR_TRAVERSE    : _1 = fn,              _2 = items
+//   PEEL            : _1 = inner op
+//   FREF_GET        : _1 = ref
+//   FREF_SET        : _1 = ref,             _2 = value
+//   FREF_MODIFY     : _1 = ref,             _2 = fn
+//   FAIL_CAUSE      : _1 = cause
+//   FORK_ALL / FORK_ALL_INLINE: _1 = ops array
+//   JOIN_ALL        : _1 = fibers array
+//   FOR_EACH        : _1 = fn,              _2 = items
+//   MAP             : _1 = function,        _2 = inner op
+//   APPLY           : _1 = opF,             _2 = opA
+//   K_LOCAL frame   : _1 = previous env
+//   K_AFTER_FIN     : _1 = savedValue,      _2 = savedMode
+//   K_MAP frame     : _1 = function
+//   K_APPLY frame   : _1 = opA
+//   K_APPLY2 frame  : _1 = function
 
 export const opPure = function (a) {
-  return { _tag: PURE, value: a };
+  return new Op(PURE, -1, a, null);
 };
 
 export const opLiftEffect = function (eff) {
-  return { _tag: SYNC, run: eff };
+  return new Op(SYNC, -1, eff, null);
 };
 
 // The BIND op also doubles as its own K_BIND continuation frame
-// (same `_k` field the unwind switch reads, same `next` field the
-// frame would carry). When the step loop encounters a BIND it can
-// push the op itself instead of allocating a fresh frame, saving
-// one object allocation per bind on the hot path.
+// (same `_k` field the unwind switch reads, same `_2` carrying the
+// continuation). When the step loop encounters a BIND it can push
+// the op itself instead of allocating a fresh frame, saving one
+// allocation per bind on the hot path.
 export const opBind = function (m) {
   return function (k) {
-    return { _tag: BIND, _k: K_BIND, op: m, next: k };
+    return new Op(BIND, K_BIND, m, k);
   };
 };
 
 // Singleton ASK: no payload, one shape, reuse the object.
-const ASK_NODE = { _tag: ASK };
+const ASK_NODE = new Op(ASK, -1, null, null);
 export const opAsk = ASK_NODE;
 
 // Singleton continuation frames that carry no per-instance payload:
 // pushing the singleton avoids a per-step allocation. Frames are
 // never mutated during the unwind, so sharing is safe.
-const FRAME_UNMASK = { _k: K_UNMASK };
-const FRAME_PEEL = { _k: K_PEEL };
+const FRAME_UNMASK = new Op(-1, K_UNMASK, null, null);
+const FRAME_PEEL = new Op(-1, K_PEEL, null, null);
 
 export const opFail = function (e) {
-  return { _tag: FAIL, error: e };
+  return new Op(FAIL, -1, e, null);
 };
 
 // CATCH op doubles as its own K_CATCH frame (same trick as opBind):
-// the op carries `handler`, and the unwind switch only needs `_k`
-// and `handler`. Pushing the op itself saves a per-step alloc.
+// the op carries `handler` in _2, and the unwind switch only needs
+// `_k` and `_2`. Pushing the op itself saves a per-step alloc.
 export const opCatchAll = function (handler) {
   return function (op) {
-    return { _tag: CATCH, _k: K_CATCH, op: op, handler: handler };
+    return new Op(CATCH, K_CATCH, op, handler);
   };
 };
 
 export const opLocal = function (f) {
   return function (op) {
-    return { _tag: LOCAL, transform: f, op: op };
+    return new Op(LOCAL, -1, f, op);
   };
 };
 
@@ -218,11 +282,11 @@ export const opLocal = function (f) {
 // `Effect Unit` canceller. `onOk` and `onFail` are curried PureScript
 // functions; the fiber wraps the underlying single-shot resume.
 export const opAsync = function (register) {
-  return { _tag: ASYNC, register: register };
+  return new Op(ASYNC, -1, register, null);
 };
 
 export const opFork = function (op) {
-  return { _tag: FORK, op: op };
+  return new Op(FORK, -1, op, null);
 };
 
 // Like opFork but steps the child synchronously before returning the
@@ -231,11 +295,11 @@ export const opFork = function (op) {
 // touching the microtask scheduler. If the child suspends, the parent
 // gets a live handle exactly as with opFork.
 export const opForkInline = function (op) {
-  return { _tag: FORK_INLINE, op: op };
+  return new Op(FORK_INLINE, -1, op, null);
 };
 
 export const opJoin = function (fiber) {
-  return { _tag: JOIN, fiber: fiber };
+  return new Op(JOIN, -1, fiber, null);
 };
 
 // Specialized array fork: take N ops and produce N fiber handles in
@@ -243,7 +307,7 @@ export const opJoin = function (fiber) {
 // BIND chain (which `traverseArrayImpl` builds as a balanced ~2N-node
 // tree). The handler walks the array in a tight JS loop.
 export const opForkAll = function (ops) {
-  return { _tag: FORK_ALL, ops: ops };
+  return new Op(FORK_ALL, -1, ops, null);
 };
 
 // Specialized array join: take N fiber handles and produce their N
@@ -251,7 +315,7 @@ export const opForkAll = function (ops) {
 // outcome the parent propagates that outcome (sibling fibers continue
 // running unmolested, matching ZIO's `Fiber.joinAll` semantics).
 export const opJoinAll = function (fibers) {
-  return { _tag: JOIN_ALL, fibers: fibers };
+  return new Op(JOIN_ALL, -1, fibers, null);
 };
 
 // Sequential traverse: run `fn(items[i])` for each i in order and
@@ -260,7 +324,7 @@ export const opJoinAll = function (fibers) {
 // K_FOR_EACH frame and advances `i` in place across resumptions.
 export const opForEach = function (fn) {
   return function (items) {
-    return { _tag: FOR_EACH, fn: fn, items: items };
+    return new Op(FOR_EACH, -1, fn, items);
   };
 };
 
@@ -288,28 +352,21 @@ export const opMap = function (f) {
   return function (op) {
     const tag = op._tag;
     if (tag === PURE) {
-      return { _tag: PURE, value: f(op.value) };
+      return new Op(PURE, -1, f(op._1), null);
     }
     if (tag === SYNC) {
-      const run = op.run;
-      return {
-        _tag: SYNC,
-        run: function () {
-          return f(run());
-        },
-      };
+      const run = op._1;
+      return new Op(SYNC, -1, function () {
+        return f(run());
+      }, null);
     }
     if (tag === MAP) {
-      const g = op.f;
-      return {
-        _tag: MAP,
-        f: function (x) {
-          return f(g(x));
-        },
-        op: op.op,
-      };
+      const g = op._1;
+      return new Op(MAP, -1, function (x) {
+        return f(g(x));
+      }, op._2);
     }
-    return { _tag: MAP, f: f, op: op };
+    return new Op(MAP, -1, f, op);
   };
 };
 
@@ -320,22 +377,22 @@ export const opApply = function (opF) {
     // Both sides are pure: collapse to a Pure carrying the applied
     // value. This is the case `pure f <*> pure a` lands in.
     if (tagF === PURE && tagA === PURE) {
-      return { _tag: PURE, value: opF.value(opA.value) };
+      return new Op(PURE, -1, opF._1(opA._1), null);
     }
     // Function arg is pure: degenerate to a map. Then re-run the map
     // fusions on top of opA, so e.g. `pure f <*> pure g <*> ma`
     // collapses through both sides.
     if (tagF === PURE) {
-      return opMap(opF.value)(opA);
+      return opMap(opF._1)(opA);
     }
     // Value arg is pure: degenerate to a map over the function arg.
     if (tagA === PURE) {
-      const a = opA.value;
+      const a = opA._1;
       return opMap(function (g) {
         return g(a);
       })(opF);
     }
-    return { _tag: APPLY, opF: opF, opA: opA };
+    return new Op(APPLY, -1, opF, opA);
   };
 };
 
@@ -346,39 +403,39 @@ export const opApply = function (opF) {
 // driven once inline so its first ASYNC callback is registered before
 // the parent makes any further observable progress.
 export const opForkAllInline = function (ops) {
-  return { _tag: FORK_ALL_INLINE, ops: ops };
+  return new Op(FORK_ALL_INLINE, -1, ops, null);
 };
 
 export const opInterrupt = function (fiber) {
-  return { _tag: INTERRUPT, fiber: fiber };
+  return new Op(INTERRUPT, -1, fiber, null);
 };
 
-// ENSURING op doubles as its own K_ENSURE frame: `finalizer` is on
-// the op, the unwind switch only reads `_k` and `finalizer`.
+// ENSURING op doubles as its own K_ENSURE frame: `finalizer` is in
+// _2, the unwind switch only reads `_k` and `_2`.
 export const opEnsuring = function (finalizer) {
   return function (action) {
-    return { _tag: ENSURING, _k: K_ENSURE, action: action, finalizer: finalizer };
+    return new Op(ENSURING, K_ENSURE, action, finalizer);
   };
 };
 
 export const opUninterruptible = function (op) {
-  return { _tag: UNINTERRUPTIBLE, op: op };
+  return new Op(UNINTERRUPTIBLE, -1, op, null);
 };
 
 export const opRace = function (left) {
   return function (right) {
-    return { _tag: RACE, left: left, right: right };
+    return new Op(RACE, -1, left, right);
   };
 };
 
 export const opParTraverse = function (fn) {
   return function (items) {
-    return { _tag: PAR_TRAVERSE, fn: fn, items: items };
+    return new Op(PAR_TRAVERSE, -1, fn, items);
   };
 };
 
 export const opPeel = function (op) {
-  return { _tag: PEEL, op: op };
+  return new Op(PEEL, -1, op, null);
 };
 
 // FiberRef factories. Each FiberRef is a fresh JS object that doubles
@@ -391,18 +448,18 @@ export const _newFiberRef = function (initial) {
 };
 
 export const opGetFiberRef = function (ref) {
-  return { _tag: FREF_GET, ref: ref };
+  return new Op(FREF_GET, -1, ref, null);
 };
 
 export const opSetFiberRef = function (ref) {
   return function (value) {
-    return { _tag: FREF_SET, ref: ref, value: value };
+    return new Op(FREF_SET, -1, ref, value);
   };
 };
 
 export const opModifyFiberRef = function (ref) {
   return function (fn) {
-    return { _tag: FREF_MODIFY, ref: ref, fn: fn };
+    return new Op(FREF_MODIFY, -1, ref, fn);
   };
 };
 
@@ -651,12 +708,12 @@ Fiber.prototype._stepInner = function () {
       this.current = null;
       switch (op._tag) {
         case PURE:
-          this.value = op.value;
+          this.value = op._1;
           this.mode = M_OK;
           break;
         case SYNC:
           try {
-            this.value = op.run();
+            this.value = op._1();
             this.mode = M_OK;
           } catch (err) {
             // Synchronous throw becomes a defect that unwinds
@@ -684,10 +741,10 @@ Fiber.prototype._stepInner = function () {
           // loop descends.
           let bindOp = op;
           bindLoop: while (true) {
-            const inner = bindOp.op;
+            const inner = bindOp._1;
             switch (inner._tag) {
               case PURE: {
-                const next = bindOp.next(inner.value);
+                const next = bindOp._2(inner._1);
                 if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                 this.current = next;
                 break bindLoop;
@@ -700,9 +757,9 @@ Fiber.prototype._stepInner = function () {
                 continue bindLoop;
               }
               case FORK: {
-                const body = inner.op;
+                const body = inner._1;
                 if (body._tag === PURE && _supervisors.length === 0) {
-                  const next = bindOp.next(new DoneFiber(M_OK, body.value));
+                  const next = bindOp._2(new DoneFiber(M_OK, body._1));
                   if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                   this.current = next;
                   break bindLoop;
@@ -710,13 +767,13 @@ Fiber.prototype._stepInner = function () {
                 this.frefsOwn = false;
                 const child = new Fiber(body, this.env, this.frefs);
                 scheduleFiber(child);
-                const next = bindOp.next(child);
+                const next = bindOp._2(child);
                 if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                 this.current = next;
                 break bindLoop;
               }
               case JOIN: {
-                const target = inner.fiber;
+                const target = inner._1;
                 if (target.queued) {
                   target.queued = false;
                   _pendingCount--;
@@ -724,7 +781,7 @@ Fiber.prototype._stepInner = function () {
                 }
                 if (target.status === F_DONE) {
                   if (target.mode === M_OK) {
-                    const next = bindOp.next(target.value);
+                    const next = bindOp._2(target.value);
                     if (next._tag === BIND) {
                       bindOp = next;
                       continue bindLoop;
@@ -744,29 +801,29 @@ Fiber.prototype._stepInner = function () {
               case SYNC: {
                 let v;
                 try {
-                  v = inner.run();
+                  v = inner._1();
                 } catch (err) {
                   this.value = err;
                   this.mode = M_DIE;
                   break bindLoop;
                 }
-                const next = bindOp.next(v);
+                const next = bindOp._2(v);
                 if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                 this.current = next;
                 break bindLoop;
               }
               case ASK: {
-                const next = bindOp.next(this.env);
+                const next = bindOp._2(this.env);
                 if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                 this.current = next;
                 break bindLoop;
               }
               case FORK_INLINE: {
-                const body = inner.op;
+                const body = inner._1;
                 const bodyTag = body._tag;
                 if (_supervisors.length === 0) {
                   if (bodyTag === PURE) {
-                    const next = bindOp.next(new DoneFiber(M_OK, body.value));
+                    const next = bindOp._2(new DoneFiber(M_OK, body._1));
                     if (next._tag === BIND) {
                       bindOp = next;
                       continue bindLoop;
@@ -778,13 +835,13 @@ Fiber.prototype._stepInner = function () {
                     let v;
                     let m;
                     try {
-                      v = body.run();
+                      v = body._1();
                       m = M_OK;
                     } catch (err) {
                       v = err;
                       m = M_DIE;
                     }
-                    const next = bindOp.next(new DoneFiber(m, v));
+                    const next = bindOp._2(new DoneFiber(m, v));
                     if (next._tag === BIND) {
                       bindOp = next;
                       continue bindLoop;
@@ -796,15 +853,15 @@ Fiber.prototype._stepInner = function () {
                 this.frefsOwn = false;
                 const inlineChild = new Fiber(body, this.env, this.frefs);
                 inlineChild.step();
-                const next = bindOp.next(inlineChild);
+                const next = bindOp._2(inlineChild);
                 if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                 this.current = next;
                 break bindLoop;
               }
               case FREF_GET: {
-                const ref = inner.ref;
+                const ref = inner._1;
                 const m = this.frefs;
-                const next = bindOp.next(
+                const next = bindOp._2(
                   (m !== null && m.has(ref)) ? m.get(ref) : ref.initial
                 );
                 if (next._tag === BIND) { bindOp = next; continue bindLoop; }
@@ -815,7 +872,7 @@ Fiber.prototype._stepInner = function () {
                 // Synchronous fan-out: walk the input array, spawn one
                 // fiber per op (DoneFiber for PURE leaves), and apply
                 // `next` to the result array without a K_BIND frame.
-                const ops = inner.ops;
+                const ops = inner._1;
                 const n = ops.length;
                 const out = new Array(n);
                 if (n > 0) {
@@ -824,7 +881,7 @@ Fiber.prototype._stepInner = function () {
                   for (let i = 0; i < n; i++) {
                     const body = ops[i];
                     if (body._tag === PURE && supEmpty) {
-                      out[i] = new DoneFiber(M_OK, body.value);
+                      out[i] = new DoneFiber(M_OK, body._1);
                     } else {
                       const child = new Fiber(body, this.env, this.frefs);
                       scheduleFiber(child);
@@ -832,7 +889,7 @@ Fiber.prototype._stepInner = function () {
                     }
                   }
                 }
-                const next = bindOp.next(out);
+                const next = bindOp._2(out);
                 if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                 this.current = next;
                 break bindLoop;
@@ -843,10 +900,10 @@ Fiber.prototype._stepInner = function () {
                 // complete OK we apply `next` here; if one fails we
                 // unwind; otherwise we fall back to the outer suspending
                 // handler.
-                const fibers = inner.fibers;
+                const fibers = inner._1;
                 const n = fibers.length;
                 if (n === 0) {
-                  const next = bindOp.next([]);
+                  const next = bindOp._2([]);
                   if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                   this.current = next;
                   break bindLoop;
@@ -873,7 +930,7 @@ Fiber.prototype._stepInner = function () {
                 }
                 if (failed) break bindLoop;
                 if (pending === 0) {
-                  const next = bindOp.next(results);
+                  const next = bindOp._2(results);
                   if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                   this.current = next;
                   break bindLoop;
@@ -901,13 +958,13 @@ Fiber.prototype._stepInner = function () {
             if (cur !== null) {
               const curTag = cur._tag;
               if (curTag === PURE) {
-                this.value = cur.value;
+                this.value = cur._1;
                 this.mode = M_OK;
                 this.current = null;
               } else if (curTag === SYNC) {
                 this.current = null;
                 try {
-                  this.value = cur.run();
+                  this.value = cur._1();
                   this.mode = M_OK;
                 } catch (err) {
                   this.value = err;
@@ -919,13 +976,13 @@ Fiber.prototype._stepInner = function () {
           continue;
         }
         case FAIL:
-          this.value = op.error;
+          this.value = op._1;
           this.mode = M_FAIL;
           break;
         case CATCH:
           // Reuse the op as its own K_CATCH frame; see opCatchAll.
           this.stack.push(op);
-          this.current = op.op;
+          this.current = op._1;
           continue;
         case ASK:
           this.value = this.env;
@@ -933,9 +990,9 @@ Fiber.prototype._stepInner = function () {
           break;
         case LOCAL: {
           const prev = this.env;
-          this.env = op.transform(this.env);
-          this.stack.push({ _k: K_LOCAL, prev: prev });
-          this.current = op.op;
+          this.env = op._1(this.env);
+          this.stack.push(new Op(-1, K_LOCAL, prev, null));
+          this.current = op._2;
           continue;
         }
         case ASYNC: {
@@ -968,7 +1025,7 @@ Fiber.prototype._stepInner = function () {
           };
           let canceller;
           try {
-            canceller = op.register(onOk)(onFail)();
+            canceller = op._1(onOk)(onFail)();
           } catch (err) {
             this.value = err;
             this.mode = M_DIE;
@@ -988,9 +1045,9 @@ Fiber.prototype._stepInner = function () {
           // PURE bodies skip the Fiber + scheduleFiber path; SYNC
           // bodies do not (their effect must wait for the drain so
           // the parent's next op stays observable before they run).
-          const body = op.op;
+          const body = op._1;
           if (body._tag === PURE && _supervisors.length === 0) {
-            this.value = new DoneFiber(M_OK, body.value);
+            this.value = new DoneFiber(M_OK, body._1);
             this.mode = M_OK;
             break;
           }
@@ -1006,11 +1063,11 @@ Fiber.prototype._stepInner = function () {
           // continue. Sync-bodied children complete here; suspending
           // children hand back a live handle just like FORK. Leaf
           // bodies skip the Fiber alloc entirely.
-          const body = op.op;
+          const body = op._1;
           const bodyTag = body._tag;
           if (_supervisors.length === 0) {
             if (bodyTag === PURE) {
-              this.value = new DoneFiber(M_OK, body.value);
+              this.value = new DoneFiber(M_OK, body._1);
               this.mode = M_OK;
               break;
             }
@@ -1018,7 +1075,7 @@ Fiber.prototype._stepInner = function () {
               let v;
               let m;
               try {
-                v = body.run();
+                v = body._1();
                 m = M_OK;
               } catch (err) {
                 v = err;
@@ -1037,7 +1094,7 @@ Fiber.prototype._stepInner = function () {
           break;
         }
         case JOIN: {
-          const target = op.fiber;
+          const target = op._1;
           const self = this;
           if (target.queued) {
             target.queued = false;
@@ -1056,7 +1113,7 @@ Fiber.prototype._stepInner = function () {
           return;
         }
         case INTERRUPT: {
-          op.fiber.interrupt();
+          op._1.interrupt();
           this.value = undefined;
           this.mode = M_OK;
           break;
@@ -1064,12 +1121,12 @@ Fiber.prototype._stepInner = function () {
         case ENSURING:
           // Reuse the op as its own K_ENSURE frame; see opEnsuring.
           this.stack.push(op);
-          this.current = op.action;
+          this.current = op._1;
           continue;
         case UNINTERRUPTIBLE:
           this.mask++;
           this.stack.push(FRAME_UNMASK);
-          this.current = op.op;
+          this.current = op._1;
           continue;
         case RACE: {
           // Success on either side wins immediately and interrupts the
@@ -1080,8 +1137,8 @@ Fiber.prototype._stepInner = function () {
           // (no failure observed), the race itself is interrupted.
           const self = this;
           this.frefsOwn = false;
-          const leftFiber = new Fiber(op.left, this.env, this.frefs);
-          const rightFiber = new Fiber(op.right, this.env, this.frefs);
+          const leftFiber = new Fiber(op._1, this.env, this.frefs);
+          const rightFiber = new Fiber(op._2, this.env, this.frefs);
           let settled = false;
           let firstFailure = null; // Cause held while waiting for the other side
           let bothCompleted = 0;
@@ -1133,12 +1190,12 @@ Fiber.prototype._stepInner = function () {
         }
         case PEEL:
           this.stack.push(FRAME_PEEL);
-          this.current = op.op;
+          this.current = op._1;
           continue;
         case PAR_TRAVERSE: {
           const self = this;
-          const fn = op.fn;
-          const items = op.items;
+          const fn = op._1;
+          const items = op._2;
           const n = items.length;
           if (n === 0) {
             this.value = [];
@@ -1187,11 +1244,11 @@ Fiber.prototype._stepInner = function () {
           // Empty causes succeed (no failure to report); anything
           // else unwinds with M_CAUSE so the structured leaves are
           // visible at the top.
-          if (op.cause._c === C_EMPTY) {
+          if (op._1._c === C_EMPTY) {
             this.value = undefined;
             this.mode = M_OK;
           } else {
-            this.value = op.cause;
+            this.value = op._1;
             this.mode = M_CAUSE;
           }
           break;
@@ -1202,7 +1259,7 @@ Fiber.prototype._stepInner = function () {
           // goes through the scheduler exactly as case FORK does.
           // Equivalent to `traverse fork ops` but skips the per-element
           // BIND chain that traverseArrayImpl would build.
-          const ops = op.ops;
+          const ops = op._1;
           const n = ops.length;
           const out = new Array(n);
           if (n === 0) {
@@ -1215,7 +1272,7 @@ Fiber.prototype._stepInner = function () {
           for (let i = 0; i < n; i++) {
             const body = ops[i];
             if (body._tag === PURE && supEmpty) {
-              out[i] = new DoneFiber(M_OK, body.value);
+              out[i] = new DoneFiber(M_OK, body._1);
             } else {
               const child = new Fiber(body, this.env, this.frefs);
               scheduleFiber(child);
@@ -1234,12 +1291,12 @@ Fiber.prototype._stepInner = function () {
           // returns synchronously gets folded in place; only genuinely
           // suspending inner ops (e.g. JOIN on an unfinished fiber)
           // install a K_MAP frame and yield to the outer dispatch.
-          const inner = op.op;
+          const inner = op._2;
           const innerTag = inner._tag;
-          const f = op.f;
+          const f = op._1;
           if (innerTag === PURE) {
             try {
-              this.value = f(inner.value);
+              this.value = f(inner._1);
               this.mode = M_OK;
             } catch (err) {
               this.value = err;
@@ -1249,7 +1306,7 @@ Fiber.prototype._stepInner = function () {
           }
           if (innerTag === SYNC) {
             try {
-              this.value = f(inner.run());
+              this.value = f(inner._1());
               this.mode = M_OK;
             } catch (err) {
               this.value = err;
@@ -1258,10 +1315,10 @@ Fiber.prototype._stepInner = function () {
             break;
           }
           if (innerTag === FORK) {
-            const body = inner.op;
+            const body = inner._1;
             let fiber;
             if (body._tag === PURE && _supervisors.length === 0) {
-              fiber = new DoneFiber(M_OK, body.value);
+              fiber = new DoneFiber(M_OK, body._1);
             } else {
               this.frefsOwn = false;
               fiber = new Fiber(body, this.env, this.frefs);
@@ -1277,16 +1334,16 @@ Fiber.prototype._stepInner = function () {
             break;
           }
           if (innerTag === FORK_INLINE) {
-            const body = inner.op;
+            const body = inner._1;
             const bodyTag = body._tag;
             let fiber;
             if (_supervisors.length === 0 && bodyTag === PURE) {
-              fiber = new DoneFiber(M_OK, body.value);
+              fiber = new DoneFiber(M_OK, body._1);
             } else if (_supervisors.length === 0 && bodyTag === SYNC) {
               let v;
               let m;
               try {
-                v = body.run();
+                v = body._1();
                 m = M_OK;
               } catch (err) {
                 v = err;
@@ -1308,7 +1365,7 @@ Fiber.prototype._stepInner = function () {
             break;
           }
           if (innerTag === JOIN) {
-            const target = inner.fiber;
+            const target = inner._1;
             if (target.queued) {
               target.queued = false;
               _pendingCount--;
@@ -1330,7 +1387,7 @@ Fiber.prototype._stepInner = function () {
               break;
             }
             // Suspending join: install K_MAP and dispatch JOIN.
-            this.stack.push({ _k: K_MAP, f: f });
+            this.stack.push(new Op(-1, K_MAP, f, null));
             this.current = inner;
             continue;
           }
@@ -1345,7 +1402,7 @@ Fiber.prototype._stepInner = function () {
             break;
           }
           if (innerTag === FREF_GET) {
-            const ref = inner.ref;
+            const ref = inner._1;
             const m = this.frefs;
             const v = (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
             try {
@@ -1357,7 +1414,7 @@ Fiber.prototype._stepInner = function () {
             }
             break;
           }
-          this.stack.push({ _k: K_MAP, f: f });
+          this.stack.push(new Op(-1, K_MAP, f, null));
           this.current = inner;
           continue;
         }
@@ -1365,11 +1422,11 @@ Fiber.prototype._stepInner = function () {
           // Evaluate opF first; K_APPLY then captures the resulting
           // function and kicks off opA. K_APPLY2 finally calls f(v).
           // Folds the PURE / PURE leaf to skip both frames entirely.
-          const opF = op.opF;
-          const opA = op.opA;
+          const opF = op._1;
+          const opA = op._2;
           if (opF._tag === PURE && opA._tag === PURE) {
             try {
-              this.value = opF.value(opA.value);
+              this.value = opF._1(opA._1);
               this.mode = M_OK;
             } catch (err) {
               this.value = err;
@@ -1377,7 +1434,7 @@ Fiber.prototype._stepInner = function () {
             }
             break;
           }
-          this.stack.push({ _k: K_APPLY, opA: opA });
+          this.stack.push(new Op(-1, K_APPLY, opA, null));
           this.current = opF;
           continue;
         }
@@ -1388,7 +1445,7 @@ Fiber.prototype._stepInner = function () {
           // no scheduleFiber); everything else gets one inline step so
           // a subsequent JOIN_ALL can rendezvous on completed children
           // without the queueMicrotask round-trip.
-          const ops = op.ops;
+          const ops = op._1;
           const n = ops.length;
           const out = new Array(n);
           if (n === 0) {
@@ -1402,12 +1459,12 @@ Fiber.prototype._stepInner = function () {
             const body = ops[i];
             const bodyTag = body._tag;
             if (supEmpty && bodyTag === PURE) {
-              out[i] = new DoneFiber(M_OK, body.value);
+              out[i] = new DoneFiber(M_OK, body._1);
             } else if (supEmpty && bodyTag === SYNC) {
               let v;
               let m;
               try {
-                v = body.run();
+                v = body._1();
                 m = M_OK;
               } catch (err) {
                 v = err;
@@ -1435,14 +1492,14 @@ Fiber.prototype._stepInner = function () {
           // genuinely suspending (or branches into a non-trivial op).
           // For pure / sync bodies the whole array runs in one outer
           // dispatch with no per-element frame push / pop.
-          const items = op.items;
+          const items = op._2;
           const n = items.length;
           if (n === 0) {
             this.value = [];
             this.mode = M_OK;
             break;
           }
-          const fn = op.fn;
+          const fn = op._1;
           const results = new Array(n);
           let i = 0;
           let bodyOp;
@@ -1456,7 +1513,7 @@ Fiber.prototype._stepInner = function () {
             }
             const btag = bodyOp._tag;
             if (btag === PURE) {
-              results[i] = bodyOp.value;
+              results[i] = bodyOp._1;
               i++;
               if (i >= n) {
                 this.value = results;
@@ -1467,7 +1524,7 @@ Fiber.prototype._stepInner = function () {
             }
             if (btag === SYNC) {
               try {
-                results[i] = bodyOp.run();
+                results[i] = bodyOp._1();
               } catch (err) {
                 this.value = err;
                 this.mode = M_DIE;
@@ -1483,14 +1540,9 @@ Fiber.prototype._stepInner = function () {
             }
             // Suspending / structured body: install the frame and let
             // the outer loop dispatch it.
-            this.stack.push({
-              _k: K_FOR_EACH,
-              fn: fn,
-              items: items,
-              n: n,
-              i: i,
-              results: results,
-            });
+            const fr = new ForEachFrame(fn, items, results);
+            fr.i = i;
+            this.stack.push(fr);
             this.current = bodyOp;
             break;
           }
@@ -1503,7 +1555,7 @@ Fiber.prototype._stepInner = function () {
           // and propagate the first non-OK outcome we see. If anything
           // is still pending after the sync pass, suspend and register
           // observers for the rest.
-          const fibers = op.fibers;
+          const fibers = op._1;
           const n = fibers.length;
           if (n === 0) {
             this.value = [];
@@ -1562,7 +1614,7 @@ Fiber.prototype._stepInner = function () {
           return;
         }
         case FREF_GET: {
-          const ref = op.ref;
+          const ref = op._1;
           const m = this.frefs;
           this.value = (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
           this.mode = M_OK;
@@ -1576,18 +1628,18 @@ Fiber.prototype._stepInner = function () {
             this.frefs = new Map(this.frefs);
             this.frefsOwn = true;
           }
-          this.frefs.set(op.ref, op.value);
+          this.frefs.set(op._1, op._2);
           this.value = undefined;
           this.mode = M_OK;
           break;
         }
         case FREF_MODIFY: {
-          const ref = op.ref;
+          const ref = op._1;
           const m0 = this.frefs;
           const prev = (m0 !== null && m0.has(ref)) ? m0.get(ref) : ref.initial;
           let next;
           try {
-            next = op.fn(prev);
+            next = op._2(prev);
           } catch (err) {
             this.value = err;
             this.mode = M_DIE;
@@ -1651,14 +1703,14 @@ Fiber.prototype._stepInner = function () {
             // typical traverse-built shape, so we descend into the
             // BIND inner loop directly to skip the outer dispatch
             // round-trip per nested bind.
-            const nextOp = frame.next(this.value);
+            const nextOp = frame._2(this.value);
             const nextTag = nextOp._tag;
             if (nextTag === PURE) {
-              this.value = nextOp.value;
+              this.value = nextOp._1;
               // mode is already M_OK
             } else if (nextTag === SYNC) {
               try {
-                this.value = nextOp.run();
+                this.value = nextOp._1();
               } catch (err) {
                 this.value = err;
                 this.mode = M_DIE;
@@ -1669,10 +1721,10 @@ Fiber.prototype._stepInner = function () {
               // the outer-loop tick/interrupt/dispatch trio per step.
               let bindOp = nextOp;
               kbindLoop: while (true) {
-                const inner = bindOp.op;
+                const inner = bindOp._1;
                 switch (inner._tag) {
                   case PURE: {
-                    const next = bindOp.next(inner.value);
+                    const next = bindOp._2(inner._1);
                     if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                     this.current = next;
                     break kbindLoop;
@@ -1683,9 +1735,9 @@ Fiber.prototype._stepInner = function () {
                     continue kbindLoop;
                   }
                   case FORK: {
-                    const body = inner.op;
+                    const body = inner._1;
                     if (body._tag === PURE && _supervisors.length === 0) {
-                      const next = bindOp.next(new DoneFiber(M_OK, body.value));
+                      const next = bindOp._2(new DoneFiber(M_OK, body._1));
                       if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                       this.current = next;
                       break kbindLoop;
@@ -1693,13 +1745,13 @@ Fiber.prototype._stepInner = function () {
                     this.frefsOwn = false;
                     const child = new Fiber(body, this.env, this.frefs);
                     scheduleFiber(child);
-                    const next = bindOp.next(child);
+                    const next = bindOp._2(child);
                     if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                     this.current = next;
                     break kbindLoop;
                   }
                   case JOIN: {
-                    const target = inner.fiber;
+                    const target = inner._1;
                     if (target.queued) {
                       target.queued = false;
                       _pendingCount--;
@@ -1707,7 +1759,7 @@ Fiber.prototype._stepInner = function () {
                     }
                     if (target.status === F_DONE) {
                       if (target.mode === M_OK) {
-                        const next = bindOp.next(target.value);
+                        const next = bindOp._2(target.value);
                         if (next._tag === BIND) {
                           bindOp = next;
                           continue kbindLoop;
@@ -1725,29 +1777,29 @@ Fiber.prototype._stepInner = function () {
                   case SYNC: {
                     let v;
                     try {
-                      v = inner.run();
+                      v = inner._1();
                     } catch (err) {
                       this.value = err;
                       this.mode = M_DIE;
                       break kbindLoop;
                     }
-                    const next = bindOp.next(v);
+                    const next = bindOp._2(v);
                     if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                     this.current = next;
                     break kbindLoop;
                   }
                   case ASK: {
-                    const next = bindOp.next(this.env);
+                    const next = bindOp._2(this.env);
                     if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                     this.current = next;
                     break kbindLoop;
                   }
                   case FORK_INLINE: {
-                    const body = inner.op;
+                    const body = inner._1;
                     const bodyTag = body._tag;
                     if (_supervisors.length === 0) {
                       if (bodyTag === PURE) {
-                        const next = bindOp.next(new DoneFiber(M_OK, body.value));
+                        const next = bindOp._2(new DoneFiber(M_OK, body._1));
                         if (next._tag === BIND) {
                           bindOp = next;
                           continue kbindLoop;
@@ -1759,13 +1811,13 @@ Fiber.prototype._stepInner = function () {
                         let v;
                         let m;
                         try {
-                          v = body.run();
+                          v = body._1();
                           m = M_OK;
                         } catch (err) {
                           v = err;
                           m = M_DIE;
                         }
-                        const next = bindOp.next(new DoneFiber(m, v));
+                        const next = bindOp._2(new DoneFiber(m, v));
                         if (next._tag === BIND) {
                           bindOp = next;
                           continue kbindLoop;
@@ -1777,13 +1829,13 @@ Fiber.prototype._stepInner = function () {
                     this.frefsOwn = false;
                     const inlineChild = new Fiber(body, this.env, this.frefs);
                     inlineChild.step();
-                    const next = bindOp.next(inlineChild);
+                    const next = bindOp._2(inlineChild);
                     if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                     this.current = next;
                     break kbindLoop;
                   }
                   case FORK_ALL: {
-                    const ops = inner.ops;
+                    const ops = inner._1;
                     const n = ops.length;
                     const out = new Array(n);
                     if (n > 0) {
@@ -1792,7 +1844,7 @@ Fiber.prototype._stepInner = function () {
                       for (let i = 0; i < n; i++) {
                         const body = ops[i];
                         if (body._tag === PURE && supEmpty) {
-                          out[i] = new DoneFiber(M_OK, body.value);
+                          out[i] = new DoneFiber(M_OK, body._1);
                         } else {
                           const child = new Fiber(body, this.env, this.frefs);
                           scheduleFiber(child);
@@ -1800,16 +1852,16 @@ Fiber.prototype._stepInner = function () {
                         }
                       }
                     }
-                    const next = bindOp.next(out);
+                    const next = bindOp._2(out);
                     if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                     this.current = next;
                     break kbindLoop;
                   }
                   case JOIN_ALL: {
-                    const fibers = inner.fibers;
+                    const fibers = inner._1;
                     const n = fibers.length;
                     if (n === 0) {
-                      const next = bindOp.next([]);
+                      const next = bindOp._2([]);
                       if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                       this.current = next;
                       break kbindLoop;
@@ -1836,7 +1888,7 @@ Fiber.prototype._stepInner = function () {
                     }
                     if (failed) break kbindLoop;
                     if (pending === 0) {
-                      const next = bindOp.next(results);
+                      const next = bindOp._2(results);
                       if (next._tag === BIND) { bindOp = next; continue kbindLoop; }
                       this.current = next;
                       break kbindLoop;
@@ -1862,13 +1914,13 @@ Fiber.prototype._stepInner = function () {
                 if (cur !== null) {
                   const curTag = cur._tag;
                   if (curTag === PURE) {
-                    this.value = cur.value;
+                    this.value = cur._1;
                     this.current = null;
                     // mode is already M_OK
                   } else if (curTag === SYNC) {
                     this.current = null;
                     try {
-                      this.value = cur.run();
+                      this.value = cur._1();
                     } catch (err) {
                       this.value = err;
                       this.mode = M_DIE;
@@ -1884,25 +1936,21 @@ Fiber.prototype._stepInner = function () {
           break;
         case K_CATCH:
           if (this.mode === M_FAIL) {
-            this.current = frame.handler(this.value);
+            this.current = frame._2(this.value);
             this.mode = M_OK;
             this.value = null;
           }
           // OK passes through; DIE / INTERRUPT bypass user handlers.
           break;
         case K_LOCAL:
-          this.env = frame.prev;
+          this.env = frame._1;
           break;
         case K_ENSURE: {
           // Save the action's outcome, enter uninterruptible region,
           // and arrange for the finalizer to run.
           this.mask++;
-          this.stack.push({
-            _k: K_AFTER_FIN,
-            savedValue: this.value,
-            savedMode: this.mode,
-          });
-          this.current = frame.finalizer;
+          this.stack.push(new Op(-1, K_AFTER_FIN, this.value, this.mode));
+          this.current = frame._2;
           this.mode = M_OK;
           this.value = null;
           break;
@@ -1914,20 +1962,22 @@ Fiber.prototype._stepInner = function () {
           //   - both succeeded: drop back to the action's success value
           //   - either failed: propagate the composed Cause
           //   - both failed: both leaves are visible in the Cause
-          if (this.mode === M_OK && frame.savedMode === M_OK) {
-            this.value = frame.savedValue;
+          const savedValue = frame._1;
+          const savedMode = frame._2;
+          if (this.mode === M_OK && savedMode === M_OK) {
+            this.value = savedValue;
             this.mode = M_OK;
           } else if (this.mode === M_OK) {
             // finalizer ok; restore action's failure exactly
-            this.value = frame.savedValue;
-            this.mode = frame.savedMode;
-          } else if (frame.savedMode === M_OK) {
+            this.value = savedValue;
+            this.mode = savedMode;
+          } else if (savedMode === M_OK) {
             // action ok, finalizer failed; propagate finalizer
             // (mode/value already in place)
           } else {
             // both non-ok: compose
             const combined = causeThen(
-              modeToCause(frame.savedMode, frame.savedValue),
+              modeToCause(savedMode, savedValue),
               modeToCause(this.mode, this.value),
             );
             this.value = combined;
@@ -1960,13 +2010,13 @@ Fiber.prototype._stepInner = function () {
               }
               const ntag = nextOp._tag;
               if (ntag === PURE) {
-                results[i] = nextOp.value;
+                results[i] = nextOp._1;
                 i++;
                 continue forEachUnwind;
               }
               if (ntag === SYNC) {
                 try {
-                  results[i] = nextOp.run();
+                  results[i] = nextOp._1();
                 } catch (err) {
                   this.value = err;
                   this.mode = M_DIE;
@@ -2007,7 +2057,7 @@ Fiber.prototype._stepInner = function () {
         case K_MAP: {
           if (this.mode === M_OK) {
             try {
-              this.value = frame.f(this.value);
+              this.value = frame._1(this.value);
             } catch (err) {
               this.value = err;
               this.mode = M_DIE;
@@ -2024,11 +2074,11 @@ Fiber.prototype._stepInner = function () {
           // opAs (e.g. JOIN on an unfinished fiber) take the slow path.
           if (this.mode === M_OK) {
             const f = this.value;
-            const opA = frame.opA;
+            const opA = frame._1;
             const opATag = opA._tag;
             if (opATag === PURE) {
               try {
-                this.value = f(opA.value);
+                this.value = f(opA._1);
                 this.mode = M_OK;
               } catch (err) {
                 this.value = err;
@@ -2038,7 +2088,7 @@ Fiber.prototype._stepInner = function () {
             }
             if (opATag === SYNC) {
               try {
-                this.value = f(opA.run());
+                this.value = f(opA._1());
                 this.mode = M_OK;
               } catch (err) {
                 this.value = err;
@@ -2047,10 +2097,10 @@ Fiber.prototype._stepInner = function () {
               break;
             }
             if (opATag === FORK) {
-              const body = opA.op;
+              const body = opA._1;
               let fiber;
               if (body._tag === PURE && _supervisors.length === 0) {
-                fiber = new DoneFiber(M_OK, body.value);
+                fiber = new DoneFiber(M_OK, body._1);
               } else {
                 this.frefsOwn = false;
                 fiber = new Fiber(body, this.env, this.frefs);
@@ -2066,7 +2116,7 @@ Fiber.prototype._stepInner = function () {
               break;
             }
             if (opATag === JOIN) {
-              const target = opA.fiber;
+              const target = opA._1;
               if (target.queued) {
                 target.queued = false;
                 _pendingCount--;
@@ -2087,7 +2137,7 @@ Fiber.prototype._stepInner = function () {
                 break;
               }
               // Suspending join: K_APPLY2 + outer dispatch.
-              this.stack.push({ _k: K_APPLY2, f: f });
+              this.stack.push(new Op(-1, K_APPLY2, f, null));
               this.current = opA;
               this.value = null;
               break;
@@ -2102,7 +2152,7 @@ Fiber.prototype._stepInner = function () {
               }
               break;
             }
-            this.stack.push({ _k: K_APPLY2, f: f });
+            this.stack.push(new Op(-1, K_APPLY2, f, null));
             this.current = opA;
             this.value = null;
           }
@@ -2111,7 +2161,7 @@ Fiber.prototype._stepInner = function () {
         case K_APPLY2: {
           if (this.mode === M_OK) {
             try {
-              this.value = frame.f(this.value);
+              this.value = frame._1(this.value);
             } catch (err) {
               this.value = err;
               this.mode = M_DIE;
@@ -2321,5 +2371,5 @@ export const _causeBoth = function (a) {
 };
 
 export const opFailCause = function (c) {
-  return { _tag: FAIL_CAUSE, cause: c };
+  return new Op(FAIL_CAUSE, -1, c, null);
 };
