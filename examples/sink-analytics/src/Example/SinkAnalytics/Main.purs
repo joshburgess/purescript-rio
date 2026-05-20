@@ -1,5 +1,5 @@
 -- | Single-pass analytics over a stream of HTTP request records,
--- | using `RIO.Sink` and `zipPar` to compose five independent
+-- | using `RIO.Aff.Sink` and `zipPar` to compose five independent
 -- | aggregations into one sink that runs in lockstep against the
 -- | same stream.
 -- |
@@ -29,8 +29,8 @@ import Effect.Aff (launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 
-import RIO.Core (runRIO')
-import RIO.Sink
+import RIO.Aff.Core (runRIO')
+import RIO.Aff.Sink
   ( Sink
   , count
   , filterIn
@@ -41,7 +41,7 @@ import RIO.Sink
   , runSink
   , zipPar
   )
-import RIO.Stream (fromArray)
+import RIO.Aff.Stream (fromArray)
 
 type Request =
   { id :: Int

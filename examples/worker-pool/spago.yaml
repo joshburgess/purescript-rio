@@ -14,7 +14,7 @@ package:
     - prelude
     - random
     - refs
-    - rio
+    - rio-aff
     - tuples
     - variant
   run:

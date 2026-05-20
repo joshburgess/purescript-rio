@@ -1,5 +1,5 @@
 -- | A nanosecond-resolution clock read via `process.hrtime()`. Used by
--- | the benchmark harness; the production `RIO.Clock` keeps its
+-- | the benchmark harness; the production `RIO.Aff.Clock` keeps its
 -- | millisecond resolution because that's what real applications need.
 module Benchmarks.Hrtime
   ( hrtimeNs

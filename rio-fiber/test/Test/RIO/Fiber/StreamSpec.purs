@@ -7,6 +7,7 @@ import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
+import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Exception as Effect.Exception
 import RIO.Fiber.Core (Outcome(..))
@@ -611,6 +612,248 @@ spec = describe "rio-fiber: Stream" do
     _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
     seen <- liftEffect (Ref.read log)
     seen `shouldEqual` [ "open", "close" ]
+
+  describe "stream laws and edge cases" do
+    it "runCollect on an empty stream yields []" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect (S.empty :: S.Stream () () Int)
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` []
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "fromArray on an empty array yields an empty stream" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect (S.fromArray [])
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` []
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "map identity = identity (functor law)" do
+      let
+        xs = [ 1, 2, 3, 4 ]
+
+        prog :: F.RIO () () { mapped :: Array Int, raw :: Array Int }
+        prog = do
+          mapped <- S.runCollect (S.map identity (S.fromArray xs))
+          raw <- S.runCollect (S.fromArray xs)
+          pure { mapped, raw }
+      out <- runAff prog {}
+      case out of
+        Success r -> r.mapped `shouldEqual` r.raw
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "map composition: map (f <<< g) = map f <<< map g" do
+      let
+        f = (_ + 1)
+        g = (_ * 2)
+        src = S.fromArray [ 1, 2, 3 ]
+
+        prog :: F.RIO () () { lhs :: Array Int, rhs :: Array Int }
+        prog = do
+          lhs <- S.runCollect (S.map (f <<< g) src)
+          rhs <- S.runCollect (S.map f (S.map g src))
+          pure { lhs, rhs }
+      out <- runAff prog {}
+      case out of
+        Success r -> do
+          r.lhs `shouldEqual` r.rhs
+          r.lhs `shouldEqual` [ 3, 5, 7 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "take 0 yields an empty stream" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect (S.take 0 (S.fromArray [ 1, 2, 3 ]))
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` []
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "take N on a shorter stream returns the whole stream" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect (S.take 10 (S.fromArray [ 1, 2, 3 ]))
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ 1, 2, 3 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "filter on an all-rejecting predicate yields []" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect
+          (S.filter (\_ -> false) (S.fromArray [ 1, 2, 3 ]))
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` []
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "filter is idempotent under repeated application of the same predicate" do
+      let
+        prog :: F.RIO () () { once :: Array Int, twice :: Array Int }
+        prog = do
+          once <- S.runCollect
+            (S.filter (\n -> n `mod` 2 == 0) (S.fromArray [ 1, 2, 3, 4, 5, 6 ]))
+          twice <- S.runCollect
+            ( S.filter (\n -> n `mod` 2 == 0)
+                (S.filter (\n -> n `mod` 2 == 0)
+                  (S.fromArray [ 1, 2, 3, 4, 5, 6 ])
+                )
+            )
+          pure { once, twice }
+      out <- runAff prog {}
+      case out of
+        Success r -> do
+          r.once `shouldEqual` r.twice
+          r.once `shouldEqual` [ 2, 4, 6 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "repeatRIO + take produces N elements from the same action" do
+      counter <- liftEffect (Ref.new 0)
+      let
+        bump :: F.RIO () () Int
+        bump = F.liftEffect (Ref.modify (_ + 1) counter)
+
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect (S.take 4 (S.repeatRIO bump))
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ 1, 2, 3, 4 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "run drives the stream to completion without collecting" do
+      -- `S.run` is defined as `forEach (\_ -> pure unit)`. It walks
+      -- every element, runs the per-element effect (a no-op), and
+      -- completes. Side effects baked into the source still fire.
+      seen <- liftEffect (Ref.new ([] :: Array Int))
+      let
+        source :: S.Stream () () Int
+        source = S.Stream do
+          F.liftEffect (Ref.modify_ (\xs -> xs <> [ 1 ]) seen)
+          pure
+            ( S.Yield 1
+                ( S.Stream do
+                    F.liftEffect (Ref.modify_ (\xs -> xs <> [ 2 ]) seen)
+                    pure (S.Yield 2 S.empty)
+                )
+            )
+
+        prog :: F.RIO () () Unit
+        prog = S.run source
+      out <- runAff prog {}
+      case out of
+        Success _ -> pure unit
+        other -> fail ("expected Success, got " <> describeOutcome other)
+      ns <- liftEffect (Ref.read seen)
+      ns `shouldEqual` [ 1, 2 ]
+
+    it "catchAll yields elements from the source before the failure, then switches" do
+      let
+        oops :: Int -> F.RIO () (boom :: String) Int
+        oops 3 = F.fail (Variant.inj (Proxy :: _ "boom") "stop")
+        oops n = pure n
+
+        upstream :: S.Stream () (boom :: String) Int
+        upstream = S.Stream do
+          a <- oops 1
+          pure
+            ( S.Yield a
+                ( S.Stream do
+                    b <- oops 2
+                    pure
+                      ( S.Yield b
+                          ( S.Stream do
+                              c <- oops 3
+                              pure (S.Yield c (S.empty))
+                          )
+                      )
+                )
+            )
+
+        recover :: Variant (boom :: String) -> S.Stream () () Int
+        recover _ = S.fromArray [ 100, 200 ]
+
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect (S.catchAll recover upstream)
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ 1, 2, 100, 200 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "flatMap with empty inner streams gives an empty result" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect
+          ( S.flatMap (\_ -> S.empty :: S.Stream () () Int)
+              (S.fromArray [ 1, 2, 3 ])
+          )
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` []
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "flatMap with singleton inner streams is map" do
+      let
+        prog :: F.RIO () () { flat :: Array Int, mapped :: Array Int }
+        prog = do
+          flat <- S.runCollect
+            (S.flatMap (\n -> S.emit (n * 10)) (S.fromArray [ 1, 2, 3 ]))
+          mapped <- S.runCollect
+            (S.map (_ * 10) (S.fromArray [ 1, 2, 3 ]))
+          pure { flat, mapped }
+      out <- runAff prog {}
+      case out of
+        Success r -> r.flat `shouldEqual` r.mapped
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "buffer 1 preserves order and elements" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect (S.buffer 1 (S.fromArray [ 1, 2, 3, 4 ]))
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ 1, 2, 3, 4 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "scan emits N + 1 elements for an N-element source (seed + each step)" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect (S.scan (+) 0 (S.fromArray [ 1, 2, 3 ]))
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ 0, 1, 3, 6 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "merge of two empty streams is empty" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = S.runCollect
+          ( S.merge (S.empty :: S.Stream () () Int)
+              (S.empty :: S.Stream () () Int)
+          )
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` []
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "zipPar terminates with the shorter side's length" do
+      let
+        prog :: F.RIO () () (Array (Tuple Int String))
+        prog = S.runCollect
+          ( S.zipPar
+              (S.fromArray [ 1, 2, 3, 4, 5 ])
+              (S.fromArray [ "a", "b", "c" ])
+          )
+      out <- runAff prog {}
+      case out of
+        Success xs -> do
+          xs `shouldEqual`
+            [ Tuple 1 "a", Tuple 2 "b", Tuple 3 "c" ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
 
 mkErr :: String -> Effect.Exception.Error
 mkErr = Effect.Exception.error

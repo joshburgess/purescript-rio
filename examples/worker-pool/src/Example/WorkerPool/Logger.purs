@@ -15,7 +15,7 @@ import Effect.Aff.Class (liftAff)
 import Effect.Class.Console as Console
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, ask)
+import RIO.Aff.Core (RIO, ask)
 
 type Logger =
   { log :: String -> Aff Unit

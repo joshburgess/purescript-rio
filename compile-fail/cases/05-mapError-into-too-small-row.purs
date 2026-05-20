@@ -14,7 +14,7 @@ import Data.Variant as Variant
 import Effect.Aff (Aff)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fail, mapError, runRIO')
+import RIO.Aff.Core (RIO, fail, mapError, runRIO')
 
 inner :: RIO () (parse :: String) Int
 inner = fail (Proxy :: Proxy "parse") "bad"

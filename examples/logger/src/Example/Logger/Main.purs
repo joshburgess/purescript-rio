@@ -9,7 +9,7 @@ import Effect.Class (liftEffect)
 import Effect.Console as Console
 
 import Example.Logger (Logger, consoleLogger, err, info, warn)
-import RIO.Core (RIO, provideAll, runRIO)
+import RIO.Aff.Core (RIO, provideAll, runRIO)
 
 program :: forall e. RIO (logger :: Logger) e Unit
 program = do

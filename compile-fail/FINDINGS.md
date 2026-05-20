@@ -65,7 +65,7 @@ handle it or call `runRIO` instead."
 
 A handler that claims the wrong type for the tag's payload. The
 compiler reports (after the `FindErrorTag` row-list walk shipped in
-`RIO.Error`):
+`RIO.Aff.Error`):
 
 ```
 Could not match type
@@ -73,7 +73,7 @@ Could not match type
 with type
   Int
 while solving type class constraint
-  RIO.Error.FindErrorTag "parse"
+  RIO.Aff.Error.FindErrorTag "parse"
                          t6
                          Int
 while applying a function catchTag
@@ -90,7 +90,7 @@ This case used to be ACCEPTABLE (NOISY) because the underlying
 `Prim.Row.Cons` constraint dragged a `( parse :: Int | e0 )` vs
 `( parse :: String )` row mismatch into the top of the error. The
 `FindErrorTagInRow` / `FindErrorTag` row-list walk added in
-`RIO.Error` lifts the payload-type lookup into a single constraint
+`RIO.Aff.Error` lifts the payload-type lookup into a single constraint
 keyed by symbol, so the wrong-typed handler now produces a clean
 "Could not match" pointed at the two payload types directly.
 
@@ -123,7 +123,7 @@ by side and the user can read "I asked to peel `notFound` off a row
 that only contains `parse`." The trailing `Prim.Row.Cons` block is
 correct but more jargon than a new user needs.
 
-The `FindErrorTagInRow` row-list walk in `RIO.Error` defines a Fail
+The `FindErrorTagInRow` row-list walk in `RIO.Aff.Error` defines a Fail
 instance for the "tag missing from row" case (its message reads
 `RIO.catchTag: the error tag '…' is not present in the error row.`),
 but the `Prim.Row.Cons` constraint on `catchTag`'s signature
@@ -357,7 +357,7 @@ These remain on the v0.2 `Fail`-polish backlog:
   trap is at most a warning candidate, not an error.
 
 Case 03 was promoted from ACCEPTABLE to GOOD by the
-`FindErrorTagInRow` / `FindErrorTag` work in `RIO.Error`. Case 04
+`FindErrorTagInRow` / `FindErrorTag` work in `RIO.Aff.Error`. Case 04
 remains ACCEPTABLE-NOISY: the row-list walk does carry a
 custom Fail for the missing-tag case, but the parallel
 `Prim.Row.Cons` constraint that `catchTag` still needs (for the

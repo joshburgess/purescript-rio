@@ -31,15 +31,15 @@ import Type.Proxy (Proxy(..))
 
 import Example.WorkerPool.Logger (Logger, consoleLogger, info, warn)
 import Example.WorkerPool.Workers (Job, JobError, runWorkers)
-import RIO.Cause (parTraverseCause, prettyCause)
-import RIO.Clock (Clock, liveClock)
-import RIO.Concurrency (fork, join)
-import RIO.Core (RIO, fail, provideAll, runRIO)
-import RIO.Metrics (Metrics)
-import RIO.Queue (Queue)
-import RIO.Queue as Queue
-import RIO.Tracer (Tracer, noopTracer)
-import RIO.Test.Metrics (MetricRecord, newRecordingMetrics) as TestMetrics
+import RIO.Aff.Cause (parTraverseCause, prettyCause)
+import RIO.Aff.Clock (Clock, liveClock)
+import RIO.Aff.Concurrency (fork, join)
+import RIO.Aff.Core (RIO, fail, provideAll, runRIO)
+import RIO.Aff.Metrics (Metrics)
+import RIO.Aff.Queue (Queue)
+import RIO.Aff.Queue as Queue
+import RIO.Aff.Tracer (Tracer, noopTracer)
+import RIO.Aff.Test.Metrics (MetricRecord, newRecordingMetrics) as TestMetrics
 
 -- | The full environment the top-level program runs in. The Job's
 -- | inner row is the smaller `JobEnv`: `Schedule.retry` adds the

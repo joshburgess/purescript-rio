@@ -47,10 +47,10 @@ import Effect.Ref as Ref
 import Foreign.Object as Object
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO)
-import RIO.Env (provideAll)
-import RIO.HttpClient (Method(..), RequestBody(..))
-import RIO.HttpServer
+import RIO.Aff.Core (RIO)
+import RIO.Aff.Env (provideAll)
+import RIO.Aff.HttpClient (Method(..), RequestBody(..))
+import RIO.Aff.HttpServer
   ( Handler
   , ResponseBody(..)
   , ServerRequest
@@ -61,17 +61,17 @@ import RIO.HttpServer
   , router
   , status
   )
-import RIO.HttpStream as Stream
-import RIO.Internal (unRIO)
-import RIO.Logger (Logger, consoleLogger, logInfo, withFields)
-import RIO.Schema (Branded, Schema)
-import RIO.Schema as Schema
-import RIO.Sql (Sql, SqlError, SqlResult, SqlRow, SqlValue(..), mockSql)
-import RIO.Sql as Sql
-import RIO.Test.Tracer (newRecordingTracer)
-import RIO.Tracer (Span, Tracer, addAttribute, withSpan)
-import RIO.Tracer.OTel (exportSpans, renderOTLP)
-import RIO.Tracer.Propagation as Propagation
+import RIO.Aff.HttpStream as Stream
+import RIO.Aff.Internal (unRIO)
+import RIO.Aff.Logger (Logger, consoleLogger, logInfo, withFields)
+import RIO.Aff.Schema (Branded, Schema)
+import RIO.Aff.Schema as Schema
+import RIO.Aff.Sql (Sql, SqlError, SqlResult, SqlRow, SqlValue(..), mockSql)
+import RIO.Aff.Sql as Sql
+import RIO.Aff.Test.Tracer (newRecordingTracer)
+import RIO.Aff.Tracer (Span, Tracer, addAttribute, withSpan)
+import RIO.Aff.Tracer.OTel (exportSpans, renderOTLP)
+import RIO.Aff.Tracer.Propagation as Propagation
 
 -- | The application environment row exposed to every handler.
 type AppEnv =

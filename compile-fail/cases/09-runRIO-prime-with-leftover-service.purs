@@ -13,7 +13,7 @@ import Prelude
 import Effect.Aff (Aff)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, ask, runRIO')
+import RIO.Aff.Core (RIO, ask, runRIO')
 
 type Logger = { name :: String }
 

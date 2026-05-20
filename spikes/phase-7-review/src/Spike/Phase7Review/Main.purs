@@ -9,7 +9,7 @@ import Prelude
 
 import Effect (Effect)
 
-import RIO.Spec (runSpecRIO)
+import RIO.Aff.Spec (runSpecRIO)
 
 import Spike.Phase7Review.Spec (spec)
 

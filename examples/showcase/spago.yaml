@@ -14,7 +14,7 @@ package:
     - newtype
     - prelude
     - refs
-    - rio
+    - rio-aff
     - strings
     - tuples
     - typelevel-prelude

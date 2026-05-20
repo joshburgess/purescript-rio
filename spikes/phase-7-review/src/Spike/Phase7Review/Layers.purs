@@ -6,7 +6,7 @@
 -- |   * `loggerLayer` reads `clock` (passes it through) and
 -- |     produces a `Logger` whose `log` operation pushes through
 -- |     a caller-supplied recorder (typically the `record` field
--- |     of `RIO.Test.recording`).
+-- |     of `RIO.Aff.Test.recording`).
 -- |
 -- |   * `dataLayer` reads `logger` + `clock` and produces a
 -- |     `Database`, also re-emitting both upstream services. It
@@ -44,9 +44,9 @@ import Effect.Aff (Aff)
 import Effect.Aff.Class (liftAff)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (Layer, ask, fail, fromRIO)
-import RIO.Layer ((>>>))
-import RIO.Clock (Clock)
+import RIO.Aff.Core (Layer, ask, fail, fromRIO)
+import RIO.Aff.Layer ((>>>))
+import RIO.Aff.Clock (Clock)
 
 import Spike.Phase7Review.Services (Database, Logger, UserService)
 

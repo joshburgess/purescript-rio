@@ -1,0 +1,24 @@
+package:
+  name: rio-aff-otel
+  publish:
+    version: 0.1.0
+    license: MIT
+  dependencies:
+    - arrays
+    - effect
+    - foldable-traversable
+    - maybe
+    - ordered-collections
+    - prelude
+    - refs
+    - rio-aff
+  test:
+    main: Test.RioOtel.Main
+    dependencies:
+      - aff
+      - effect
+      - maybe
+      - prelude
+      - rio-aff
+      - spec
+      - spec-node

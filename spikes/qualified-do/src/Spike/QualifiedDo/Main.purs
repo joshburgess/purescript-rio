@@ -28,8 +28,8 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, ask, provideAll, runRIO)
-import RIO.Resource (acquireRelease)
+import RIO.Aff.Core (RIO, ask, provideAll, runRIO)
+import RIO.Aff.Resource (acquireRelease)
 
 import Spike.QualifiedDo.Par as Par
 import Spike.QualifiedDo.Resource as Resource

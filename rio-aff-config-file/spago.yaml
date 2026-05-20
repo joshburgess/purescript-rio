@@ -1,0 +1,43 @@
+package:
+  name: rio-aff-config-file
+  publish:
+    version: 0.1.0
+    license: MIT
+  dependencies:
+    - aff
+    - argonaut-core
+    - arrays
+    - either
+    - exceptions
+    - foldable-traversable
+    - foreign-object
+    - lists
+    - maybe
+    - node-buffer
+    - node-fs
+    - numbers
+    - ordered-collections
+    - prelude
+    - rio-aff
+    - strings
+    - tuples
+  test:
+    main: Test.RioConfigFile.Main
+    dependencies:
+      - aff
+      - effect
+      - either
+      - foldable-traversable
+      - lists
+      - maybe
+      - newtype
+      - node-fs
+      - node-path
+      - ordered-collections
+      - prelude
+      - rio-aff
+      - spec
+      - spec-node
+      - strings
+      - tuples
+      - variant

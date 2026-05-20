@@ -39,8 +39,8 @@ import Effect (Effect)
 import Effect.Aff (launchAff_)
 import Type.Proxy (Proxy(..))
 
-import RIO.Console as Console
-import RIO.Core
+import RIO.Aff.Console as Console
+import RIO.Aff.Core
   ( RIO
   , ask
   , fail

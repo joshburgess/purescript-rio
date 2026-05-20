@@ -1,0 +1,39 @@
+package:
+  name: rio-aff-postgres
+  publish:
+    version: 0.1.0
+    license: MIT
+  dependencies:
+    - aff
+    - arrays
+    - effect
+    - either
+    - exceptions
+    - foldable-traversable
+    - maybe
+    - newtype
+    - node-event-emitter
+    - ordered-collections
+    - postgresql
+    - prelude
+    - refs
+    - rio-aff
+    - strings
+    - transformers
+    - tuples
+    - variant
+  test:
+    main: Test.RioPostgres.Main
+    dependencies:
+      - aff
+      - effect
+      - either
+      - maybe
+      - node-process
+      - prelude
+      - refs
+      - rio-aff
+      - spec
+      - spec-node
+      - tuples
+      - variant

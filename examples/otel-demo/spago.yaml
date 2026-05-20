@@ -10,8 +10,8 @@ package:
     - integers
     - maybe
     - prelude
-    - rio
-    - rio-otel
+    - rio-aff
+    - rio-aff-otel
     - variant
   run:
     main: Example.OTelDemo.Main

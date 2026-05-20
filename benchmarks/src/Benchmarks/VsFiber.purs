@@ -1,7 +1,7 @@
 -- | Head-to-head rio-fiber vs Aff-backed RIO and raw Aff.
 -- |
 -- | Mirrors `Benchmarks.VsAff`'s workloads against the fiber-backed
--- | `RIO.Fiber` runtime, so the per-iteration overhead of the custom
+-- | `RIO.Aff.Fiber` runtime, so the per-iteration overhead of the custom
 -- | fiber scheduler is directly comparable to the `Aff`-backed `RIO`.
 -- | Numbers are wall-clock per iteration sampled with
 -- | `process.hrtime()`.

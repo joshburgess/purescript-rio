@@ -12,7 +12,7 @@ import Data.Variant (Variant)
 import Effect.Aff (Aff)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, ask, provide, runRIO)
+import RIO.Aff.Core (RIO, ask, provide, runRIO)
 
 inner :: forall e. RIO (logger :: { name :: String }) e String
 inner = do

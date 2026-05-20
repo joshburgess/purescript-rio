@@ -20,7 +20,7 @@
 -- |   * No short-circuit: if one branch fails with a typed error,
 -- |     the other branches still run to completion. The final
 -- |     result is the leftmost typed failure. (Compare
--- |     `RIO.Concurrency.parPair`, which short-circuits via Aff
+-- |     `RIO.Aff.Concurrency.parPair`, which short-circuits via Aff
 -- |     interruption.)
 -- |
 -- |   * Defects (`Aff` exceptions) propagate from whichever branch
@@ -46,7 +46,7 @@ import Control.Parallel (parallel, sequential)
 import Data.Either (Either(..))
 import Data.Functor (map) as F
 
-import RIO.Internal (RIO, mkRIO, rioFail, unRIO)
+import RIO.Aff.Internal (RIO, mkRIO, rioFail, unRIO)
 
 -- | `Par.map`: the qualified-`ado` desugaring target for the
 -- | functorial step. Identical to the `Functor RIO` instance;

@@ -28,7 +28,7 @@ import Effect.Aff.Class (liftAff)
 import Effect.Class.Console as Console
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, ask)
+import RIO.Aff.Core (RIO, ask)
 
 -- | A log message's severity. Used by the example `consoleLogger`'s
 -- | prefix; richer implementations might filter or route by level.

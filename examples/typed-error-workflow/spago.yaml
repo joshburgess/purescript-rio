@@ -11,7 +11,7 @@ package:
     - node-process
     - prelude
     - refs
-    - rio
+    - rio-aff
     - strings
     - tuples
     - typelevel-prelude

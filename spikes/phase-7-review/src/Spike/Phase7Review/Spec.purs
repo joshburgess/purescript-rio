@@ -36,11 +36,11 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Proxy (Proxy(..))
 
-import RIO.Clock (Clock)
-import RIO.Core (RIO, ask, fail, provideAll, provideLayer, runRIO)
-import RIO.Spec (itRIO_)
-import RIO.Test (recording)
-import RIO.Test.Clock (newTestClock)
+import RIO.Aff.Clock (Clock)
+import RIO.Aff.Core (RIO, ask, fail, provideAll, provideLayer, runRIO)
+import RIO.Aff.Spec (itRIO_)
+import RIO.Aff.Test (recording)
+import RIO.Aff.Test.Clock (newTestClock)
 
 import Spike.Phase7Review.Layers (appLayer)
 

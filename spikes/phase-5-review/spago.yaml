@@ -10,7 +10,7 @@ package:
     - maybe
     - prelude
     - refs
-    - rio
+    - rio-aff
     - strings
     - variant
   run:

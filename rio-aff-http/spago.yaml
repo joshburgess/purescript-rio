@@ -1,0 +1,33 @@
+package:
+  name: rio-aff-http
+  publish:
+    version: 0.1.0
+    license: MIT
+  dependencies:
+    - aff
+    - effect
+    - httpurple
+    - maybe
+    - newtype
+    - prelude
+    - refs
+    - rio-aff
+    - tuples
+    - variant
+  test:
+    main: Test.RioHttp.Main
+    dependencies:
+      - aff
+      - arrays
+      - effect
+      - either
+      - httpurple
+      - maybe
+      - prelude
+      - refs
+      - rio-aff
+      - spec
+      - spec-node
+      - tuples
+      - unsafe-coerce
+      - variant

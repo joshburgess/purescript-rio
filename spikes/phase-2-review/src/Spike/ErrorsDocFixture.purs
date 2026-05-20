@@ -21,7 +21,7 @@ import Prelude
 
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, catchTag, fail, runRIO')
+import RIO.Aff.Core (RIO, catchTag, fail, runRIO')
 
 -- The three failure tags the doc starts from.
 type ThreeErrors =

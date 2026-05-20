@@ -38,7 +38,7 @@ import Effect (Effect)
 import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
-import RIO.Core
+import RIO.Aff.Core
   ( RIO
   , ask
   , catchTag
@@ -47,7 +47,7 @@ import RIO.Core
   , runRIO
   , runRIO'
   )
-import RIO.Concurrency (parTraverse)
+import RIO.Aff.Concurrency (parTraverse)
 import Type.Proxy (Proxy(..))
 
 type Service = { lookup :: Int -> Int }

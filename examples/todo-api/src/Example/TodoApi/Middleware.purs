@@ -2,7 +2,7 @@
 -- |
 -- | `withRequestContext` and the `RequestContext` type are
 -- | re-exported verbatim. `requireAuth` is a pre-application of
--- | `RIO.HTTPurple.Auth.requireAuth` that pins the typed-failure
+-- | `RIO.Aff.HTTPurple.Auth.requireAuth` that pins the typed-failure
 -- | tag to this example's `ApiError` row (`unauthorized :: Unit`)
 -- | so call sites can ignore the tag/payload pair.
 -- |
@@ -22,21 +22,21 @@ import Prelude
 import HTTPurple (RequestHeaders)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO)
-import RIO.HTTPurple.Auth (bearerAuthConfig)
-import RIO.HTTPurple.Auth (AuthConfig, requireAuth) as Auth
-import RIO.HTTPurple.Middleware (withRequestContext) as Reexports
-import RIO.HTTPurple.Request (RequestContext) as Reexports
+import RIO.Aff.Core (RIO)
+import RIO.Aff.HTTPurple.Auth (bearerAuthConfig)
+import RIO.Aff.HTTPurple.Auth (AuthConfig, requireAuth) as Auth
+import RIO.Aff.HTTPurple.Middleware (withRequestContext) as Reexports
+import RIO.Aff.HTTPurple.Request (RequestContext) as Reexports
 
 import Example.TodoApi.Handlers (ApiError, Env)
 
--- | Re-exported from `RIO.HTTPurple.Request`.
+-- | Re-exported from `RIO.Aff.HTTPurple.Request`.
 type RequestContext = Reexports.RequestContext
 
--- | Re-exported from `RIO.HTTPurple.Auth`.
+-- | Re-exported from `RIO.Aff.HTTPurple.Auth`.
 type AuthConfig = Auth.AuthConfig
 
--- | Re-exported from `RIO.HTTPurple.Middleware`.
+-- | Re-exported from `RIO.Aff.HTTPurple.Middleware`.
 withRequestContext
   :: forall a
    . RequestContext
@@ -49,7 +49,7 @@ withRequestContext = Reexports.withRequestContext
 defaultAuthConfig :: AuthConfig
 defaultAuthConfig = bearerAuthConfig "example-token"
 
--- | Pre-application of `RIO.HTTPurple.Auth.requireAuth` against
+-- | Pre-application of `RIO.Aff.HTTPurple.Auth.requireAuth` against
 -- | this example's `unauthorized` typed failure.
 requireAuth
   :: AuthConfig

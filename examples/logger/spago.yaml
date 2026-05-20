@@ -7,7 +7,7 @@ package:
     - either
     - prelude
     - refs
-    - rio
+    - rio-aff
     - variant
   run:
     main: Example.Logger.Main

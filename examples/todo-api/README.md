@@ -9,14 +9,14 @@ in a single shape you can run:
 
 - **Services** (`src/Example/TodoApi/Services.purs`): re-exports
   the library services the example reads against: `Logger`
-  (`RIO.Logger`), `Clock` (`RIO.Clock`), the `Local String`
-  request id (`RIO.Local`), and the `Postgres` token + `PgError`
-  type (`RIO.Postgres`).
+  (`RIO.Aff.Logger`), `Clock` (`RIO.Aff.Clock`), the `Local String`
+  request id (`RIO.Aff.Local`), and the `Postgres` token + `PgError`
+  type (`RIO.Aff.Postgres`).
 - **Layers** (`src/Example/TodoApi/Layers.purs`): `appLayer`
-  horizontally combines `RIO.Logger.consoleLogger` with a
+  horizontally combines `RIO.Aff.Logger.consoleLogger` with a
   `postgresLayer` that owns the `node-postgres` pool's lifetime
   via a scope finalizer. `migrate` defers to
-  `RIO.Postgres.Migrate.migrate`, which takes a Postgres
+  `RIO.Aff.Postgres.Migrate.migrate`, which takes a Postgres
   advisory lock, records applied versions in
   `__rio_migrations`, and applies any pending step. Adding a
   new column or index later is a new entry in the `Map Int
@@ -28,7 +28,7 @@ in a single shape you can run:
   failure.
 - **Handlers** (`src/Example/TodoApi/Handlers.purs`): each
   endpoint is an `RIO` action that calls `query` / `queryParams`
-  / `execParams` from `RIO.Postgres` directly. Three typed
+  / `execParams` from `RIO.Aff.Postgres` directly. Three typed
   failures (`notFound`, `unauthorized`, `db`) flow up through
   the error row; the `db` tag carries any driver error.
 - **JSON codecs** (`src/Example/TodoApi/Codecs.purs`): argonaut
@@ -113,7 +113,7 @@ assigns a monotonic `req-N`.
 Each handler returns an `RIO Env ApiError a` and calls
 `rio-postgres` smart constructors directly. Cross-cutting
 concerns like logging correlation are scoped by
-`RIO.Logger.withFields`, not threaded through every call:
+`RIO.Aff.Logger.withFields`, not threaded through every call:
 
 ```purescript
 getHandler :: Int -> RIO Env ApiError Todo
@@ -205,6 +205,6 @@ is handled.
 ## Where to go from here
 
 Swap the in-memory `requestId` counter for a uuid generator,
-add structured-log forwarding via `RIO.Tracer`, or drop in a
+add structured-log forwarding via `RIO.Aff.Tracer`, or drop in a
 prepared-statement variant of the handlers, all without
 touching the routes, the codecs, or `renderApiError`.

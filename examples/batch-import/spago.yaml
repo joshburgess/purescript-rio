@@ -9,7 +9,7 @@ package:
     - integers
     - maybe
     - prelude
-    - rio
+    - rio-aff
     - strings
     - tuples
     - variant

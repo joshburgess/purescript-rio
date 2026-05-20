@@ -14,8 +14,8 @@ as DX-1 with a recommended fix for a future phase.
 A workspace sub-package, `spike-phase-5-review`, depends on the real
 `rio` package and exercises a six-service layered application
 against the production API only. No internal modules are reached
-into; everything goes through `RIO.Core` (plus the `<+>` / `>>>`
-operators from `RIO.Layer`, which `RIO.Core` deliberately does not
+into; everything goes through `RIO.Aff.Core` (plus the `<+>` / `>>>`
+operators from `RIO.Aff.Layer`, which `RIO.Aff.Core` deliberately does not
 re-export to avoid clashing with `Prelude.(>>>)`).
 
 ### Services
@@ -157,7 +157,7 @@ reordering of `db-close` / `cache-flush` would fail the run.
   for resources that never opened are correctly not registered).
   Finalizer order is LIFO: `db-close` (registered second) runs
   before `cache-flush` (registered first), matching the documented
-  contract in `RIO.Resource.scoped`.
+  contract in `RIO.Aff.Resource.scoped`.
 
 ## What This Does **Not** Validate
 

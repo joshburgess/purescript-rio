@@ -27,7 +27,7 @@ import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 import Type.Proxy (Proxy(..))
 
-import RIO.Config
+import RIO.Aff.Config
   ( Config
   , ConfigError
   , Secret
@@ -39,8 +39,8 @@ import RIO.Config
   , string
   , withDefault
   )
-import RIO.Core (runRIO)
-import RIO.Config.File (dotenvFileSource)
+import RIO.Aff.Core (runRIO)
+import RIO.Aff.Config.File (dotenvFileSource)
 
 type AppConfig =
   { port :: Int

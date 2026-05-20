@@ -67,7 +67,7 @@ Verdict: the win is identical to writing the `parallel` /
 real subtlety is that this `apply` does **not** short-circuit on
 typed failure (both branches run to completion; the leftmost
 failure wins). For short-circuiting fan-out, callers still want
-`RIO.Concurrency.parPair` / `parTuple`.
+`RIO.Aff.Concurrency.parPair` / `parTuple`.
 
 ## What didn't work
 
@@ -125,12 +125,12 @@ replacement for the missing language feature.
 
 ## Recommendation
 
-  * **Ship `Resource.do`** as `RIO.Resource.Do` (or a sibling
-    `RIO.Do.Resource`). Real, measurable ergonomic win for
+  * **Ship `Resource.do`** as `RIO.Aff.Resource.Do` (or a sibling
+    `RIO.Aff.Do.Resource`). Real, measurable ergonomic win for
     multi-resource opens. Pair with `liftRIO` and a one-paragraph
     note about the lift rule.
 
-  * **Ship `Par.ado`** as `RIO.Concurrency.Par` (or similar).
+  * **Ship `Par.ado`** as `RIO.Aff.Concurrency.Par` (or similar).
     The applicative-only constraint matches `ado`'s shape
     perfectly. Document the no-short-circuit semantics and point
     at `parPair`/`parTuple` for the short-circuiting case.

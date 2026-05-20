@@ -11,18 +11,18 @@
 -- | imports one namespace.
 module Example.TodoApi.Services
   ( Todo
-  , module RIO.Clock
-  , module RIO.Local
-  , module RIO.Logger
-  , module RIO.Postgres
+  , module RIO.Aff.Clock
+  , module RIO.Aff.Local
+  , module RIO.Aff.Logger
+  , module RIO.Aff.Postgres
   ) where
 
 import Effect.Aff (Milliseconds)
 
-import RIO.Clock (Clock)
-import RIO.Local (Local)
-import RIO.Logger (Logger)
-import RIO.Postgres (PgError, Postgres)
+import RIO.Aff.Clock (Clock)
+import RIO.Aff.Local (Local)
+import RIO.Aff.Logger (Logger)
+import RIO.Aff.Postgres (PgError, Postgres)
 
 -- | A todo as stored. `createdAt` is a wall-clock timestamp set by
 -- | the handler at insert time so the response can echo it back.

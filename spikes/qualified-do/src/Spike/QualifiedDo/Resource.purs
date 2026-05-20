@@ -40,14 +40,14 @@ module Spike.QualifiedDo.Resource
 import Prelude (Unit, unit)
 import Prelude (pure) as P
 
-import RIO.Core (RIO)
-import RIO.Resource (acquireRelease)
+import RIO.Aff.Core (RIO)
+import RIO.Aff.Resource (acquireRelease)
 
 -- | The right-hand-side shape of a `<-` inside a `Resource.do`
 -- | block: an acquire action paired with its release.
 -- |
 -- | Built with `acquire`. The block's `bind` calls
--- | `RIO.Resource.acquireRelease` on each one, so release is
+-- | `RIO.Aff.Resource.acquireRelease` on each one, so release is
 -- | scheduled in the underlying `Aff` bracket the moment the
 -- | continuation begins.
 newtype Acquire r e a = Acquire

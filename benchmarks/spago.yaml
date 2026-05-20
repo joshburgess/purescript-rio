@@ -15,7 +15,7 @@ package:
     - prelude
     - record
     - refs
-    - rio
+    - rio-aff
     - rio-fiber
     - strings
     - tuples

@@ -14,10 +14,10 @@ import Prelude
 
 import Effect.Aff (Aff)
 
-import RIO.Channel (Channel, fromSink, fromStream, pipe, run)
-import RIO.Core (runRIO')
-import RIO.Sink (Sink, collect)
-import RIO.Stream as Stream
+import RIO.Aff.Channel (Channel, fromSink, fromStream, pipe, run)
+import RIO.Aff.Core (runRIO')
+import RIO.Aff.Sink (Sink, collect)
+import RIO.Aff.Stream as Stream
 
 upstream :: forall r e i. Channel r e i Int Unit
 upstream = fromStream (Stream.fromArray [ 1, 2, 3 ])

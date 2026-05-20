@@ -29,7 +29,7 @@ import Effect.Random (randomInt)
 import Effect.Ref as Ref
 import Type.Proxy (Proxy(..))
 
-import RIO.Core
+import RIO.Aff.Core
   ( RIO
   , acquireRelease
   , addFinalizer

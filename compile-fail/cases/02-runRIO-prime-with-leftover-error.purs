@@ -12,7 +12,7 @@ import Prelude
 import Effect.Aff (Aff)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fail, runRIO')
+import RIO.Aff.Core (RIO, fail, runRIO')
 
 failing :: RIO () (boom :: Unit) Int
 failing = fail (Proxy :: Proxy "boom") unit

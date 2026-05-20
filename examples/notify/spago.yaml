@@ -8,8 +8,8 @@ package:
     - maybe
     - node-process
     - prelude
-    - rio
-    - rio-postgres
+    - rio-aff
+    - rio-aff-postgres
     - variant
   run:
     main: Example.Notify.Main

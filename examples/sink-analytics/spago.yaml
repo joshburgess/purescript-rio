@@ -11,7 +11,7 @@ package:
     - maybe
     - ordered-collections
     - prelude
-    - rio
+    - rio-aff
     - strings
     - tuples
     - variant

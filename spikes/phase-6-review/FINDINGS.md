@@ -4,7 +4,7 @@
 
 **Recommendation:** **GO.** Across 4000 randomised iterations (four
 consecutive local runs of 1000 iterations each) the harness reports
-zero leaks across every concurrency combinator in `RIO.Concurrency`:
+zero leaks across every concurrency combinator in `RIO.Aff.Concurrency`:
 `parTraverse`, `zipPar`, `race` / `raceAll`, and `fork` / `interrupt`
 chained with `scoped` finalizers. The cancellation guarantees that
 the Phase 0.5 spike documented for `Effect.Aff` carry through to
@@ -93,7 +93,7 @@ completion.
   with first-failure-cancels-rest semantics would need a new
   scenario that asserts the cancelled branches still release.
 - **Defects via `die`.** The harness uses typed failures only.
-  `RIO.Resource.acquireRelease`'s defect path is covered by the
+  `RIO.Aff.Resource.acquireRelease`'s defect path is covered by the
   Phase 4 review's `Defect` termination mode; that path goes
   through the same `Aff.bracket` release mechanism, so we trust
   it on the concurrency side as well rather than duplicating the

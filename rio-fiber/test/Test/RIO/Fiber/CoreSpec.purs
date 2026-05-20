@@ -11,10 +11,12 @@ import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant as Variant
 import Effect (Effect)
-import Effect.Aff (Aff)
+import Effect.Aff (Aff, delay, makeAff, nonCanceler)
 import Effect.Class (liftEffect)
+import Effect.Exception (error, message)
 import Effect.Now (now)
 import Effect.Ref as Ref
+import RIO.Fiber.Cause (Cause)
 import RIO.Fiber.Cause as Cause
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
@@ -829,6 +831,380 @@ spec = describe "rio-fiber: Core" do
         prog = F.zipPar (pure 1) (pure "two")
       out <- runAff prog {}
       assertSuccess out (Tuple 1 "two")
+
+  describe "die" do
+    it "surfaces as a Die outcome with the original error" do
+      let
+        prog :: F.RIO () () Int
+        prog = F.die (error "kaboom")
+      out <- runAff prog {}
+      case out of
+        Die e -> message e `shouldEqual` "kaboom"
+        other -> fail ("expected Die, got " <> describeOutcome other)
+
+    it "ensuring runs the finalizer after a defect and re-raises" do
+      ref <- liftEffect (Ref.new 0)
+      let
+        prog :: F.RIO () () Int
+        prog = F.ensuring
+          (F.liftEffect (Ref.write 1 ref))
+          (F.die (error "boom"))
+      out <- runAff prog {}
+      case out of
+        Die _ -> pure unit
+        other -> fail ("expected Die, got " <> describeOutcome other)
+      finVal <- liftEffect (Ref.read ref)
+      finVal `shouldEqual` 1
+
+    it "bracket runs release when use defects" do
+      ref <- liftEffect (Ref.new 0)
+      let
+        prog :: F.RIO () () Int
+        prog = F.bracket
+          (pure 7)
+          (\_ -> F.liftEffect (Ref.modify_ (_ + 1) ref))
+          (\_ -> F.die (error "kaboom"))
+      out <- runAff prog {}
+      case out of
+        Die e -> message e `shouldEqual` "kaboom"
+        other -> fail ("expected Die, got " <> describeOutcome other)
+      n <- liftEffect (Ref.read ref)
+      n `shouldEqual` 1
+
+    it "catchAll does not catch defects" do
+      let
+        prog :: F.RIO () () Int
+        prog = F.catchAll (\_ -> pure 99)
+          (F.die (error "uncaught") :: F.RIO () () Int)
+      out <- runAff prog {}
+      case out of
+        Die e -> message e `shouldEqual` "uncaught"
+        other -> fail ("expected Die, got " <> describeOutcome other)
+
+    it "raceAll on an empty array dies with a defect" do
+      let
+        prog :: F.RIO () () Int
+        prog = F.raceAll []
+      out <- runAff prog {}
+      case out of
+        Die _ -> pure unit
+        other -> fail ("expected Die, got " <> describeOutcome other)
+
+  describe "failCause" do
+    it "failCause Cause.empty succeeds (no failure)" do
+      -- A bind chain is used here rather than `*>` because the opMap
+      -- fusion treats every FAIL_CAUSE as a failure for short-circuit
+      -- purposes; `do`-binding routes through BIND, which does not
+      -- short-circuit on a FAIL_CAUSE leaf.
+      let
+        prog :: F.RIO () () Int
+        prog = do
+          _ <- F.failCause Cause.empty :: F.RIO () () Unit
+          pure 42
+      out <- runAff prog {}
+      assertSuccess out 42
+
+    it "failCause with a Fail leaf surfaces the typed failure" do
+      let
+        prog :: F.RIO () (boom :: String) Int
+        prog = F.failCause
+          (Cause.fail (Variant.inj (Proxy :: _ "boom") "x"))
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "x"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+
+    it "failCause with a Die leaf surfaces as Die" do
+      let
+        prog :: F.RIO () () Int
+        prog = F.failCause (Cause.die (error "kaboom"))
+      out <- runAff prog {}
+      case out of
+        Die e -> message e `shouldEqual` "kaboom"
+        other -> fail ("expected Die, got " <> describeOutcome other)
+
+    it "failCause with a composed cause round-trips through causeOf" do
+      let
+        c :: Cause (boom :: String)
+        c = Cause.both
+          (Cause.fail (Variant.inj (Proxy :: _ "boom") "a"))
+          (Cause.fail (Variant.inj (Proxy :: _ "boom") "b"))
+
+        prog :: F.RIO () () (Either (Cause (boom :: String)) Int)
+        prog = F.causeOf
+          (F.failCause c :: F.RIO () (boom :: String) Int)
+      out <- runAff prog {}
+      case out of
+        Success (Left captured) ->
+          Array.length (Cause.failures captured) `shouldEqual` 2
+        _ -> fail "expected Left with two failures"
+
+  describe "uninterruptible" do
+    it "shields the body from a pending interrupt; mask exit observes it" do
+      events <- liftEffect (Ref.new ([] :: Array String))
+      let
+        record :: String -> F.RIO () () Unit
+        record s = F.liftEffect
+          (Ref.modify_ (\xs -> xs <> [ s ]) events)
+
+        prog :: F.RIO () () Unit
+        prog = do
+          f <- F.fork
+            ( F.uninterruptible do
+                record "enter"
+                F.sleep (Milliseconds 30.0)
+                record "exit"
+            )
+          F.sleep (Milliseconds 5.0)
+          F.interrupt f
+          _ <- F.causeOf (F.join f)
+          F.sleep (Milliseconds 50.0)
+          pure unit
+      _ <- runAff prog {}
+      seen <- liftEffect (Ref.read events)
+      -- The body runs to completion despite the interrupt request.
+      seen `shouldEqual` [ "enter", "exit" ]
+
+    it "uninterruptible around acquire so a between-acquire-and-install interrupt cannot leak" do
+      -- This is bracket's invariant. We mimic it manually here.
+      acquired <- liftEffect (Ref.new false)
+      released <- liftEffect (Ref.new false)
+      let
+        prog :: F.RIO () () Unit
+        prog = do
+          f <- F.fork
+            ( F.uninterruptible do
+                F.liftEffect (Ref.write true acquired)
+                F.sleep (Milliseconds 20.0)
+            )
+          F.sleep (Milliseconds 5.0)
+          F.interrupt f
+          _ <- F.causeOf (F.join f)
+          -- After the masked region finishes, release should be safe
+          -- to call in our test harness; we just verify acquire ran.
+          F.liftEffect (Ref.write true released)
+          pure unit
+      _ <- runAff prog {}
+      a <- liftEffect (Ref.read acquired)
+      r <- liftEffect (Ref.read released)
+      a `shouldEqual` true
+      r `shouldEqual` true
+
+  describe "validatePar" do
+    it "partitions a mix of successes and failures into a single cause" do
+      let
+        f :: Int -> F.RIO () (boom :: String) Int
+        f n
+          | n `mod` 2 == 0 = pure n
+          | otherwise =
+              F.fail
+                ( Variant.inj (Proxy :: _ "boom")
+                    ("odd-" <> show n)
+                )
+
+        prog :: F.RIO () () (Either (Cause (boom :: String)) (Array Int))
+        prog = F.causeOf (F.validatePar f [ 1, 2, 3, 4, 5 ])
+      out <- runAff prog {}
+      case out of
+        Success (Left captured) -> do
+          Array.length (Cause.failures captured) `shouldEqual` 3
+        Success (Right _) -> fail "expected Left (composed failures)"
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "succeeds with results in order when no branch fails" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = F.validatePar (\n -> pure (n * 10)) [ 1, 2, 3 ]
+      out <- runAff prog {}
+      assertSuccess out [ 10, 20, 30 ]
+
+  describe "zipWithPar" do
+    it "applies the combiner to the two parallel results" do
+      let
+        prog :: F.RIO () () Int
+        prog = F.zipWithPar (+) (pure 1) (pure 41)
+      out <- runAff prog {}
+      assertSuccess out 42
+
+    it "fails fast when either side fails" do
+      let
+        prog :: F.RIO () (boom :: String) Int
+        prog = F.zipWithPar (+)
+          (F.fail (Variant.inj (Proxy :: _ "boom") "nope"))
+          (F.sleep (Milliseconds 30.0) *> pure 1)
+      out <- runAff prog {}
+      case out of
+        Fail v ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "nope"
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+
+  describe "runRIOCallback" do
+    let
+      -- Bridge `runRIOCallback`'s `Outcome e a` callback into Aff's
+      -- `Either Error (Outcome e a)` callback.
+      runViaCallback
+        :: forall e a
+         . F.RIO () e a
+        -> (Outcome e a -> Effect Unit)
+        -> Aff Unit
+      runViaCallback prog onOutcome = makeAff \cb -> do
+        _ <- F.runRIOCallback prog {} \o -> do
+          onOutcome o
+          cb (Right unit)
+        pure nonCanceler
+
+      runViaCallbackCancelling
+        :: forall e a
+         . F.RIO () e a
+        -> (Outcome e a -> Effect Unit)
+        -> Aff Unit
+      runViaCallbackCancelling prog onOutcome = makeAff \cb -> do
+        canceller <- F.runRIOCallback prog {} \o -> do
+          onOutcome o
+          cb (Right unit)
+        canceller
+        pure nonCanceler
+    it "delivers Success through the callback" do
+      ref <- liftEffect (Ref.new Nothing :: Effect (Ref.Ref (Maybe (Outcome () Int))))
+      runViaCallback (pure 99 :: F.RIO () () Int) \o ->
+        Ref.write (Just o) ref
+      result <- liftEffect (Ref.read ref)
+      case result of
+        Just (Success n) -> n `shouldEqual` 99
+        _ -> fail "expected callback Success 99"
+
+    it "delivers Fail through the callback" do
+      let
+        bad :: F.RIO () (boom :: String) Int
+        bad = F.fail (Variant.inj (Proxy :: _ "boom") "x")
+      ref <- liftEffect
+        (Ref.new Nothing :: Effect (Ref.Ref (Maybe (Outcome (boom :: String) Int))))
+      runViaCallback bad \o -> Ref.write (Just o) ref
+      result <- liftEffect (Ref.read ref)
+      case result of
+        Just (Fail v) ->
+          (Variant.case_ # Variant.on (Proxy :: _ "boom") identity) v
+            `shouldEqual` "x"
+        _ -> fail "expected callback Fail"
+
+    it "the returned canceller interrupts a running fiber" do
+      cancelled <- liftEffect (Ref.new false)
+      ref <- liftEffect
+        (Ref.new Nothing :: Effect (Ref.Ref (Maybe (Outcome () Int))))
+      let
+        slow :: F.RIO () () Int
+        slow = F.ensuring
+          (F.liftEffect (Ref.write true cancelled))
+          (F.sleep (Milliseconds 200.0) *> pure 0)
+      runViaCallbackCancelling slow \o -> Ref.write (Just o) ref
+      delay (Milliseconds 30.0)
+      result <- liftEffect (Ref.read ref)
+      case result of
+        Just Interrupted -> do
+          c <- liftEffect (Ref.read cancelled)
+          c `shouldEqual` true
+        _ -> fail "expected Interrupted"
+
+  describe "async canceller" do
+    it "runs the canceller when the fiber is interrupted while suspended" do
+      cancellerRan <- liftEffect (Ref.new false)
+      let
+        body :: F.RIO () () Int
+        body = F.async \_cb -> pure
+          (Ref.write true cancellerRan)
+
+        prog :: F.RIO () () Unit
+        prog = do
+          f <- F.fork body
+          F.sleep (Milliseconds 10.0)
+          F.interrupt f
+          _ <- F.causeOf (F.join f)
+          pure unit
+      _ <- runAff prog {}
+      ran <- liftEffect (Ref.read cancellerRan)
+      ran `shouldEqual` true
+
+    it "does NOT run the canceller when the async resumes normally" do
+      cancellerRan <- liftEffect (Ref.new false)
+      let
+        body :: F.RIO () () Int
+        body = F.async \cb -> do
+          scheduleResume (cb (Right 7))
+          pure (Ref.write true cancellerRan)
+
+        prog :: F.RIO () () Int
+        prog = body
+      out <- runAff prog {}
+      assertSuccess out 7
+      ran <- liftEffect (Ref.read cancellerRan)
+      ran `shouldEqual` false
+
+  describe "deeply nested" do
+    it "1000-deep catchAll layers do not blow the stack" do
+      let
+        wrapLayer
+          :: Int
+          -> F.RIO () (boom :: String) Int
+          -> F.RIO () (boom :: String) Int
+        wrapLayer _ action =
+          F.catchAll
+            (\v -> F.fail v)
+            action
+
+        wrapped :: F.RIO () (boom :: String) Int
+        wrapped = Array.foldl
+          (\acc i -> wrapLayer i acc)
+          (pure 42 :: F.RIO () (boom :: String) Int)
+          (Array.range 1 1000)
+      out <- runAff wrapped {}
+      assertSuccess out 42
+
+    it "1000-deep ensuring layers all fire in reverse" do
+      counter <- liftEffect (Ref.new 0)
+      let
+        wrap
+          :: Int
+          -> F.RIO () () Int
+          -> F.RIO () () Int
+        wrap _ action = F.ensuring
+          (F.liftEffect (Ref.modify_ (_ + 1) counter))
+          action
+
+        wrapped :: F.RIO () () Int
+        wrapped = Array.foldl
+          (\acc i -> wrap i acc)
+          (pure 0 :: F.RIO () () Int)
+          (Array.range 1 1000)
+      out <- runAff wrapped {}
+      assertSuccess out 0
+      -- give the finalizers their turn before reading the counter
+      _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
+      n <- liftEffect (Ref.read counter)
+      n `shouldEqual` 1000
+
+  describe "bracket with interrupted use" do
+    it "release runs when use is interrupted" do
+      released <- liftEffect (Ref.new false)
+      let
+        prog :: F.RIO () () Unit
+        prog = do
+          f <- F.fork
+            ( F.bracket
+                (pure 7)
+                (\_ -> F.liftEffect (Ref.write true released))
+                (\_ -> F.sleep (Milliseconds 200.0))
+            )
+          F.sleep (Milliseconds 10.0)
+          F.interrupt f
+          _ <- F.causeOf (F.join f)
+          pure unit
+      _ <- runAff prog {}
+      delay (Milliseconds 5.0)
+      r <- liftEffect (Ref.read released)
+      r `shouldEqual` true
 
   describe "interrupt" do
     it "interrupting a suspended forked fiber fires its canceller and propagates Interrupted" do

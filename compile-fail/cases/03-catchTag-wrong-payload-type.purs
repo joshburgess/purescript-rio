@@ -13,7 +13,7 @@ import Data.Either (Either)
 import Data.Variant (Variant)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, catchTag, fail, runRIO)
+import RIO.Aff.Core (RIO, catchTag, fail, runRIO)
 
 inner :: RIO () (parse :: String) Int
 inner = fail (Proxy :: Proxy "parse") "bad"

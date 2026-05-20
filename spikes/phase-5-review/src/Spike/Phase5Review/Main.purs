@@ -51,7 +51,7 @@ import Effect.Exception (error, throwException)
 import Effect.Ref as Ref
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, ask, fail, provideLayer, runRIO)
+import RIO.Aff.Core (RIO, ask, fail, provideLayer, runRIO)
 
 import Spike.Phase5Review.Layers (appLayer, push)
 import Spike.Phase5Review.Services (Config, UserService)

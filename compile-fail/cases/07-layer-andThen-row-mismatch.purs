@@ -8,7 +8,7 @@ module Scratch where
 
 import Prelude hiding ((>>>))
 
-import RIO.Layer (Layer, fromRecord, (>>>))
+import RIO.Aff.Layer (Layer, fromRecord, (>>>))
 
 type Config = { host :: String }
 type Database = { query :: String }

@@ -28,10 +28,12 @@ package:
       - datetime
       - effect
       - either
+      - foldable-traversable
       - maybe
       - newtype
       - now
       - prelude
+      - quickcheck
       - refs
       - spec
       - spec-node

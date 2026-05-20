@@ -1,0 +1,33 @@
+package:
+  name: rio-aff-postgres-json
+  publish:
+    version: 0.1.0
+    license: MIT
+  dependencies:
+    - argonaut-codecs
+    - argonaut-core
+    - bifunctors
+    - either
+    - foreign
+    - lists
+    - newtype
+    - postgresql
+    - prelude
+    - transformers
+  test:
+    main: Test.RioPostgresJson.Main
+    dependencies:
+      - aff
+      - argonaut-codecs
+      - argonaut-core
+      - effect
+      - either
+      - maybe
+      - node-process
+      - prelude
+      - rio-aff
+      - rio-aff-postgres
+      - spec
+      - spec-node
+      - tuples
+      - variant

@@ -1,5 +1,5 @@
 -- | Phase 2 review cycle: 10 realistic service compositions written
--- | against the real `RIO.Core` API (not the Phase 0.4 spike prototype).
+-- | against the real `RIO.Aff.Core` API (not the Phase 0.4 spike prototype).
 -- |
 -- | Every top-level binding here is intentionally unannotated. The
 -- | compiler reports each inferred type via a `MissingTypeDeclaration`
@@ -16,7 +16,7 @@ import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (ask, asks, fail, provide, provideAll)
+import RIO.Aff.Core (ask, asks, fail, provide, provideAll)
 
 -- ---------------------------------------------------------------------------
 -- Fixtures: a handful of plausible services and a couple of error tags.

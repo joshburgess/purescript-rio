@@ -10,7 +10,7 @@
 -- |   * A long-running worker loop (`workerLoop`) that emits a
 -- |     heartbeat every second through `Logger`, opens a
 -- |     `Tracer.withSpan` per tick, and increments a counter.
--- |   * `RIO.Node.Shutdown.withShutdown` to race the worker
+-- |   * `RIO.Aff.Node.Shutdown.withShutdown` to race the worker
 -- |     against `SIGINT` / `SIGTERM`. On a signal the worker
 -- |     stops, the layer's finalizers fire (LIFO), and the
 -- |     process exits cleanly.
@@ -42,16 +42,16 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO)
-import RIO.Env (ask)
-import RIO.Layer (Layer, andThen, buildLayer, fromRIO)
-import RIO.Logger (Logger, consoleLogger, logInfo, withFields)
-import RIO.Metrics (Metrics, incrementCounter, noopMetrics)
-import RIO.Runtime (Runtime)
-import RIO.Runtime as Runtime
-import RIO.Tracer (Tracer, addAttribute, noopTracer, withSpan)
+import RIO.Aff.Core (RIO)
+import RIO.Aff.Env (ask)
+import RIO.Aff.Layer (Layer, andThen, buildLayer, fromRIO)
+import RIO.Aff.Logger (Logger, consoleLogger, logInfo, withFields)
+import RIO.Aff.Metrics (Metrics, incrementCounter, noopMetrics)
+import RIO.Aff.Runtime (Runtime)
+import RIO.Aff.Runtime as Runtime
+import RIO.Aff.Tracer (Tracer, addAttribute, noopTracer, withSpan)
 
-import RIO.Node.Shutdown (defaultShutdownSignals, withShutdown)
+import RIO.Aff.Node.Shutdown (defaultShutdownSignals, withShutdown)
 
 -- | The full service graph the app runs against. `tickCounter`
 -- | is an app-specific service (a `Ref`-backed integer); the

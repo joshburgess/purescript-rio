@@ -12,7 +12,7 @@ import Prelude
 
 import Data.Tuple (Tuple)
 
-import RIO.Sink (Sink, foldL, zipPar)
+import RIO.Aff.Sink (Sink, foldL, zipPar)
 
 sumInts :: forall r e. Sink r e Int Int
 sumInts = foldL 0 (\acc i -> acc + i)

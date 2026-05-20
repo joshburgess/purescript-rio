@@ -14,7 +14,7 @@ import Data.Variant (Variant)
 import Effect.Aff (Aff)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, ask, provideAll, runRIO)
+import RIO.Aff.Core (RIO, ask, provideAll, runRIO)
 
 inner
   :: forall e

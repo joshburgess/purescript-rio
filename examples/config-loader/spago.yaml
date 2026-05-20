@@ -8,8 +8,8 @@ package:
     - maybe
     - node-process
     - prelude
-    - rio
-    - rio-config-file
+    - rio-aff
+    - rio-aff-config-file
     - variant
   run:
     main: Example.ConfigLoader.Main

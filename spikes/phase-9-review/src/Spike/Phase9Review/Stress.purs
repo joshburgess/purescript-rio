@@ -5,17 +5,17 @@
 -- | termination modes (success, typed failure, fiber kill where
 -- | applicable). Modules under test:
 -- |
--- |   * `RIO.Logger`: annotation stack is restored after every
+-- |   * `RIO.Aff.Logger`: annotation stack is restored after every
 -- |     `withFields` block, including blocks that exit by typed
 -- |     failure or are torn down while a forked child is active.
--- |   * `RIO.Local`: `locally`'s value-restore is honoured on
+-- |   * `RIO.Aff.Local`: `locally`'s value-restore is honoured on
 -- |     every termination path of the wrapped action.
--- |   * `RIO.STM.TQueue`: producer/consumer correctness under
+-- |   * `RIO.Aff.STM.TQueue`: producer/consumer correctness under
 -- |     contention.
--- |   * `RIO.STM.THub`: all four back-pressure strategies
+-- |   * `RIO.Aff.STM.THub`: all four back-pressure strategies
 -- |     (Unbounded fan-out, Bounded back-pressure, Sliding drop-
 -- |     oldest, Dropping drop-new + boolean return).
--- |   * `RIO.STM.TSemaphore`: `withTSemaphore` returns permits on
+-- |   * `RIO.Aff.STM.TSemaphore`: `withTSemaphore` returns permits on
 -- |     every termination path including mid-hold fiber kills.
 module Spike.Phase9Review.Stress
   ( ScenarioResult
@@ -45,7 +45,7 @@ import Effect.Random (randomInt)
 import Effect.Ref as Ref
 import Type.Proxy (Proxy(..))
 
-import RIO.Core
+import RIO.Aff.Core
   ( RIO
   , catchAll
   , fail
@@ -57,11 +57,11 @@ import RIO.Core
   , runRIO
   , unsafeRunRIO
   )
-import RIO.Local (Local, locally, newLocalEffect)
-import RIO.Local as Local
-import RIO.Logger (Logger, logInfo, withFields)
-import RIO.STM (atomically)
-import RIO.STM.THub
+import RIO.Aff.Local (Local, locally, newLocalEffect)
+import RIO.Aff.Local as Local
+import RIO.Aff.Logger (Logger, logInfo, withFields)
+import RIO.Aff.STM (atomically)
+import RIO.Aff.STM.THub
   ( THub
   , newBoundedTHub
   , newDroppingTHub
@@ -73,14 +73,14 @@ import RIO.STM.THub
   , tryTakeSubscription
   , unsubscribeTHub
   )
-import RIO.STM.TQueue (TQueue, newTQueue, readTQueue, writeTQueue)
-import RIO.STM.TSemaphore
+import RIO.Aff.STM.TQueue (TQueue, newTQueue, readTQueue, writeTQueue)
+import RIO.Aff.STM.TSemaphore
   ( TSemaphore
   , availableTSemaphore
   , newTSemaphore
   , withTSemaphore
   )
-import RIO.Test.Logger (newRecordingLogger)
+import RIO.Aff.Test.Logger (newRecordingLogger)
 
 -- | Outcome of a single iteration: did the invariant hold, with
 -- | an `Int` payload describing the magnitude of the failure on

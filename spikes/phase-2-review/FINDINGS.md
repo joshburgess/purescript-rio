@@ -1,10 +1,10 @@
-# Phase 2 Review: Inference Quality of the Real `RIO.Core` API
+# Phase 2 Review: Inference Quality of the Real `RIO.Aff.Core` API
 
 **Status:** Complete.
 
 **Recommendation:** **GO.** All 10 realistic service compositions
 type-check without any user-supplied type signatures against the
-production `RIO.Core` API. The Phase 0.4 spike's sharp edge (LE-1, the
+production `RIO.Aff.Core` API. The Phase 0.4 spike's sharp edge (LE-1, the
 `Lacks "logger" t190` leak in `provide`) is **not** present in the
 production API; the inferred type of `example5` confirms `Lacks` was
 successfully dropped in Phase 2.2 without losing safety. No regressions
@@ -290,7 +290,7 @@ All 10. No regression to file.
 
 ## Decisions Feeding Phase 3
 
-1. **No changes to `RIO.Core`, `RIO.Env`, or `RIO.Error` required**
+1. **No changes to `RIO.Aff.Core`, `RIO.Aff.Env`, or `RIO.Aff.Error` required**
    based on this review.
 2. **Phase 3 can build on the validated row-inference foundation**
    without revisiting the type-level shape of the existing primitives.

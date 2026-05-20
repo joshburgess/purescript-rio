@@ -11,8 +11,8 @@ import Prelude
 
 import Effect.Aff (Aff)
 
-import RIO.Core (RIO, runRIO')
-import RIO.STM (newTRef, readTRef, atomically)
+import RIO.Aff.Core (RIO, runRIO')
+import RIO.Aff.STM (newTRef, readTRef, atomically)
 
 -- `readTRef ref` is `STM e Int`, not `RIO () () Int`. Binding it
 -- directly inside the `RIO` do-block must not typecheck. (Replacing

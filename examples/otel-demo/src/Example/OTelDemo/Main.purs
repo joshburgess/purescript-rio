@@ -1,9 +1,9 @@
--- | A small program that wires `RIO.Tracer.OTel.Adapter.makeOTelTracer`
+-- | A small program that wires `RIO.Aff.Tracer.OTel.Adapter.makeOTelTracer`
 -- | into a real OpenTelemetry SDK with an in-memory exporter
 -- | (`InMemorySpanExporter` from `@opentelemetry/sdk-trace-base`).
 -- |
 -- | The program runs a nested-span workload through the same
--- | `RIO.Tracer` API the rest of `rio` uses, then dumps the
+-- | `RIO.Aff.Tracer` API the rest of `rio` uses, then dumps the
 -- | captured spans so you can see that parent / child
 -- | relationships, attributes, and status codes all survived
 -- | the OTel round-trip.
@@ -28,15 +28,15 @@ import Example.OTelDemo.InMemoryExporter
   , installInMemoryExporter
   , readExportedSpans
   )
-import RIO.Core
+import RIO.Aff.Core
   ( RIO
   , catchAll
   , fail
   , provideAll
   , runRIO'
   )
-import RIO.Tracer (Tracer, addAttribute, withSpan)
-import RIO.Tracer.OTel.Adapter (makeOTelTracer)
+import RIO.Aff.Tracer (Tracer, addAttribute, withSpan)
+import RIO.Aff.Tracer.OTel.Adapter (makeOTelTracer)
 import Type.Proxy (Proxy(..))
 
 work :: forall r e. RIO (tracer :: Tracer | r) e Unit

@@ -30,7 +30,7 @@ import Effect.Ref as Ref
 import Effect.Exception (error)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core
+import RIO.Aff.Core
   ( RIO
   , addFinalizer
   , ask

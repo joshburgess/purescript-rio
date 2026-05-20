@@ -29,10 +29,10 @@ import Data.Traversable (traverse)
 import Effect.Aff (Aff, joinFiber, forkAff, parallel, sequential)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
-import RIO.Core (RIO, runRIO')
-import RIO.Concurrency (awaitAll, fork, forkAll, forkAllUntracked, joinAll, parTraverse)
+import RIO.Aff.Core (RIO, runRIO')
+import RIO.Aff.Concurrency (awaitAll, fork, forkAll, forkAllUntracked, joinAll, parTraverse)
 
--- | Workload 1: a chain of `pure (acc + 1)` binds in RIO.
+-- | Workload 1: a chain of `pure (acc + 1)` binds in RIO.Aff.
 rioBindChain :: Int -> RIO () () Int
 rioBindChain n = go 0 n
   where

@@ -22,12 +22,12 @@ import Data.Tuple.Nested ((/\))
 import Effect.Class (liftEffect)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (Layer, RIO, fromRIO)
-import RIO.Layer ((<+>))
-import RIO.Logger (consoleLogger)
-import RIO.Postgres (PgError, Postgres)
-import RIO.Postgres.Layer (postgresLayer)
-import RIO.Postgres.Migrate (migrate, sqlMigration) as Migrate
+import RIO.Aff.Core (Layer, RIO, fromRIO)
+import RIO.Aff.Layer ((<+>))
+import RIO.Aff.Logger (consoleLogger)
+import RIO.Aff.Postgres (PgError, Postgres)
+import RIO.Aff.Postgres.Layer (postgresLayer)
+import RIO.Aff.Postgres.Migrate (migrate, sqlMigration) as Migrate
 
 import Example.TodoApi.Services (Logger)
 
@@ -43,7 +43,7 @@ appLayer connectionString =
   loggerLayer <+> postgresLayer { connectionString }
 
 -- | Versioned schema bootstrap. Runs through
--- | `RIO.Postgres.Migrate`, which holds an advisory lock and
+-- | `RIO.Aff.Postgres.Migrate`, which holds an advisory lock and
 -- | records applied versions in `__rio_migrations`. Adding a new
 -- | column or index later is a new entry here, not a re-run of the
 -- | original DDL.

@@ -1,0 +1,31 @@
+package:
+  name: rio-aff-postgres-migrate
+  publish:
+    version: 0.1.0
+    license: MIT
+  dependencies:
+    - aff
+    - effect
+    - either
+    - foldable-traversable
+    - maybe
+    - ordered-collections
+    - prelude
+    - rio-aff
+    - rio-aff-postgres
+    - tuples
+    - variant
+  test:
+    main: Test.RioPostgresMigrate.Main
+    dependencies:
+      - aff
+      - effect
+      - maybe
+      - node-process
+      - prelude
+      - rio-aff
+      - rio-aff-postgres
+      - spec
+      - spec-node
+      - tuples
+      - variant

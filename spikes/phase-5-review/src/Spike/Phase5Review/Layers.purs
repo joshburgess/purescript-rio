@@ -52,7 +52,7 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Type.Proxy (Proxy(..))
 
-import RIO.Core
+import RIO.Aff.Core
   ( Layer
   , addFinalizer
   , ask
@@ -60,7 +60,7 @@ import RIO.Core
   , fromRIO
   , fromRecord
   )
-import RIO.Layer ((<+>), (>>>))
+import RIO.Aff.Layer ((<+>), (>>>))
 
 import Spike.Phase5Review.Services
   ( Cache

@@ -5,11 +5,11 @@
 **Recommendation:** **GO.** Across 8000 randomised iterations
 (four consecutive local runs of 2000 iterations each) the harness
 reports zero invariant violations across every recently-added
-module: `RIO.Logger` annotation restoration, `RIO.Local` scoped
-overrides under fork-and-kill, `RIO.STM.TQueue` producer/consumer
-correctness, all four `RIO.STM.THub` back-pressure strategies
+module: `RIO.Aff.Logger` annotation restoration, `RIO.Aff.Local` scoped
+overrides under fork-and-kill, `RIO.Aff.STM.TQueue` producer/consumer
+correctness, all four `RIO.Aff.STM.THub` back-pressure strategies
 (Unbounded fan-out, Bounded back-pressure, Sliding drop-oldest,
-Dropping drop-new with boolean return), and `RIO.STM.TSemaphore`
+Dropping drop-new with boolean return), and `RIO.Aff.STM.TSemaphore`
 permit-return under typed failures and mid-hold fiber kills. The
 `finally`-backed restore the documentation promises for
 `withFields`, `locally`, and `withTSemaphore` holds on every
@@ -29,14 +29,14 @@ load-bearing invariant per iteration. Random parameters come from
 
 | ID | Module                          | Random parameters                                                                              | Invariant                                                                                                                |
 | -- | ------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| A  | `RIO.Logger`                    | depth `[1, 8]`, failPct `[0, 50]`, forkPct `[0, 50]`                                           | After the program returns, the logger's annotation set is empty.                                                          |
-| B  | `RIO.Local`                     | depth `[1, 8]`, failPct `[0, 50]`, forkPct `[0, 50]`, killPct `[0, 50]`                        | After the program returns, the `Local Int` holds its initial value.                                                       |
-| C  | `RIO.STM.TQueue`                | producers `[1, 4]`, consumers `[1, 4]`, perProducer `[4, 16]`                                  | Sum and count of dequeued values match sum and count of enqueued values.                                                  |
-| D  | `RIO.STM.THub` (Unbounded)      | subscribers `[1, 5]`, publishCount `[4, 20]`                                                   | Every subscriber dequeues exactly `publishCount` values; their sums match the source.                                     |
-| E  | `RIO.STM.THub` (Bounded)        | buffer `[2, 6]`, publishCount `[buffer+4, buffer*4]`                                           | A single consumer drains exactly `publishCount` values from a publisher forced to retry when the buffer fills.            |
-| F  | `RIO.STM.THub` (Sliding)        | buffer `[2, 6]`, publishCount `[buffer+2, buffer*3]`                                           | After publish completes, a non-draining subscriber holds exactly the last `buffer` values published, in publish order.    |
-| G  | `RIO.STM.THub` (Dropping)       | buffer `[2, 6]`, publishCount `[buffer+2, buffer*3]`                                           | First `buffer` publishes return `true`, remainder return `false`; subscriber drains the first `buffer` values, in order. |
-| H  | `RIO.STM.TSemaphore`            | permits `[2, 5]`, workers `[3, 12]`, failPct `[0, 40]`, killPct `[0, 40]`, holdMs `[1, 6]`     | `availableTSemaphore` returns to `permits` after all workers (some failed, some killed mid-hold) have settled.            |
+| A  | `RIO.Aff.Logger`                    | depth `[1, 8]`, failPct `[0, 50]`, forkPct `[0, 50]`                                           | After the program returns, the logger's annotation set is empty.                                                          |
+| B  | `RIO.Aff.Local`                     | depth `[1, 8]`, failPct `[0, 50]`, forkPct `[0, 50]`, killPct `[0, 50]`                        | After the program returns, the `Local Int` holds its initial value.                                                       |
+| C  | `RIO.Aff.STM.TQueue`                | producers `[1, 4]`, consumers `[1, 4]`, perProducer `[4, 16]`                                  | Sum and count of dequeued values match sum and count of enqueued values.                                                  |
+| D  | `RIO.Aff.STM.THub` (Unbounded)      | subscribers `[1, 5]`, publishCount `[4, 20]`                                                   | Every subscriber dequeues exactly `publishCount` values; their sums match the source.                                     |
+| E  | `RIO.Aff.STM.THub` (Bounded)        | buffer `[2, 6]`, publishCount `[buffer+4, buffer*4]`                                           | A single consumer drains exactly `publishCount` values from a publisher forced to retry when the buffer fills.            |
+| F  | `RIO.Aff.STM.THub` (Sliding)        | buffer `[2, 6]`, publishCount `[buffer+2, buffer*3]`                                           | After publish completes, a non-draining subscriber holds exactly the last `buffer` values published, in publish order.    |
+| G  | `RIO.Aff.STM.THub` (Dropping)       | buffer `[2, 6]`, publishCount `[buffer+2, buffer*3]`                                           | First `buffer` publishes return `true`, remainder return `false`; subscriber drains the first `buffer` values, in order. |
+| H  | `RIO.Aff.STM.TSemaphore`            | permits `[2, 5]`, workers `[3, 12]`, failPct `[0, 40]`, killPct `[0, 40]`, holdMs `[1, 6]`     | `availableTSemaphore` returns to `permits` after all workers (some failed, some killed mid-hold) have settled.            |
 
 Scenarios A and B exit each iteration through `attempt`, so typed
 failures along the way do not abort the harness; the post-return

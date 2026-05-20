@@ -68,13 +68,13 @@ import HTTPurple.Json (fromJsonE, toJson)
 import HTTPurple.Status as Status
 import Node.Process (lookupEnv)
 
-import RIO.Clock (Clock, liveClock)
-import RIO.Core (RIO, provideAll, runRIO)
-import RIO.Env (ask)
-import RIO.Layer (provideLayer)
-import RIO.Local (Local, newLocalEffect)
-import RIO.Logger (Logger)
-import RIO.Postgres (PgError, Postgres, pgErrorMessage)
+import RIO.Aff.Clock (Clock, liveClock)
+import RIO.Aff.Core (RIO, provideAll, runRIO)
+import RIO.Aff.Env (ask)
+import RIO.Aff.Layer (provideLayer)
+import RIO.Aff.Local (Local, newLocalEffect)
+import RIO.Aff.Logger (Logger)
+import RIO.Aff.Postgres (PgError, Postgres, pgErrorMessage)
 import Type.Proxy (Proxy(..))
 
 import Example.TodoApi.Codecs

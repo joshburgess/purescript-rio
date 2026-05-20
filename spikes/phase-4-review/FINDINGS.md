@@ -3,7 +3,7 @@
 **Status:** Complete.
 
 **Recommendation:** **GO.** Bracket-style resource safety in
-`RIO.Resource` survives 1000-deep nested scopes under every
+`RIO.Aff.Resource` survives 1000-deep nested scopes under every
 termination path the library promises: success, typed failure,
 defect, and external `Aff` fiber kill. Over 100 randomized runs per
 invocation, repeated four times locally, the finalizer log was

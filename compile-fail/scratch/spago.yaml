@@ -8,6 +8,6 @@ package:
     - prelude
     - record
     - refs
-    - rio
+    - rio-aff
     - tuples
     - variant

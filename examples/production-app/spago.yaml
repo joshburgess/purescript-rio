@@ -9,8 +9,8 @@ package:
     - maybe
     - prelude
     - refs
-    - rio
-    - rio-node
+    - rio-aff
+    - rio-aff-node
     - tuples
     - variant
   run:

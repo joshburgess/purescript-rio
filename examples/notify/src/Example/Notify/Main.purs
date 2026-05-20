@@ -1,4 +1,4 @@
--- | A tiny program that exercises `RIO.Postgres.Notify` end to end:
+-- | A tiny program that exercises `RIO.Aff.Postgres.Notify` end to end:
 -- |
 -- |   1. builds a `postgresLayer + notifyLayer` over the URL in
 -- |      `DATABASE_URL`,
@@ -31,12 +31,12 @@ import Effect.Console as Console
 import Node.Process (lookupEnv)
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, provideLayer, runRIO)
-import RIO.Layer ((<+>))
-import RIO.Postgres (PgError, Postgres, pgErrorMessage)
-import RIO.Postgres.Layer (postgresLayer)
-import RIO.Postgres.Notify (Notify, notify, withListen)
-import RIO.Postgres.Notify.Layer (notifyLayer)
+import RIO.Aff.Core (RIO, provideLayer, runRIO)
+import RIO.Aff.Layer ((<+>))
+import RIO.Aff.Postgres (PgError, Postgres, pgErrorMessage)
+import RIO.Aff.Postgres.Layer (postgresLayer)
+import RIO.Aff.Postgres.Notify (Notify, notify, withListen)
+import RIO.Aff.Postgres.Notify.Layer (notifyLayer)
 
 type AppRow = (postgres :: Postgres, notify :: Notify)
 

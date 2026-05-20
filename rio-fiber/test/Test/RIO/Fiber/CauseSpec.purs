@@ -281,3 +281,239 @@ spec = describe "rio-fiber: Cause" do
         rendered = Cause.prettyPrint renderOops c
       rendered `shouldEqual`
         "Then\n|-- Fail oops=a\n`-- Die boom"
+
+    it "prettyPrint renders Both and deeply nested trees" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.both
+          (Cause.then_ (mkOops "a") Cause.interrupt)
+          (Cause.die (error "kaboom"))
+        rendered = Cause.prettyPrint renderOops c
+      -- Top is Both with two children. Left child is a nested Then;
+      -- right child is a Die leaf.
+      rendered `shouldEqual`
+        ( "Both\n"
+            <> "|-- Then\n"
+            <> "|   |-- Fail oops=a\n"
+            <> "|   `-- Interrupt\n"
+            <> "`-- Die kaboom"
+        )
+
+  describe "algebraic laws" do
+    let
+      a :: Cause (oops :: String)
+      a = Cause.fail (Variant.inj (Proxy :: _ "oops") "a")
+
+      b :: Cause (oops :: String)
+      b = Cause.die (error "b")
+
+      c :: Cause (oops :: String)
+      c = Cause.interrupt
+
+      structEq :: Cause (oops :: String) -> Cause (oops :: String) -> Boolean
+      structEq Empty Empty = true
+      structEq (Fail x) (Fail y) =
+        let
+          pick = Variant.case_ # Variant.on (Proxy :: _ "oops") identity
+        in
+          pick x == pick y
+      structEq (Die ex) (Die ey) = message ex == message ey
+      structEq Interrupt Interrupt = true
+      structEq (Then x1 x2) (Then y1 y2) = structEq x1 y1 && structEq x2 y2
+      structEq (Both x1 x2) (Both y1 y2) = structEq x1 y1 && structEq x2 y2
+      structEq _ _ = false
+
+    it "Empty is a two-sided identity for then_" do
+      structEq (Cause.then_ Cause.empty a) a `shouldEqual` true
+      structEq (Cause.then_ a Cause.empty) a `shouldEqual` true
+
+    it "Empty is a two-sided identity for both" do
+      structEq (Cause.both Cause.empty a) a `shouldEqual` true
+      structEq (Cause.both a Cause.empty) a `shouldEqual` true
+
+    it "then_ is associative when observed via flatten" do
+      -- The smart constructor `then_` does not re-associate trees, so
+      -- `Then (Then a b) c` and `Then a (Then b c)` are structurally
+      -- distinct. They are semantically equal in the leaf orderings
+      -- and population counts that callers actually observe.
+      let
+        lhs = Cause.then_ (Cause.then_ a b) c
+        rhs = Cause.then_ a (Cause.then_ b c)
+        sigL = Cause.flatten lhs
+        sigR = Cause.flatten rhs
+      length sigL.failures `shouldEqual` length sigR.failures
+      length sigL.defects `shouldEqual` length sigR.defects
+      sigL.interrupted `shouldEqual` sigR.interrupted
+      Cause.interruptCount lhs `shouldEqual` Cause.interruptCount rhs
+
+    it "both is associative when observed via flatten" do
+      let
+        lhs = Cause.both (Cause.both a b) c
+        rhs = Cause.both a (Cause.both b c)
+        sigL = Cause.flatten lhs
+        sigR = Cause.flatten rhs
+      length sigL.failures `shouldEqual` length sigR.failures
+      length sigL.defects `shouldEqual` length sigR.defects
+      sigL.interrupted `shouldEqual` sigR.interrupted
+      Cause.interruptCount lhs `shouldEqual` Cause.interruptCount rhs
+
+    it "mapFailures with identity is the identity on the cause" do
+      let
+        c2 :: Cause (oops :: String)
+        c2 = Cause.then_ a (Cause.both b c)
+      structEq (Cause.mapFailures identity c2) c2 `shouldEqual` true
+
+    it "mapFailures composes (functor composition law)" do
+      let
+        c2 :: Cause (oops :: String)
+        c2 = Cause.then_ a (Cause.both a b)
+
+        f :: Variant (oops :: String) -> Variant (oops :: String)
+        f v = Variant.inj (Proxy :: _ "oops")
+          ( "f("
+              <>
+                (Variant.case_ # Variant.on (Proxy :: _ "oops") identity) v
+              <> ")"
+          )
+
+        g :: Variant (oops :: String) -> Variant (oops :: String)
+        g v = Variant.inj (Proxy :: _ "oops")
+          ( "g("
+              <>
+                (Variant.case_ # Variant.on (Proxy :: _ "oops") identity) v
+              <> ")"
+          )
+
+        twice :: Cause (oops :: String)
+        twice = Cause.mapFailures f (Cause.mapFailures g c2)
+
+        once :: Cause (oops :: String)
+        once = Cause.mapFailures (f <<< g) c2
+      structEq twice once `shouldEqual` true
+
+    it "stripInterrupts is idempotent" do
+      let
+        c2 :: Cause (oops :: String)
+        c2 = Cause.then_ a (Cause.both Cause.interrupt b)
+        stripped = Cause.stripInterrupts c2
+      structEq (Cause.stripInterrupts stripped) stripped `shouldEqual` true
+
+    it "stripFailures is idempotent" do
+      let
+        c2 :: Cause (oops :: String)
+        c2 = Cause.both a (Cause.both b Cause.interrupt)
+        stripped = Cause.stripFailures c2
+      structEq (Cause.stripFailures stripped) stripped `shouldEqual` true
+
+    it "stripDefects is idempotent" do
+      let
+        c2 :: Cause (oops :: String)
+        c2 = Cause.both a (Cause.both b Cause.interrupt)
+        stripped = Cause.stripDefects c2
+      structEq (Cause.stripDefects stripped) stripped `shouldEqual` true
+
+    it "stripFailures then stripDefects leaves only interrupts" do
+      let
+        c2 :: Cause (oops :: String)
+        c2 = Cause.then_ a (Cause.both b Cause.interrupt)
+        s = Cause.stripDefects (Cause.stripFailures c2)
+      length (Cause.failures s) `shouldEqual` 0
+      length (Cause.defects s) `shouldEqual` 0
+      Cause.isInterrupted s `shouldEqual` true
+
+    it "stripFailures and stripDefects commute" do
+      let
+        c2 :: Cause (oops :: String)
+        c2 = Cause.both a (Cause.both b Cause.interrupt)
+
+        path1 = Cause.stripDefects (Cause.stripFailures c2)
+        path2 = Cause.stripFailures (Cause.stripDefects c2)
+      structEq path1 path2 `shouldEqual` true
+
+  describe "fold can reproduce every helper" do
+    let
+      sample :: Cause (a :: String, b :: String)
+      sample = Cause.then_
+        (Cause.fail (Variant.inj (Proxy :: _ "a") "x"))
+        (Cause.both
+            (Cause.fail (Variant.inj (Proxy :: _ "b") "y"))
+            (Cause.both Cause.interrupt (Cause.die (error "z")))
+        )
+
+    it "fold reproduces isEmpty" do
+      let
+        ie = Cause.fold
+          { empty: true
+          , fail: \_ -> false
+          , die: \_ -> false
+          , interrupt: false
+          , then_: \x y -> x && y
+          , both: \x y -> x && y
+          }
+          sample
+      ie `shouldEqual` Cause.isEmpty sample
+
+    it "fold reproduces isInterrupted" do
+      let
+        ii = Cause.fold
+          { empty: false
+          , fail: \_ -> false
+          , die: \_ -> false
+          , interrupt: true
+          , then_: \x y -> x || y
+          , both: \x y -> x || y
+          }
+          sample
+      ii `shouldEqual` Cause.isInterrupted sample
+
+    it "fold reproduces hasDefect" do
+      let
+        hd = Cause.fold
+          { empty: false
+          , fail: \_ -> false
+          , die: \_ -> true
+          , interrupt: false
+          , then_: \x y -> x || y
+          , both: \x y -> x || y
+          }
+          sample
+      hd `shouldEqual` Cause.hasDefect sample
+
+    it "fold reproduces interruptCount" do
+      let
+        ic = Cause.fold
+          { empty: 0
+          , fail: \_ -> 0
+          , die: \_ -> 0
+          , interrupt: 1
+          , then_: add
+          , both: add
+          }
+          sample
+      ic `shouldEqual` Cause.interruptCount sample
+
+    it "fold reproduces failures (count)" do
+      let
+        fs = Cause.fold
+          { empty: 0
+          , fail: \_ -> 1
+          , die: \_ -> 0
+          , interrupt: 0
+          , then_: add
+          , both: add
+          }
+          sample
+      fs `shouldEqual` length (Cause.failures sample)
+
+    it "fold reproduces defects (count)" do
+      let
+        ds = Cause.fold
+          { empty: 0
+          , fail: \_ -> 0
+          , die: \_ -> 1
+          , interrupt: 0
+          , then_: add
+          , both: add
+          }
+          sample
+      ds `shouldEqual` length (Cause.defects sample)

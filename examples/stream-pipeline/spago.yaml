@@ -12,7 +12,7 @@ package:
     - maybe
     - ordered-collections
     - prelude
-    - rio
+    - rio-aff
     - tuples
     - variant
   run:

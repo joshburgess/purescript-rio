@@ -12,7 +12,7 @@ package:
     - prelude
     - random
     - refs
-    - rio
+    - rio-aff
     - strings
     - variant
   run:

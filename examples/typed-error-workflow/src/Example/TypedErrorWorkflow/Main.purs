@@ -42,15 +42,15 @@ import Effect.Ref as Ref
 import Node.Process (exit')
 import Type.Proxy (Proxy(..))
 
-import RIO.CircuitBreaker (CircuitBreaker, Phase(..))
-import RIO.CircuitBreaker as CB
-import RIO.Clock (Clock, liveClock)
-import RIO.Core (RIO, ask, catchAll, catchTag, fail, provideAll, runRIO)
-import RIO.Logger (Logger, logError, logInfo, logWarn, withFields)
-import RIO.Schedule (exponential, intersect, recurs, retry)
-import RIO.Test.Logger (LogRecord, newRecordingLogger)
-import RIO.Test.Tracer (newRecordingTracer)
-import RIO.Tracer
+import RIO.Aff.CircuitBreaker (CircuitBreaker, Phase(..))
+import RIO.Aff.CircuitBreaker as CB
+import RIO.Aff.Clock (Clock, liveClock)
+import RIO.Aff.Core (RIO, ask, catchAll, catchTag, fail, provideAll, runRIO)
+import RIO.Aff.Logger (Logger, logError, logInfo, logWarn, withFields)
+import RIO.Aff.Schedule (exponential, intersect, recurs, retry)
+import RIO.Aff.Test.Logger (LogRecord, newRecordingLogger)
+import RIO.Aff.Test.Tracer (newRecordingTracer)
+import RIO.Aff.Tracer
   ( Span
   , Tracer
   , addAttribute

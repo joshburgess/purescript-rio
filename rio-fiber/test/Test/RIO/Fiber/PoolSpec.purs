@@ -2,16 +2,20 @@ module Test.RIO.Fiber.PoolSpec (spec) where
 
 import Prelude
 
+import Data.Either (Either(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (for_)
+import Data.Variant as Variant
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
+import RIO.Fiber.Cause (Cause)
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
 import RIO.Fiber.Pool as Pool
 import Test.RIO.Fiber.Helpers (runAff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
+import Type.Proxy (Proxy(..))
 
 spec :: Spec Unit
 spec = describe "rio-fiber: Pool" do
@@ -84,6 +88,134 @@ spec = describe "rio-fiber: Pool" do
     -- only one resource is ever created (reused across three borrows),
     -- and shutdown destroys it exactly once.
     rs `shouldEqual` [ 42 ]
+
+  it "size reports the configured capacity" do
+    let
+      prog :: F.RIO () () Int
+      prog = do
+        pool <- Pool.make 5 (pure 0) (\_ -> pure unit)
+        Pool.size pool
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 5
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "size clamps non-positive capacity to 1" do
+    let
+      prog :: F.RIO () () Int
+      prog = do
+        pool <- Pool.make 0 (pure 0) (\_ -> pure unit)
+        Pool.size pool
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 1
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "available reports how many resources are currently idle" do
+    let
+      prog :: F.RIO () () { afterMake :: Int, afterUse :: Int }
+      prog = do
+        pool <- Pool.make 3 (pure 0) (\_ -> pure unit)
+        afterMake <- Pool.available pool
+        _ <- Pool.withResource pool pure
+        afterUse <- Pool.available pool
+        pure { afterMake, afterUse }
+    out <- runAff prog {}
+    case out of
+      Success r -> do
+        -- Empty pool starts with no idle resources (none created yet).
+        r.afterMake `shouldEqual` 0
+        -- After one borrow / release the resource is back in the queue.
+        r.afterUse `shouldEqual` 1
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "resource returns to the pool after a failing use" do
+    created <- liftEffect (Ref.new 0)
+    let
+      acquire :: F.RIO () (boom :: String) Int
+      acquire = F.liftEffect (Ref.modify (_ + 1) created)
+
+      prog :: F.RIO () (boom :: String) Unit
+      prog = do
+        pool <- Pool.make 1 acquire (\_ -> pure unit)
+        -- First use fails; the resource must be returned to the pool.
+        _ <- F.catchAll (\_ -> pure 0)
+          (Pool.withResource pool \_ ->
+              F.fail (Variant.inj (Proxy :: _ "boom") "x")
+          )
+        -- Second use should reuse the same resource, not create a new one.
+        _ <- Pool.withResource pool pure
+        pure unit
+    _ <- runAff prog {}
+    n <- liftEffect (Ref.read created)
+    n `shouldEqual` 1
+
+  it "resource returns to the pool after an interrupted use" do
+    created <- liftEffect (Ref.new 0)
+    let
+      acquire :: F.RIO () () Int
+      acquire = F.liftEffect (Ref.modify (_ + 1) created)
+
+      prog :: F.RIO () () Unit
+      prog = do
+        pool <- Pool.make 1 acquire (\_ -> pure unit)
+        f <- F.fork
+          ( Pool.withResource pool \_ ->
+              F.sleep (Milliseconds 1000.0)
+          )
+        F.sleep (Milliseconds 10.0)
+        F.interrupt f
+        _ <- F.join f
+        -- Borrow again; should reuse the resource.
+        _ <- Pool.withResource pool pure
+        pure unit
+    _ <- runAff prog {}
+    n <- liftEffect (Ref.read created)
+    n `shouldEqual` 1
+
+  it "if create fails, the permit is released so the next borrow can run" do
+    attempts <- liftEffect (Ref.new 0)
+    let
+      acquire :: F.RIO () (boom :: String) Int
+      acquire = do
+        n <- F.liftEffect (Ref.modify (_ + 1) attempts)
+        if n == 1 then F.fail (Variant.inj (Proxy :: _ "boom") "first attempt")
+        else pure 42
+
+      prog
+        :: F.RIO () (boom :: String) (Either (Cause (boom :: String)) Int)
+      prog = do
+        pool <- Pool.make 1 acquire (\_ -> pure unit)
+        -- First borrow fails inside create; permit must be released.
+        -- The Pool re-raises the failure via `failCause`, which
+        -- becomes an M_CAUSE that `catchAll` does not catch, so we
+        -- go through `causeOf` to recover from any shape of failure.
+        _ <- F.causeOf (Pool.withResource pool pure)
+        -- Second borrow should succeed.
+        F.causeOf (Pool.withResource pool pure)
+    out <- runAff prog {}
+    case out of
+      Success (Right n) -> n `shouldEqual` 42
+      Success (Left _) ->
+        fail "second borrow failed: permit was not released"
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    a <- liftEffect (Ref.read attempts)
+    a `shouldEqual` 2
+
+  it "shutdown is idempotent" do
+    destroyed <- liftEffect (Ref.new 0)
+    let
+      prog :: F.RIO () () Unit
+      prog = do
+        pool <- Pool.make 2 (pure 1) (\_ -> F.liftEffect (Ref.modify_ (_ + 1) destroyed))
+        _ <- Pool.withResource pool pure
+        Pool.shutdown pool
+        Pool.shutdown pool
+        Pool.shutdown pool
+    _ <- runAff prog {}
+    n <- liftEffect (Ref.read destroyed)
+    -- Only one resource was created, destroyed exactly once.
+    n `shouldEqual` 1
 
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"

@@ -8,7 +8,7 @@ module Scratch where
 
 import Prelude
 
-import RIO.Layer (Layer, fromRecord, (<+>))
+import RIO.Aff.Layer (Layer, fromRecord, (<+>))
 
 type Logger = { log :: String -> String }
 

@@ -1,23 +1,23 @@
--- | A small fan-out worker pool that pulls jobs off an `RIO.Queue`
+-- | A small fan-out worker pool that pulls jobs off an `RIO.Aff.Queue`
 -- | and runs them through a `Semaphore`-gated handler with a retry
 -- | `Schedule`.
 -- |
 -- | This module exists to show how the framework's pieces compose:
 -- |
--- |   * `RIO.Queue` carries the inbox; a producer offers jobs and
+-- |   * `RIO.Aff.Queue` carries the inbox; a producer offers jobs and
 -- |     can `shutdown` when finished, which wakes blocked takers
 -- |     with `Nothing`.
--- |   * `RIO.Semaphore` bounds in-flight work below `concurrency`
+-- |   * `RIO.Aff.Semaphore` bounds in-flight work below `concurrency`
 -- |     even when there are more workers than permits.
--- |   * `RIO.Schedule.retry` re-runs failing jobs with bounded
+-- |   * `RIO.Aff.Schedule.retry` re-runs failing jobs with bounded
 -- |     exponential backoff; each retry stays inside the worker's
 -- |     permit, so a thrashing job doesn't release-then-reacquire
 -- |     and starve siblings.
--- |   * `RIO.Concurrency.fork` and `join` give us "fan out N
+-- |   * `RIO.Aff.Concurrency.fork` and `join` give us "fan out N
 -- |     workers, await all of them" without leaving fibers behind.
--- |   * `RIO.Metrics` records "jobs done" / "jobs failed" counters
+-- |   * `RIO.Aff.Metrics` records "jobs done" / "jobs failed" counters
 -- |     and a wall-clock histogram per job.
--- |   * `RIO.Tracer.withSpan` brackets each job in a span so OTel
+-- |   * `RIO.Aff.Tracer.withSpan` brackets each job in a span so OTel
 -- |     traces show one root per job with the retries nested.
 module Example.WorkerPool.Workers
   ( Job
@@ -42,16 +42,16 @@ import Effect.Now (now) as Now
 import Type.Proxy (Proxy(..))
 
 import Example.WorkerPool.Logger (Logger, info, warn)
-import RIO.Clock (Clock)
-import RIO.Concurrency (fork, join)
-import RIO.Core (RIO, catchAll)
-import RIO.Metrics (Metrics, incrementCounter, observeHistogram)
-import RIO.Queue (Queue)
-import RIO.Queue as Queue
-import RIO.Schedule (exponential, intersect, recurs, retry)
-import RIO.Semaphore (Semaphore)
-import RIO.Semaphore as Semaphore
-import RIO.Tracer (Tracer, withSpan)
+import RIO.Aff.Clock (Clock)
+import RIO.Aff.Concurrency (fork, join)
+import RIO.Aff.Core (RIO, catchAll)
+import RIO.Aff.Metrics (Metrics, incrementCounter, observeHistogram)
+import RIO.Aff.Queue (Queue)
+import RIO.Aff.Queue as Queue
+import RIO.Aff.Schedule (exponential, intersect, recurs, retry)
+import RIO.Aff.Semaphore (Semaphore)
+import RIO.Aff.Semaphore as Semaphore
+import RIO.Aff.Tracer (Tracer, withSpan)
 
 -- | A job is just a labelled `RIO` action. The label is what shows
 -- | up in logs, metrics names, and span attributes.

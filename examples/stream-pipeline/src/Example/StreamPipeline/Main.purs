@@ -29,12 +29,12 @@ import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Class.Console as Console
 
-import RIO.Concurrency (fork, join)
-import RIO.Core (RIO, provideAll, runRIO)
-import RIO.Metrics (Metrics, incrementCounter)
-import RIO.Stream (Stream, mapM, runDrain, unfoldM)
-import RIO.Stream.Par (broadcast, mergeAll)
-import RIO.Test.Metrics (MetricRecord, newRecordingMetrics) as TestMetrics
+import RIO.Aff.Concurrency (fork, join)
+import RIO.Aff.Core (RIO, provideAll, runRIO)
+import RIO.Aff.Metrics (Metrics, incrementCounter)
+import RIO.Aff.Stream (Stream, mapM, runDrain, unfoldM)
+import RIO.Aff.Stream.Par (broadcast, mergeAll)
+import RIO.Aff.Test.Metrics (MetricRecord, newRecordingMetrics) as TestMetrics
 
 type Event = { source :: String, payload :: Int }
 

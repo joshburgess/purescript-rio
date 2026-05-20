@@ -18,10 +18,10 @@ package:
     - partial
     - prelude
     - refs
-    - rio
-    - rio-http
-    - rio-postgres
-    - rio-postgres-migrate
+    - rio-aff
+    - rio-aff-http
+    - rio-aff-postgres
+    - rio-aff-postgres-migrate
     - strings
     - tuples
     - variant

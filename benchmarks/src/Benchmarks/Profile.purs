@@ -22,7 +22,7 @@ import Effect.Aff (Aff, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Ref as Ref
-import RIO.Core
+import RIO.Aff.Core
   ( RIO
   , ask
   , catchAll
@@ -32,7 +32,7 @@ import RIO.Core
   , runRIO
   , runRIO'
   )
-import RIO.Internal (OpCounts, dumpOpCounts, resetOpCounts)
+import RIO.Aff.Internal (OpCounts, dumpOpCounts, resetOpCounts)
 import Type.Proxy (Proxy(..))
 
 type Service = { lookup :: Int -> Int }

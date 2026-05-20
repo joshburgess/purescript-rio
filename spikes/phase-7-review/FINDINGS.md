@@ -4,8 +4,8 @@
 
 **Recommendation:** **GO.** The full Phase 5-style layered
 application (logger, database, clock, user service) ports
-cleanly to a `Test.Spec` suite that uses only `RIO.Spec`,
-`RIO.Test`, and `RIO.Test.Clock`. All four scenarios pass on
+cleanly to a `Test.Spec` suite that uses only `RIO.Aff.Spec`,
+`RIO.Aff.Test`, and `RIO.Aff.Test.Clock`. All four scenarios pass on
 every run, the assertions read like ordinary spec bodies, and
 the boilerplate cost over the Phase 5 review's hand-rolled
 harness is small: each scenario gains roughly a `recording` and
@@ -20,17 +20,17 @@ application to a `Test.Spec` suite. The same three layers
 (`loggerLayer`, `dataLayer`, `userServiceLayer`) compose into
 the same `appLayer`; the differences are:
 
-- The clock is `RIO.Clock.Clock`, supplied at the test boundary
-  from `RIO.Test.Clock.newTestClock` rather than built inside a
+- The clock is `RIO.Aff.Clock.Clock`, supplied at the test boundary
+  from `RIO.Aff.Test.Clock.newTestClock` rather than built inside a
   layer.
 - The `Logger` is supplied a recorder produced by
-  `RIO.Test.recording`.
-- The harness is `runSpecRIO` from `RIO.Spec`, not a hand-rolled
+  `RIO.Aff.Test.recording`.
+- The harness is `runSpecRIO` from `RIO.Aff.Spec`, not a hand-rolled
   `launchAff_` script.
 
 No internal modules are reached into; everything goes through
-`RIO.Core`, `RIO.Layer`, `RIO.Spec`, `RIO.Test`, and
-`RIO.Test.Clock`.
+`RIO.Aff.Core`, `RIO.Aff.Layer`, `RIO.Aff.Spec`, `RIO.Aff.Test`, and
+`RIO.Aff.Test.Clock`.
 
 ### Services
 
@@ -38,7 +38,7 @@ No internal modules are reached into; everything goes through
 | ------------- | ----------------------------------------- | ---------------- |
 | `Logger`      | `log :: String -> Aff Unit`               | `loggerLayer`    |
 | `Database`    | `fetchUser :: Int -> Aff (Maybe String)`  | `dataLayer`      |
-| `Clock`       | `now`, `sleep` (re-exported `RIO.Clock`)  | injected at root |
+| `Clock`       | `now`, `sleep` (re-exported `RIO.Aff.Clock`)  | injected at root |
 | `UserService` | `greet`, `greetAfter`                     | `userServiceLayer` |
 
 ### Layers
@@ -114,13 +114,13 @@ the Phase 5 and Phase 6 review spikes.
 
 ## What This Validates
 
-- **`RIO.Test.recording`.** A single allocation per test, the
+- **`RIO.Aff.Test.recording`.** A single allocation per test, the
   `record` field slots into any service record as an `Aff Unit`
   field, and `calls` reads back a deterministic array. The
   failing-layer scenario (B) confirms it stays empty when the
   layer fails before the program runs, and the program-failure
   scenario (C) confirms it captures pre-failure events only.
-- **`RIO.Test.Clock.newTestClock`.** Built once at the top of a
+- **`RIO.Aff.Test.Clock.newTestClock`.** Built once at the top of a
   test, the returned `clock` injects through `provideAll` like
   any other service, and the `advance` controller drives forked
   fibers deterministically. Scenario D shows two pending
@@ -128,7 +128,7 @@ the Phase 5 and Phase 6 review spikes.
   calls, with `Aff.delay (Milliseconds 0.0)` yielding the event
   loop between an `advance` and the assertion that reads its
   effect.
-- **`RIO.Spec.itRIO_`.** Provides services via `provideAll` and
+- **`RIO.Aff.Spec.itRIO_`.** Provides services via `provideAll` and
   runs the program with `runRIO'`, defects surface as `Aff`
   exceptions that `Spec` reports as test failures. Scenario D
   uses it directly. Scenarios B and C, which need to inspect a
