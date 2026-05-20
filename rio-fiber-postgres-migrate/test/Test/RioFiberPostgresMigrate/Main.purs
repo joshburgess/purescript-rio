@@ -1,0 +1,22 @@
+-- | Integration tests for `rio-fiber-postgres-migrate`. Driven by the
+-- | same `PG_CONNECTION_STRING` env var as `rio-fiber-postgres`.
+module Test.RioFiberPostgresMigrate.Main where
+
+import Prelude
+
+import Data.Maybe (Maybe(..))
+import Effect (Effect)
+import Node.Process (lookupEnv)
+import Test.Spec (pending)
+import Test.Spec.Reporter.Console (consoleReporter)
+import Test.Spec.Runner.Node (runSpecAndExitProcess)
+
+import Test.RIO.Fiber.Postgres.MigrateSpec as MigrateSpec
+
+main :: Effect Unit
+main = do
+  mConn <- lookupEnv "PG_CONNECTION_STRING"
+  runSpecAndExitProcess [ consoleReporter ] case mConn of
+    Just conn -> MigrateSpec.spec conn
+    Nothing -> pending
+      "rio-fiber-postgres-migrate integration tests: set PG_CONNECTION_STRING to run"

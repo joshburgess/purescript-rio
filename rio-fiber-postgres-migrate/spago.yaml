@@ -1,0 +1,35 @@
+package:
+  name: rio-fiber-postgres-migrate
+  publish:
+    version: 0.0.1
+    license: MIT
+  dependencies:
+    - effect
+    - either
+    - foldable-traversable
+    - maybe
+    - ordered-collections
+    - postgresql
+    - prelude
+    - rio-fiber
+    - rio-fiber-postgres
+    - tuples
+    - typelevel-prelude
+    - variant
+  test:
+    main: Test.RioFiberPostgresMigrate.Main
+    dependencies:
+      - aff
+      - effect
+      - either
+      - maybe
+      - node-process
+      - postgresql
+      - prelude
+      - refs
+      - rio-fiber
+      - rio-fiber-postgres
+      - spec
+      - spec-node
+      - tuples
+      - variant
