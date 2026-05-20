@@ -1,0 +1,45 @@
+package:
+  name: rio-fiber-postgres
+  publish:
+    version: 0.0.1
+    license: MIT
+  dependencies:
+    - aff
+    - arrays
+    - effect
+    - either
+    - exceptions
+    - foldable-traversable
+    - maybe
+    - newtype
+    - node-event-emitter
+    - ordered-collections
+    - postgresql
+    - prelude
+    - refs
+    - rio-fiber
+    - strings
+    - transformers
+    - tuples
+    - typelevel-prelude
+    - variant
+  test:
+    main: Test.RioFiberPostgres.Main
+    dependencies:
+      - aff
+      - datetime
+      - effect
+      - either
+      - maybe
+      - node-process
+      - postgresql
+      - prelude
+      - record
+      - refs
+      - rio-fiber
+      - spec
+      - spec-node
+      - transformers
+      - tuples
+      - typelevel-prelude
+      - variant
