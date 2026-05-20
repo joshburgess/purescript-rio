@@ -6,6 +6,7 @@ import Effect (Effect)
 import Test.RIO.Fiber.AffSpec as AffSpec
 import Test.RIO.Fiber.CauseSpec as CauseSpec
 import Test.RIO.Fiber.ClockSpec as ClockSpec
+import Test.RIO.Fiber.ConfigSpec as ConfigSpec
 import Test.RIO.Fiber.CoreSpec as CoreSpec
 import Test.RIO.Fiber.DeferredSpec as DeferredSpec
 import Test.RIO.Fiber.Hub.PropertiesSpec as HubPropertiesSpec
@@ -45,6 +46,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   InternalSpec.spec
   CauseSpec.spec
   ClockSpec.spec
+  ConfigSpec.spec
   LoggerSpec.spec
   RandomSpec.spec
   AffSpec.spec

@@ -1,50 +1,43 @@
 package:
-  name: rio-fiber
+  name: rio-fiber-config-file
   publish:
     version: 0.0.1
     license: MIT
   dependencies:
     - aff
+    - argonaut-core
     - arrays
-    - console
-    - datetime
-    - effect
     - either
     - exceptions
+    - foldable-traversable
     - foreign-object
-    - integers
     - lists
     - maybe
-    - node-process
-    - now
+    - node-buffer
+    - node-fs
+    - numbers
     - ordered-collections
     - prelude
-    - random
-    - record
-    - refs
+    - rio-fiber
     - strings
     - tuples
-    - typelevel-prelude
-    - variant
   test:
-    main: Test.RioFiber.Main
+    main: Test.RioFiberConfigFile.Main
     dependencies:
       - aff
-      - arrays
-      - datetime
       - effect
       - either
       - foldable-traversable
       - lists
       - maybe
       - newtype
-      - now
+      - node-fs
+      - node-path
       - ordered-collections
       - prelude
-      - quickcheck
-      - refs
+      - rio-fiber
       - spec
       - spec-node
+      - strings
       - tuples
-      - typelevel-prelude
       - variant
