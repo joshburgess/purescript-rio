@@ -1,0 +1,24 @@
+package:
+  name: rio-fiber-otel
+  publish:
+    version: 0.0.1
+    license: MIT
+  dependencies:
+    - arrays
+    - effect
+    - foldable-traversable
+    - maybe
+    - prelude
+    - refs
+    - rio-fiber
+    - tuples
+  test:
+    main: Test.RioFiberOtel.Main
+    dependencies:
+      - aff
+      - effect
+      - maybe
+      - prelude
+      - rio-fiber
+      - spec
+      - spec-node
