@@ -1,0 +1,35 @@
+package:
+  name: rio-fiber-http
+  publish:
+    version: 0.0.1
+    license: MIT
+  dependencies:
+    - aff
+    - datetime
+    - effect
+    - httpurple
+    - maybe
+    - newtype
+    - prelude
+    - refs
+    - rio-fiber
+    - tuples
+    - typelevel-prelude
+    - variant
+  test:
+    main: Test.RioFiberHttp.Main
+    dependencies:
+      - aff
+      - arrays
+      - effect
+      - either
+      - httpurple
+      - maybe
+      - prelude
+      - refs
+      - rio-fiber
+      - spec
+      - spec-node
+      - tuples
+      - unsafe-coerce
+      - variant
