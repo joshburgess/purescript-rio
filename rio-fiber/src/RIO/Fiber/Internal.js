@@ -1582,6 +1582,41 @@ Fiber.prototype._stepInner = function () {
               cur = cur._2;
               continue;
             }
+            // Leaf fast paths: when the spine bottoms out at a PURE-
+            // body FORK or an already-done JOIN, evaluate the leaf
+            // here instead of bouncing through the outer dispatch.
+            // This saves one outer-loop iteration per leaf in
+            // traverseArrayImpl-built trees, where every leaf is one
+            // of these shapes (`traverse fork`, `traverse join`).
+            if (tag === FORK) {
+              const body = cur._1;
+              if (body._tag === PURE && _supervisors.length === 0) {
+                this.value = new DoneFiber(M_OK, body._1);
+                this.mode = M_OK;
+                break;
+              }
+              this.current = cur;
+              break;
+            }
+            if (tag === JOIN) {
+              const target = cur._1;
+              if (target.queued) {
+                target.queued = false;
+                _pendingCount--;
+                target.step();
+              }
+              if (target.status === F_DONE) {
+                if (target.mode === M_OK) {
+                  this.value = target.value;
+                  this.mode = M_OK;
+                } else {
+                  this._installResult(target);
+                }
+                break;
+              }
+              this.current = cur;
+              break;
+            }
             this.current = cur;
             break;
           }
@@ -2448,20 +2483,28 @@ Fiber.prototype._stepInner = function () {
               this.mode = M_DIE;
               break;
             }
-            // Inline-fold pass: peek at the next frame. The
-            // traverseArrayImpl-built APPLY tree unwinds as a regular
-            // K_MAP -> K_APPLY -> K_MAP -> K_APPLY alternation
-            // (each MAP carries `array2` / `concat2`; each APPLY
-            // carries the right child as opA). After K_MAP applies its
-            // function, `this.value` is exactly the curried function
-            // K_APPLY needs, so we can resolve the next K_APPLY here
-            // when its opA has a fast path. Each fold avoids one outer
-            // unwind iteration (tick check + interrupt check + pop +
-            // switch dispatch), which is the dominant per-leaf cost on
-            // traverse-built fan-outs.
-            kmapApplyFold: while (this.stack.length > 0) {
+            // Inline-fold: walk K_MAP and K_APPLY frames whose work
+            // resolves without suspending. Collapses the K_MAP /
+            // K_APPLY alternation that `traverseArrayImpl`-built APPLY
+            // trees produce on fan-out and sequential-traverse
+            // workloads. Each fold avoids one outer unwind iteration
+            // (tick check + interrupt check + pop + switch dispatch),
+            // which is the dominant per-leaf cost.
+            kmapFold: while (this.stack.length > 0) {
               const top = this.stack[this.stack.length - 1];
-              if (top._k !== K_APPLY) break;
+              const topK = top._k;
+              if (topK === K_MAP) {
+                this.stack.pop();
+                try {
+                  this.value = top._1(this.value);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kmapFold;
+                }
+                continue;
+              }
+              if (topK !== K_APPLY) break;
               const opA = top._2;
               const opATag = opA._tag;
               if (opATag === PURE) {
@@ -2471,7 +2514,7 @@ Fiber.prototype._stepInner = function () {
                 } catch (err) {
                   this.value = err;
                   this.mode = M_DIE;
-                  break kmapApplyFold;
+                  break kmapFold;
                 }
                 continue;
               }
@@ -2485,7 +2528,7 @@ Fiber.prototype._stepInner = function () {
                   } catch (err) {
                     this.value = err;
                     this.mode = M_DIE;
-                    break kmapApplyFold;
+                    break kmapFold;
                   }
                   continue;
                 }
@@ -2499,7 +2542,7 @@ Fiber.prototype._stepInner = function () {
                 } catch (err) {
                   this.value = err;
                   this.mode = M_DIE;
-                  break kmapApplyFold;
+                  break kmapFold;
                 }
                 continue;
               }
@@ -2510,7 +2553,7 @@ Fiber.prototype._stepInner = function () {
                 } catch (err) {
                   this.value = err;
                   this.mode = M_DIE;
-                  break kmapApplyFold;
+                  break kmapFold;
                 }
                 continue;
               }
@@ -2524,7 +2567,7 @@ Fiber.prototype._stepInner = function () {
                 } catch (err) {
                   this.value = err;
                   this.mode = M_DIE;
-                  break kmapApplyFold;
+                  break kmapFold;
                 }
                 continue;
               }
@@ -2543,12 +2586,12 @@ Fiber.prototype._stepInner = function () {
                     } catch (err) {
                       this.value = err;
                       this.mode = M_DIE;
-                      break kmapApplyFold;
+                      break kmapFold;
                     }
                     continue;
                   }
                   this._installResult(target);
-                  break kmapApplyFold;
+                  break kmapFold;
                 }
                 // Suspending join: let the outer unwind handle K_APPLY.
                 break;
@@ -2557,7 +2600,7 @@ Fiber.prototype._stepInner = function () {
                 this.stack.pop();
                 this.value = opA._1;
                 this.mode = M_FAIL;
-                break kmapApplyFold;
+                break kmapFold;
               }
               // Other opA tags: outer unwind handles K_APPLY.
               break;
@@ -2735,6 +2778,40 @@ Fiber.prototype._stepInner = function () {
                   cur = cur._2;
                   continue;
                 }
+                // Same leaf fast paths as the APPLY case's spine walk:
+                // dispatch PURE-body FORK / done-JOIN inline rather
+                // than via the outer-loop op switch.
+                if (tag === FORK) {
+                  const body = cur._1;
+                  if (body._tag === PURE && _supervisors.length === 0) {
+                    this.value = new DoneFiber(M_OK, body._1);
+                    this.mode = M_OK;
+                    break;
+                  }
+                  this.current = cur;
+                  this.value = null;
+                  break;
+                }
+                if (tag === JOIN) {
+                  const target = cur._1;
+                  if (target.queued) {
+                    target.queued = false;
+                    _pendingCount--;
+                    target.step();
+                  }
+                  if (target.status === F_DONE) {
+                    if (target.mode === M_OK) {
+                      this.value = target.value;
+                      this.mode = M_OK;
+                    } else {
+                      this._installResult(target);
+                    }
+                    break;
+                  }
+                  this.current = cur;
+                  this.value = null;
+                  break;
+                }
                 this.current = cur;
                 this.value = null;
                 break;
@@ -2754,6 +2831,128 @@ Fiber.prototype._stepInner = function () {
             } catch (err) {
               this.value = err;
               this.mode = M_DIE;
+              break;
+            }
+            // Inline-fold: after K_APPLY2 applies the captured function,
+            // collapse any K_MAP / K_APPLY frames whose work resolves
+            // without suspending. This is the unwind landing for the
+            // right subtree of `apply (map f L) R` in divide-and-
+            // conquer trees, where the parent K_MAP (concat2) and its
+            // sibling K_APPLY are typically next on the stack. Same
+            // logic as the K_MAP fold above, inlined here so the
+            // method-call overhead does not show up per frame.
+            kapp2Fold: while (this.stack.length > 0) {
+              const top = this.stack[this.stack.length - 1];
+              const topK = top._k;
+              if (topK === K_MAP) {
+                this.stack.pop();
+                try {
+                  this.value = top._1(this.value);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kapp2Fold;
+                }
+                continue;
+              }
+              if (topK !== K_APPLY) break;
+              const opA = top._2;
+              const opATag = opA._tag;
+              if (opATag === PURE) {
+                this.stack.pop();
+                try {
+                  this.value = this.value(opA._1);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kapp2Fold;
+                }
+                continue;
+              }
+              if (opATag === FORK) {
+                const body = opA._1;
+                if (body._tag === PURE && _supervisors.length === 0) {
+                  this.stack.pop();
+                  const fiber = new DoneFiber(M_OK, body._1);
+                  try {
+                    this.value = this.value(fiber);
+                  } catch (err) {
+                    this.value = err;
+                    this.mode = M_DIE;
+                    break kapp2Fold;
+                  }
+                  continue;
+                }
+                break;
+              }
+              if (opATag === SYNC) {
+                this.stack.pop();
+                try {
+                  const a = opA._1();
+                  this.value = this.value(a);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kapp2Fold;
+                }
+                continue;
+              }
+              if (opATag === ASK) {
+                this.stack.pop();
+                try {
+                  this.value = this.value(this.env);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kapp2Fold;
+                }
+                continue;
+              }
+              if (opATag === FREF_GET) {
+                const ref = opA._1;
+                const m = this.frefs;
+                const v = (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
+                this.stack.pop();
+                try {
+                  this.value = this.value(v);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kapp2Fold;
+                }
+                continue;
+              }
+              if (opATag === JOIN) {
+                const target = opA._1;
+                if (target.queued) {
+                  target.queued = false;
+                  _pendingCount--;
+                  target.step();
+                }
+                if (target.status === F_DONE) {
+                  this.stack.pop();
+                  if (target.mode === M_OK) {
+                    try {
+                      this.value = this.value(target.value);
+                    } catch (err) {
+                      this.value = err;
+                      this.mode = M_DIE;
+                      break kapp2Fold;
+                    }
+                    continue;
+                  }
+                  this._installResult(target);
+                  break kapp2Fold;
+                }
+                break;
+              }
+              if (opATag === FAIL) {
+                this.stack.pop();
+                this.value = opA._1;
+                this.mode = M_FAIL;
+                break kapp2Fold;
+              }
+              break;
             }
           }
           break;
