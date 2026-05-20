@@ -381,6 +381,14 @@ function opMapSlow(f, op, tag) {
       return f(g(x));
     }, op._2);
   }
+  // `map f (fail e) = fail e` and `map f (failCause c) = failCause c`:
+  // a Functor lifted over a failed action is a no-op (the function
+  // never sees an `a`). Skipping the MAP allocation here also removes
+  // the K_MAP unwind iteration that the interpreter would otherwise
+  // spend just passing the failure through.
+  if (tag === FAIL || tag === FAIL_CAUSE) {
+    return op;
+  }
   return new Op(MAP, K_MAP, f, op);
 }
 
@@ -412,6 +420,18 @@ function opApplySlow(opF, opA) {
       return g(a);
     })(opF);
   }
+  // `fail e <*> ma = fail e`. The Apply instance is left-to-right with
+  // short-circuit on failure (it's monadic-derived); if opF is already
+  // a failure, opA never runs, so we can return the failure directly
+  // and skip the K_APPLY frame entirely.
+  if (tagF === FAIL || tagF === FAIL_CAUSE) {
+    return opF;
+  }
+  // Note: we deliberately do NOT fuse `apply (sync f) (sync a)` into a
+  // single SYNC. The preemption test relies on `liftEffect e *> ...`
+  // chains keeping their APPLY shape so each iteration pays an outer
+  // dispatch (which decrements the tick budget). Fusing here would let
+  // unbounded chains run without yielding, breaking that contract.
   // _k = K_APPLY so the APPLY op doubles as its own K_APPLY frame:
   // the spine-walk push sites stack the op itself instead of allocating
   // a fresh `new Op(-1, K_APPLY, opA, null)` per level. K_APPLY's unwind
@@ -840,6 +860,15 @@ Fiber.prototype._stepInner = function () {
                 const next = bindOp._2(this.env);
                 if (next._tag === BIND) { bindOp = next; continue bindLoop; }
                 this.current = next;
+                break bindLoop;
+              }
+              case FAIL: {
+                // Inner fails: install the typed failure and unwind
+                // without pushing the K_BIND frame. K_BIND would just
+                // pass the failure through (mode != M_OK), so skipping
+                // it removes one frame push + one unwind iteration.
+                this.value = inner._1;
+                this.mode = M_FAIL;
                 break bindLoop;
               }
               case FORK_INLINE: {
@@ -1938,6 +1967,15 @@ Fiber.prototype._stepInner = function () {
                     this.current = next;
                     break kbindLoop;
                   }
+                  case FAIL: {
+                    // Inner fails: bypass the continuation and install
+                    // the typed failure inline, just like the dispatch
+                    // case BIND's FAIL fast path. Skips the K_BIND frame
+                    // push entirely.
+                    this.value = inner._1;
+                    this.mode = M_FAIL;
+                    break kbindLoop;
+                  }
                   case FREF_GET: {
                     const ref = inner._1;
                     const m = this.frefs;
@@ -2125,6 +2163,24 @@ Fiber.prototype._stepInner = function () {
               // outer-dispatch round-trip.
               this.value = this.env;
               // mode is already M_OK
+            } else if (nextTag === FAIL) {
+              // K_BIND -> FAIL leaf: install the typed failure inline
+              // so the unwind keeps popping frames without an outer
+              // dispatch round-trip.
+              this.value = nextOp._1;
+              this.mode = M_FAIL;
+            } else if (nextTag === FAIL_CAUSE) {
+              // K_BIND -> FAIL_CAUSE: same as FAIL but with a
+              // structured Cause. Empty causes succeed (no failure to
+              // report), anything else unwinds with M_CAUSE.
+              const c = nextOp._1;
+              if (c._c === C_EMPTY) {
+                this.value = undefined;
+                // mode is already M_OK
+              } else {
+                this.value = c;
+                this.mode = M_CAUSE;
+              }
             } else if (nextTag === FREF_GET) {
               const ref = nextOp._1;
               const m = this.frefs;
@@ -2390,6 +2446,121 @@ Fiber.prototype._stepInner = function () {
             } catch (err) {
               this.value = err;
               this.mode = M_DIE;
+              break;
+            }
+            // Inline-fold pass: peek at the next frame. The
+            // traverseArrayImpl-built APPLY tree unwinds as a regular
+            // K_MAP -> K_APPLY -> K_MAP -> K_APPLY alternation
+            // (each MAP carries `array2` / `concat2`; each APPLY
+            // carries the right child as opA). After K_MAP applies its
+            // function, `this.value` is exactly the curried function
+            // K_APPLY needs, so we can resolve the next K_APPLY here
+            // when its opA has a fast path. Each fold avoids one outer
+            // unwind iteration (tick check + interrupt check + pop +
+            // switch dispatch), which is the dominant per-leaf cost on
+            // traverse-built fan-outs.
+            kmapApplyFold: while (this.stack.length > 0) {
+              const top = this.stack[this.stack.length - 1];
+              if (top._k !== K_APPLY) break;
+              const opA = top._2;
+              const opATag = opA._tag;
+              if (opATag === PURE) {
+                this.stack.pop();
+                try {
+                  this.value = this.value(opA._1);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kmapApplyFold;
+                }
+                continue;
+              }
+              if (opATag === FORK) {
+                const body = opA._1;
+                if (body._tag === PURE && _supervisors.length === 0) {
+                  this.stack.pop();
+                  const fiber = new DoneFiber(M_OK, body._1);
+                  try {
+                    this.value = this.value(fiber);
+                  } catch (err) {
+                    this.value = err;
+                    this.mode = M_DIE;
+                    break kmapApplyFold;
+                  }
+                  continue;
+                }
+                break;
+              }
+              if (opATag === SYNC) {
+                this.stack.pop();
+                try {
+                  const a = opA._1();
+                  this.value = this.value(a);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kmapApplyFold;
+                }
+                continue;
+              }
+              if (opATag === ASK) {
+                this.stack.pop();
+                try {
+                  this.value = this.value(this.env);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kmapApplyFold;
+                }
+                continue;
+              }
+              if (opATag === FREF_GET) {
+                const ref = opA._1;
+                const m = this.frefs;
+                const v = (m !== null && m.has(ref)) ? m.get(ref) : ref.initial;
+                this.stack.pop();
+                try {
+                  this.value = this.value(v);
+                } catch (err) {
+                  this.value = err;
+                  this.mode = M_DIE;
+                  break kmapApplyFold;
+                }
+                continue;
+              }
+              if (opATag === JOIN) {
+                const target = opA._1;
+                if (target.queued) {
+                  target.queued = false;
+                  _pendingCount--;
+                  target.step();
+                }
+                if (target.status === F_DONE) {
+                  this.stack.pop();
+                  if (target.mode === M_OK) {
+                    try {
+                      this.value = this.value(target.value);
+                    } catch (err) {
+                      this.value = err;
+                      this.mode = M_DIE;
+                      break kmapApplyFold;
+                    }
+                    continue;
+                  }
+                  this._installResult(target);
+                  break kmapApplyFold;
+                }
+                // Suspending join: let the outer unwind handle K_APPLY.
+                break;
+              }
+              if (opATag === FAIL) {
+                this.stack.pop();
+                this.value = opA._1;
+                this.mode = M_FAIL;
+                break kmapApplyFold;
+              }
+              // Other opA tags: outer unwind handles K_APPLY.
+              break;
             }
           }
           // FAIL / DIE / INTERRUPT / CAUSE: pass through.
