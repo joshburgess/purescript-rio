@@ -1,176 +1,180 @@
 ## Tracing and metrics
 
-`RIO.Tracer` and `RIO.Metrics` are the observability hooks. Both
-follow the standard service convention: a record of operations
-that backends fill in, smart constructors on top that take an
-`(observability :: ...)` row through the environment, and a
-recording test backend that lets you assert on what a program
-emitted.
-
-The surface area is deliberately small; the shape is stable so
-a production OTel / StatsD / Prometheus backend can sit on top
-without touching call sites.
+`RIO.Fiber.Tracer` / `RIO.Fiber.Metrics` (and their `RIO.Aff.*`
+siblings) are the observability hooks. Tracing is wired through
+a per-fiber `FiberRef` so the currently-active span follows the
+fiber across nesting and forks; metrics are a record of
+operations that backends fill in, with a recording backend for
+tests. Production OTel / StatsD / Prometheus backends plug into
+the same surface without touching call sites.
 
 ## Tracing
 
 A `Tracer` lets you wrap a region of `RIO` work in a named span:
 
 ```purescript
-import RIO.Tracer (Tracer, addAttribute, withSpan)
+import RIO.Fiber.Tracer (addAttribute, withSpan)
 
 handleRequest
   :: forall r e
    . Request
-  -> RIO (tracer :: Tracer | r) e Response
-handleRequest req = withSpan "handle-request" do
-  addAttribute "request.id" (show req.id)
-  addAttribute "request.path" req.path
+  -> RIO r e Response
+handleRequest req = withSpan "handle-request" [] \span -> do
+  addAttribute span "request.id" (show req.id)
+  addAttribute span "request.path" req.path
   ...
 ```
 
-The span opens before the action runs and closes when it ends,
-with one of three terminal statuses:
+`withSpan name attrs body` opens a span before `body` runs and
+finishes it on exit (success, failure, interrupt, or defect)
+via `ensuring`. While `body` runs, the new span is the current
+span for this fiber. Use `withSpanWith` for an explicit
+`SpanKind` (`Server`, `Client`, `Producer`, `Consumer`,
+`Internal`).
 
-- `SpanOk` if the action returned a value.
-- `SpanFailed` if the action raised a typed failure.
-- `SpanInterrupted` if the fiber was killed before the action
-  completed (the `withSpan` body never observed a success or a
-  failure).
+Span status is independent of `withSpan`'s success / failure:
+the span finishes with `StatusUnset` by default unless the body
+calls `setStatus`:
 
-The close is guaranteed by `Aff.finally` so the span is closed
-on every termination path, including an interrupt that lands
-mid-action.
+- `StatusUnset` — default; most exporters treat as implicit OK.
+- `StatusOk` — explicitly mark success.
+- `StatusError msg` — explicitly mark failure with a message.
+
+If you want a failed `withSpan` body to mark the span as
+`StatusError` automatically, call `setStatus` in a `catchAll`
+before re-raising.
 
 ### Parent / child relationships
 
-The `Tracer` service is responsible for tracking which span is
-currently "active". `startSpan` makes the new span a child of
-the active one and pushes it; `endSpan` pops it. `withSpan`
-nests cleanly:
+The currently-active span lives in a `FiberRef`. `withSpan`
+sets it to the new span for the body's duration and restores
+the previous value on exit; nested calls see the outer span as
+their parent:
 
 ```purescript
-withSpan "outer" do
-  withSpan "inner-a" stepA  -- parent = outer
-  withSpan "inner-b" stepB  -- parent = outer (after inner-a ended)
+withSpan "outer" [] \_ -> do
+  withSpan "inner-a" [] \_ -> stepA  -- parent = outer
+  withSpan "inner-b" [] \_ -> stepB  -- parent = outer
 ```
 
-Behaviour under `fork`: the forked fiber inherits whichever span
-was current at the point of fork, because the same `Tracer`
-record (and its `Effect.Ref`s) is shared. After the fork, the
-parent fiber's subsequent spans continue to land under the same
-parent until the parent's `endSpan` runs. This is the implicit-
-context model used by OTel-style tracers in single-threaded
-runtimes; it works correctly for the common case of "fire a
-background fiber and let it inherit the current span" but does
-not survive a fork that outlives its parent's `withSpan`. When
-you need explicit context, capture `currentSpan` at the fork
-point and reattach with your own `withSpan` at the start of the
-fiber.
+Fork inherits the current span by `FiberRef` copy-on-fork: the
+child fiber starts with the parent's current span as its
+initial value, but the two refs are independent after that, so
+a `withSpan` inside the child doesn't push spans onto the
+parent and vice versa. This is the structured form of the
+implicit-context model OTel uses.
 
-### Attributes
+### Attributes, events, links
 
-`addAttribute key value` attaches a string key/value pair to
-the currently-active span. It is a no-op outside any `withSpan`
-region:
+`addAttribute span key value` attaches a single string
+key/value pair to the given span. `addEvent span name attrs`
+records a timestamped event on the span (e.g. `"cache.miss"`
+with `{ key: "user:42" }`). `addLink span target` adds a
+non-parent reference to another span (used for cross-trace
+correlation, e.g. a batch span linking to the producer spans
+of the records it consumed).
 
 ```purescript
-withSpan "checkout" do
-  addAttribute "cart.size" (show (Array.length items))
-  addAttribute "user.tier" tier
+withSpan "checkout" [] \span -> do
+  addAttribute span "cart.size" (show (Array.length items))
+  addEvent span "inventory.miss" [ { key: "sku", value: sku } ]
   ...
 ```
 
-Attributes accumulate in call order; the recording backend
-preserves that order so tests can assert on it.
+The `Span` is passed explicitly to every accessor so that
+nested spans, forked children, and detached span handles can
+all be addressed without ambiguity. `currentSpan` is available
+when you want the active span without naming it.
 
 ### Backends
 
-- `RIO.Tracer.noopTracer`: discards everything. Useful as the
-  default in environments that don't want tracing.
-- `RIO.Test.Tracer.newRecordingTracer`: returns a `tracer` plus
-  a `snapshot :: Effect (Array Span)` action. Virtual time
-  starts at 0 and advances by 1 on every `startSpan` / `endSpan`,
-  so tests can assert on the start/end order without depending
-  on wall-clock timing.
-- `RIO.Tracer.OTel.Adapter.makeOTelTracer` (from the `rio-otel`
-  package): forwards every span lifecycle, attribute write,
-  and parent / child relationship to an `@opentelemetry/api`
-  tracer. Install an OpenTelemetry SDK (`sdk-node`,
-  `sdk-trace-base`, etc.) and register a tracer provider at
-  application startup; the adapter delegates from there. With
-  no SDK registered the OTel API returns a no-op tracer and
-  the adapter is silent (the `Tracer` row is still satisfied,
-  so program structure is unaffected). See
-  `examples/otel-demo/` for a worked end-to-end wiring.
+- `RIO.Fiber.Tracer.defaultTracer`: discards everything; every
+  span carries the empty `SpanId`. The default.
+- `RIO.Fiber.Test.Tracer.newRecordingTracer`: returns a
+  `Tracer` plus a `snapshot :: Effect (Array RecordedSpan)`
+  action. Each `RecordedSpan` carries id, parent id (if any),
+  name, kind, virtual `startTick` / `endTick`, attributes,
+  events, link target ids, and status. Virtual time starts at
+  `0` and advances by `1` on every `startSpan` / `finish`.
+- `RIO.Fiber.Tracer.OTel.exportSpans` / `renderOTLP`: pure
+  helpers that shape a `RecordedSpan` snapshot into an
+  OTLP/JSON document (emits `parentSpanId` and a `links`
+  array). Pair with `RIO.Fiber.HttpClient.send` to ship to
+  an OTel collector.
+- `RIO.Fiber.Tracer.OTel.Adapter.makeOTelTracer` (from the
+  `rio-fiber-otel` package): forwards every span lifecycle,
+  attribute, event, link, and status write to an
+  `@opentelemetry/api` tracer. Install an OpenTelemetry SDK
+  (`sdk-node`, `sdk-trace-base`, etc.) and register a tracer
+  provider at application startup; the adapter delegates from
+  there. With no SDK registered the OTel API returns a no-op
+  tracer and the adapter is silent. See `examples/otel-demo/`
+  for end-to-end wiring.
 
 Any backend (Honeycomb, Jaeger, custom) implements the same
-`Tracer` record. The call sites do not change.
+`Tracer` record. Call sites do not change.
+
+The aff package mirrors this surface: `RIO.Aff.Tracer`,
+`RIO.Aff.Test.Tracer`, `RIO.Aff.Tracer.OTel`, with
+`rio-aff-otel` for the live adapter.
 
 ## Metrics
 
 A `Metrics` service lets you record counters, gauges, and
-histograms:
+histograms. `rio-fiber` exposes the primitives directly:
 
 ```purescript
-import RIO.Metrics
-  ( Metrics
-  , incrementCounter
-  , observeHistogram
-  , setGauge
+import RIO.Fiber.Metrics
+  ( newCounter, incr
+  , newGauge, set
+  , newHistogram, record
   )
-
-processBatch
-  :: forall r e
-   . Batch
-  -> RIO (metrics :: Metrics | r) e Unit
-processBatch batch = do
-  incrementCounter "batch.received"
-  setGauge "batch.size" (Number.fromInt batch.size)
-  startMs <- liftEffect now
-  ...do work...
-  endMs <- liftEffect now
-  observeHistogram "batch.latency.ms" (endMs - startMs)
 ```
 
-The three operations take a metric name and a `Number` value;
-the backend handles aggregation, tagging, and emission.
-`incrementCounter` is `recordCounter name 1.0`; `setGauge` is
-an alias for `recordGauge`; `observeHistogram` is an alias for
-`recordHistogram`. The aliases are there because the verb at
-the call site is what reads naturally for each metric kind.
+The `rio-aff` package uses a service-shaped form (the same
+operations behind an `(metrics :: Metrics | r)` row through the
+environment).
 
 ### Backends
 
-- `RIO.Metrics.noopMetrics`: discards everything.
-- `RIO.Test.Metrics.newRecordingMetrics`: returns the service
-  plus a `snapshot :: Effect (Array MetricRecord)` action that
-  returns every emission in order. Each record carries the kind
-  (`Counter` / `Gauge` / `Histogram`), the name, and the value.
+- `RIO.Fiber.Test.Metrics.newRecordingMetrics`: returns a
+  recorder plus a `snapshot :: Effect (Array MetricRecord)`
+  action that returns every emission in order. Each record
+  carries the kind (`Counter` / `Gauge` / `Histogram`), the
+  name, and the value.
+- `RIO.Fiber.Metric.OTel.exportMetrics` / `renderOTLP`: pure
+  shaping into an OTLP/JSON metrics document. Counters sum
+  per name, gauges keep last-value-wins, histograms aggregate
+  into `{ count, sum, min, max }` per name.
 
 A production backend (StatsD client, Prometheus push gateway,
-OTel metrics exporter) implements the same `Metrics` record.
+OTel metrics exporter) implements the same record.
 
 ## What this cut does not give you
 
-- **Span events / span links.** The current `Span` record has
-  `attributes` but no separate event log or link list. If you
-  need OTel-grade span data, the next iteration will add them.
 - **Sampled tracing.** The tracer records every span; sampling
   decisions are the backend's job.
-- **Aggregating histograms in the test backend.** The recording
-  metrics backend captures raw emissions, not buckets. If you
-  need to assert on percentiles, do the bucketing in the test.
+- **Per-bucket histogram counts in the OTLP exporter.** The
+  metrics exporter emits `count` / `sum` / `min` / `max` per
+  histogram; per-bucket counts are not modelled. For real
+  bucket counts, use `RIO.Fiber.Metrics.BucketHistogram` and
+  consume its `bucketSnapshot` directly.
 - **Async backends.** All recording operations are `Effect`-
-  typed and run synchronously inside the recording fiber. A
-  production backend that needs to push over the network should
-  fork its own emitter fiber internally.
+  typed and run synchronously. A production backend that needs
+  to push over the network should fork its own emitter fiber
+  internally.
 
 ## Pointers
 
-- `src/RIO/Tracer.purs`, `src/RIO/Test/Tracer.purs`: the tracer
-  service, span type, and the recording backend.
-- `src/RIO/Metrics.purs`, `src/RIO/Test/Metrics.purs`: the
-  metrics service and the recording backend.
-- `test/Test/RIO/TracerSpec.purs`, `test/Test/RIO/MetricsSpec.purs`:
-  tests for span lifecycle, parent/child nesting, attributes,
-  failure status, and metric emission ordering.
+- `rio-fiber/src/RIO/Fiber/Tracer.purs`,
+  `rio-fiber/src/RIO/Fiber/Test/Tracer.purs`: the tracer
+  surface, opaque `Span` newtype, `SpanId`, `SpanKind`,
+  `SpanStatus`, and the recording backend.
+- `rio-fiber/src/RIO/Fiber/Tracer/OTel.purs`,
+  `rio-fiber-otel/src/RIO/Fiber/Tracer/OTel/Adapter.purs`: pure
+  OTLP shaping and the live OTel adapter.
+- `rio-fiber/src/RIO/Fiber/Metrics.purs`,
+  `rio-fiber/src/RIO/Fiber/Test/Metrics.purs`,
+  `rio-fiber/src/RIO/Fiber/Metric/OTel.purs`: metrics
+  primitives, recording backend, and OTLP exporter.
+- The aff equivalents live under `rio-aff/src/RIO/Aff/...`.

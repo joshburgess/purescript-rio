@@ -5,6 +5,15 @@
 runs it as an `RIO` action that either commits every staged
 write at once or applies none.
 
+> Module-name convention used in this guide: `RIO.STM.*` is the
+> unqualified shape both packages follow. The live imports are
+> `RIO.Fiber.STM.*` (rio-fiber) and `RIO.Aff.STM.*` (rio-aff).
+> One naming difference: the pub/sub primitive is `THub` in
+> rio-aff (`RIO.Aff.STM.THub`, with `newBoundedTHub` /
+> `newSlidingTHub` / `newDroppingTHub` / `newUnboundedTHub`) and
+> `TPubSub` in rio-fiber (`RIO.Fiber.STM.TPubSub`, with a single
+> `make` constructor and `publish` / `subscribe` operations).
+
 The shape mirrors ZIO `STM` / Effect `STM`:
 
 - `TRef a`: a transactional reference, the unit of shared state.

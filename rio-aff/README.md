@@ -127,10 +127,11 @@ prefix `RIO.Aff.*` rather than `RIO.Fiber.*`:
   `RIO.Aff.Hub`: async coordination primitives.
 - `RIO.Aff.STM` plus `STM.TQueue`, `STM.TMap`, `STM.TSemaphore`,
   `STM.THub`: software transactional memory.
-- `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`, `RIO.Aff.Stream.Resource`,
-  `RIO.Aff.Sink`, `RIO.Aff.Channel`: pull-based effectful streams,
-  parallel combinators, composable sinks, and the unified
-  Channel primitive.
+- `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
+  `RIO.Aff.Stream.Concurrent`, `RIO.Aff.Stream.Resource`,
+  `RIO.Aff.Stream.Timed`, `RIO.Aff.Sink`, `RIO.Aff.Channel`:
+  pull-based effectful streams, parallel combinators, composable
+  sinks, and the unified Channel primitive.
 - `RIO.Aff.Clock`, `RIO.Aff.Random`, `RIO.Aff.Config`,
   `RIO.Aff.Config.Rotating`, `RIO.Aff.Schedule`: service types
   plus live and seeded backends.

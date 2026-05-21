@@ -96,7 +96,7 @@ sibling fibers are left alone. On the workspace benchmarks
   and `runAffThrow` run an `RIO` inside `Aff` at three projection
   levels: full `Outcome`, Aff-shaped `Either (Variant e) a`, or a
   bare value with defects raised on Aff's error channel.
-- **`RIO.Fiber.Cause`**: the failure algebra. `Cause e` has five
+- **`RIO.Fiber.Cause`**: the failure algebra. `Cause e` has six
   shapes (`Empty`, `Fail`, `Die`, `Interrupt`, `Then`, `Both`)
   and the introspection set (`firstFailure`, `firstDefect`,
   `interruptCount`, `stripInterrupts` / `stripFailures` /
@@ -117,10 +117,13 @@ sibling fibers are left alone. On the workspace benchmarks
   parallel traversal) and one-shot count-down latch.
 - **`RIO.Fiber.Queue`**, **`RIO.Fiber.Hub`**: bounded /
   unbounded async queue, and a pub/sub hub.
-- **`RIO.Fiber.STM`** plus `STM.TMVar`, `STM.TChan`, `STM.TQueue`,
-  `STM.TArray`: software transactional memory. Single-event-loop
-  atomicity (no version checks, no retry loops); `retry` /
-  `orElse` / `check`.
+- **`RIO.Fiber.STM`** plus `STM.TArray`, `STM.TChan`,
+  `STM.TDeferred`, `STM.TMap`, `STM.TMVar`, `STM.TPubSub`,
+  `STM.TQueue`, `STM.TSemaphore`, `STM.TSet`: software
+  transactional memory. Single-event-loop atomicity (no version
+  checks, no retry loops); `retry` / `orElse` / `check`. `TPubSub`
+  is the transactional pub/sub primitive (the aff package spells
+  this `STM.THub`).
 - **`RIO.Fiber.Stream`**: pull-based stream. `fromArray`,
   `repeatRIO`, `fromQueue`, `fromTQueue`, `map` / `filter` /
   `take`, `flatMap`, `mapPar`, `chunked` / `unchunked` /

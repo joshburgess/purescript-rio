@@ -351,11 +351,11 @@ additional items, not covered above. Same ranking convention
 
 | # | Item | Effort | Value | Status |
 |---|---|---|---|---|
-| 11 | Bounded-concurrency `forEachParN` / `parTraverseN` | S | High | open |
-| 12 | `Stream.aggregate` / `aggregateWithin` | M | High | open |
-| 13 | `Tracer` span events / links / status / kind | S | High | open |
-| 14 | `Histogram` with configurable bucket boundaries | M | High | open |
-| 15 | `Stream.async` / `Stream.fromCallback` | S | High | open |
+| 11 | Bounded-concurrency `forEachParN` / `parTraverseN` | S | High | done |
+| 12 | `Stream.aggregate` / `aggregateWithin` | M | High | done |
+| 13 | `Tracer` span events / links / status / kind | S | High | done |
+| 14 | `Histogram` with configurable bucket boundaries | M | High | done |
+| 15 | `Stream.async` / `Stream.fromCallback` | S | High | done |
 | 16 | `FiberMap` (keyed) | S | Med | open |
 | 17 | `Queue.shutdown` / `isShutdown` / `takeAll` / `takeUpTo` | S | Med | open |
 | 18 | `SubscriptionRef` | S | Med | open |
@@ -724,10 +724,10 @@ propagation, no scope inheritance).
 
 **Batch 1 (done).** Items #1, #2, #4, #5, #10.
 
-**Batch 1.5 (current).** Items #11, #12, #13, #14. The
-highest-leverage of the second-pass items: closes the
-bounded-concurrency footgun, the micro-batching gap, the
-OTel-span fidelity gap, and the histogram-export gap.
+**Batch 1.5 (done).** Items #11, #12, #13, #14, #15. Closed
+the bounded-concurrency footgun, the micro-batching gap, the
+OTel-span fidelity gap, the histogram-export gap, and the
+stream-async constructor gap.
 
 **Batch 2.** Items #3, #6 (streaming surface) plus #15, #20
 (stream-async + stream-queue/hub adapters).

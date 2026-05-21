@@ -1,4 +1,4 @@
-# rio-otel
+# rio-aff-otel
 
 OpenTelemetry adapter for [`rio`](../README.md)'s `RIO.Aff.Tracer`
 service.

@@ -14,9 +14,10 @@ follows so that contributions move quickly through review.
 
 ```sh
 npm install                                       # one time
-npx purs-tidy check src test spikes               # format check
-npx spago build -p rio                            # main package
-npx spago test  -p rio                            # main tests
+npm run format:check                              # format check across all packages
+npx spago build                                   # build the whole workspace
+npx spago test  -p rio-fiber                      # fiber package tests
+npx spago test  -p rio-aff                        # aff package tests
 npx spago build -p spike-row-inference            # row-inference spike
 npx spago build -p spike-aff-interruption         # interruption spike
 npx spago run   -p spike-aff-interruption         # exercise interruption harness
@@ -27,15 +28,16 @@ npx spago run   -p spike-aff-interruption         # exercise interruption harnes
 ## Project structure
 
 ```
-src/                         main rio package source
-test/                        main rio package tests
+rio-fiber/                   premier package: custom fiber runtime with typed errors
+rio-aff/                     compat package: Aff-backed RIO for ecosystem interop
+rio-fiber-*/                 fiber sibling adapters (otel, node, http, postgres, ...)
+rio-aff-*/                   aff sibling adapters
 spikes/<name>/               one workspace package per de-risking spike,
                              each with its own spago.yaml and FINDINGS.md
 docs/                        user-facing guide content
 examples/                    end-to-end example programs
 benchmarks/                  benchmark suite (workspace package)
 compile-fail/                negative tests for error-message quality
-rio-*/                       adapter / integration packages
 FUTURE_WORK.md               remaining open items relative to ZIO / Effect
 ```
 
@@ -54,7 +56,7 @@ A PR is ready for review when:
 - Tests cover the happy path, at least one failure path, and at least one
   edge case.
 - All new public functions have docstrings with at least one example.
-- Format check is green: `npx purs-tidy check src test spikes`.
+- Format check is green: `npm run format:check`.
 - `CHANGELOG.md` has an entry under `Unreleased`.
 - User-facing items have an updated entry in `docs/`.
 

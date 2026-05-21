@@ -6,6 +6,14 @@ next value paired with the rest of the stream, or signals
 end-of-stream. The stream itself has no schedule of its own:
 nothing happens until a runner pulls from it.
 
+> Module-name convention used in this guide: rio-aff splits the
+> surface into `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
+> `RIO.Aff.Stream.Concurrent`, `RIO.Aff.Stream.Resource`, and
+> `RIO.Aff.Stream.Timed`. rio-fiber consolidates the whole
+> surface into a single `RIO.Fiber.Stream` module (parallel,
+> resource-safe, and time-based combinators all live there).
+> The combinator names are the same in both.
+
 ```purescript
 data Step r e a
   = Yield a (Stream r e a)

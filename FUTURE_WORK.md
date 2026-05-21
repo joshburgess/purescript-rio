@@ -18,8 +18,9 @@ material.
 ### Friendlier missing-tag error for `catchTag`
 
 The payload-type-mismatch case (case 03) was polished in
-`RIO.Error` via a row-list-keyed `FindErrorTag` / `CatchableErrorTag`
-walk, promoting it from ACCEPTABLE-NOISY to GOOD. The missing-tag
+`RIO.Aff.Error` via a row-list-keyed `FindErrorTag` /
+`CatchableErrorTag` walk, promoting it from ACCEPTABLE-NOISY to
+GOOD. The missing-tag
 case (case 04) still surfaces the underlying `Prim.Row.Cons`
 row-mismatch because the constraint required for the residual-row
 calculation fires its error first at the use site, shadowing the
@@ -47,16 +48,15 @@ would weaken the message rather than strengthen it. They're
 non-goals for the "is this real" milestone.
 
 - Full `ZStream` parity (sinks, parallel streams, transducers
-  beyond what `RIO.Stream` / `RIO.Stream.Par` / `RIO.Sink` /
-  `RIO.Channel` already cover)
+  beyond what `RIO.Fiber.Stream` / `RIO.Aff.Stream` / `Sink` /
+  `Channel` already cover)
 - Kafka / Redis / MongoDB adapters
 - Deeper transactional STM features beyond what's already shipped
   (`atomically`, `retry`, `check`, `orElse`, `failSTM`), e.g.
   nested transactions. (`TVar` ships as an alias for `TRef` for
   muscle memory; there is no separate distinct type.)
-- A custom runtime / fiber supervisor beyond what `Aff` provides
-- A web framework on top of `rio-http` (HTTPurple is enough for the
-  examples)
+- A web framework on top of `rio-fiber-http` / `rio-aff-http`
+  (HTTPurple is enough for the examples)
 - Cron / scheduled-job adapter (Schedule covers backoff; cron is a
   separate concern)
 - Auto-derived persistent storage / ORM features

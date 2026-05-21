@@ -289,9 +289,12 @@ Programs are written against `RIO.Fiber.*`.
   count-down latch.
 - **`RIO.Fiber.Queue`**, **`RIO.Fiber.Hub`**: async queue and
   pub/sub hub.
-- **`RIO.Fiber.STM`** plus `STM.TMVar`, `STM.TChan`, `STM.TQueue`,
-  `STM.TArray`: software transactional memory with `retry` /
-  `orElse` / `check`.
+- **`RIO.Fiber.STM`** plus `STM.TArray`, `STM.TChan`,
+  `STM.TDeferred`, `STM.TMap`, `STM.TMVar`, `STM.TPubSub`,
+  `STM.TQueue`, `STM.TSemaphore`, `STM.TSet`: software
+  transactional memory with `retry` / `orElse` / `check`.
+  `TPubSub` is the transactional pub/sub primitive (`STM.THub`
+  on the aff side).
 - **`RIO.Fiber.Stream`**, **`RIO.Fiber.Sink`**,
   **`RIO.Fiber.Pipe`**: pull-based stream, composable
   terminating consumers, and stream-to-stream transducers.
@@ -350,10 +353,11 @@ Programs are written against `RIO.Aff.*`.
 - `RIO.Aff.STM` plus `STM.TQueue`, `STM.TMap`, `STM.TSemaphore`,
   `STM.THub`: software-transactional memory derived from
   single-event-loop atomicity.
-- `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`, `RIO.Aff.Sink`,
-  `RIO.Aff.Channel`: pull-based effectful streams, parallel
-  stream combinators, composable sinks, and the unified
-  Channel primitive.
+- `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
+  `RIO.Aff.Stream.Concurrent`, `RIO.Aff.Stream.Resource`,
+  `RIO.Aff.Stream.Timed`, `RIO.Aff.Sink`, `RIO.Aff.Channel`:
+  pull-based effectful streams, parallel stream combinators,
+  composable sinks, and the unified Channel primitive.
 - `RIO.Aff.Tracer`, `RIO.Aff.Metrics`, `RIO.Aff.Logger`:
   observability services (each with noop, live, and recording
   backends).
@@ -438,8 +442,8 @@ the package's `spago.yaml` makes the choice explicit):
   `NOTIFY` payloads on the pool, and lets the scope finalizer
   drain both clients on exit.
 - [`examples/otel-demo/`](./examples/otel-demo/): wires
-  `RIO.Tracer.OTel.makeOTelTracer` into a real OpenTelemetry
-  SDK with an in-memory exporter.
+  `RIO.Aff.Tracer.OTel.Adapter.makeOTelTracer` into a real
+  OpenTelemetry SDK with an in-memory exporter.
 - [`examples/todo-api/`](./examples/todo-api/): a small
   HTTPurple service demonstrating layers, typed failures, real
   Postgres persistence, middleware that stamps `request.id` /
@@ -517,9 +521,10 @@ receives bug fixes plus selective forward-ports of new
 surface, but new design work happens in `rio-fiber` first.
 
 Companion adapter packages (`rio-fiber-node`, `rio-fiber-http`,
-`rio-fiber-otel`, `rio-fiber-postgres`, `rio-fiber-config-file`)
-sit on top of `rio-fiber`; the matching `rio-aff-*` packages do
-the same for `rio-aff`. See [`FUTURE_WORK.md`](./FUTURE_WORK.md)
+`rio-fiber-otel`, `rio-fiber-config-file`, `rio-fiber-postgres`,
+`rio-fiber-postgres-json`, `rio-fiber-postgres-migrate`) sit on
+top of `rio-fiber`; the matching `rio-aff-*` packages do the
+same for `rio-aff`. See [`FUTURE_WORK.md`](./FUTURE_WORK.md)
 for the open work list.
 
 ## License
