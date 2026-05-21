@@ -17,6 +17,8 @@ module RIO.Fiber.Logger
   , defaultLogger
   , log
   , logAt
+  , trace
+  , logTrace
   , debug
   , info
   , warn
@@ -39,12 +41,16 @@ import RIO.Fiber.Internal (FiberRef)
 import RIO.Fiber.Ref (getFiberRef, locally, newFiberRef, setFiberRef)
 
 -- | Standard log levels, ordered from least to most severe.
-data LogLevel = Debug | Info | Warn | Error
+-- | `Trace` is the noisiest band, useful for fine-grained
+-- | per-step instrumentation; production deployments typically
+-- | filter it out.
+data LogLevel = Trace | Debug | Info | Warn | Error
 
 derive instance eqLogLevel :: Eq LogLevel
 derive instance ordLogLevel :: Ord LogLevel
 
 instance showLogLevel :: Show LogLevel where
+  show Trace = "TRACE"
   show Debug = "DEBUG"
   show Info = "INFO"
   show Warn = "WARN"
@@ -75,6 +81,16 @@ logAt level msg = do
 -- | Emit a message at `Info` level.
 log :: forall r e. String -> RIO r e Unit
 log = logAt Info
+
+-- | Emit a message at `Trace` level. The noisiest band; intended
+-- | for fine-grained instrumentation that is normally filtered
+-- | out in production.
+trace :: forall r e. String -> RIO r e Unit
+trace = logAt Trace
+
+-- | Alias for `trace`, matching rio-aff's `logTrace` name.
+logTrace :: forall r e. String -> RIO r e Unit
+logTrace = trace
 
 debug :: forall r e. String -> RIO r e Unit
 debug = logAt Debug

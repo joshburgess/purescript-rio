@@ -15,10 +15,13 @@ module RIO.Fiber.Hub
   ( Hub
   , Subscription
   , make
+  , makeBounded
   , publish
+  , publishAll
   , tryPublish
   , publishDropNew
   , publishDropOld
+  , shutdown
   , subscribe
   , subscribeScoped
   , unsubscribe
@@ -45,6 +48,7 @@ type State a =
   { capacity :: Int
   , subs :: Array (SubState a)
   , nextId :: Int
+  , isShutdown :: Boolean
   }
 
 newtype Hub a = Hub (Ref (State a))
@@ -61,7 +65,12 @@ newtype Subscription a = Subscription
 -- | Allocate a hub with the given per-subscriber buffer capacity.
 make :: forall a. Int -> Effect (Hub a)
 make cap = Hub <$> Ref.new
-  { capacity: max 1 cap, subs: [], nextId: 0 }
+  { capacity: max 1 cap, subs: [], nextId: 0, isShutdown: false }
+
+-- | Alias for `make` matching rio-aff's `makeBounded` naming.
+-- | Provided so code ported from rio-aff reads the same.
+makeBounded :: forall a. Int -> Effect (Hub a)
+makeBounded = make
 
 -- | Publish a value. Backpressures on every active subscriber: the
 -- | call blocks until each subscriber's queue has accepted the
@@ -69,7 +78,13 @@ make cap = Hub <$> Ref.new
 publish :: forall r e a. Hub a -> a -> RIO r e Unit
 publish (Hub ref) a = do
   st <- liftEffect (Ref.read ref)
-  for_ st.subs \{ queue } -> Q.offer queue a
+  when (not st.isShutdown) do
+    for_ st.subs \{ queue } -> Q.offer queue a
+
+-- | Publish each value in turn. Equivalent to `traverse_ (publish hub)
+-- | xs`, exposed as a named entry point for symmetry with rio-aff.
+publishAll :: forall r e a. Hub a -> Array a -> RIO r e Unit
+publishAll hub xs = for_ xs (publish hub)
 
 -- | Non-blocking publish. Returns `true` only if *every* subscriber
 -- | accepted the message; if any subscriber's queue was full the
@@ -79,8 +94,10 @@ publish (Hub ref) a = do
 tryPublish :: forall r e a. Hub a -> a -> RIO r e Boolean
 tryPublish (Hub ref) a = do
   st <- liftEffect (Ref.read ref)
-  results <- traverse (\{ queue } -> Q.tryOffer queue a) st.subs
-  pure (all identity results)
+  if st.isShutdown then pure false
+  else do
+    results <- traverse (\{ queue } -> Q.tryOffer queue a) st.subs
+    pure (all identity results)
 
 -- | Publish, but drop the message for any subscriber whose queue is
 -- | full instead of blocking. Other subscribers still receive it.
@@ -88,7 +105,8 @@ tryPublish (Hub ref) a = do
 publishDropNew :: forall r e a. Hub a -> a -> RIO r e Unit
 publishDropNew (Hub ref) a = do
   st <- liftEffect (Ref.read ref)
-  for_ st.subs \{ queue } -> void (Q.tryOffer queue a)
+  when (not st.isShutdown) do
+    for_ st.subs \{ queue } -> void (Q.tryOffer queue a)
 
 -- | Publish, but if a subscriber's queue is full evict its oldest
 -- | element and offer the new one. Never suspends; never drops the
@@ -97,12 +115,24 @@ publishDropNew (Hub ref) a = do
 publishDropOld :: forall r e a. Hub a -> a -> RIO r e Unit
 publishDropOld (Hub ref) a = do
   st <- liftEffect (Ref.read ref)
-  for_ st.subs \{ queue } -> do
-    accepted <- Q.tryOffer queue a
-    when (not accepted) do
-      _ <- Q.tryTake queue
-      _ <- Q.tryOffer queue a
-      pure unit
+  when (not st.isShutdown) do
+    for_ st.subs \{ queue } -> do
+      accepted <- Q.tryOffer queue a
+      when (not accepted) do
+        _ <- Q.tryTake queue
+        _ <- Q.tryOffer queue a
+        pure unit
+
+-- | Mark the hub as shut down. After `shutdown`, all `publish*`
+-- | variants become no-ops (and `tryPublish` returns `false`).
+-- |
+-- | Note: this does not wake fibers already suspended in `take`,
+-- | because rio-fiber's `Queue` has no shutdown primitive. Callers
+-- | that need wake-up semantics should unsubscribe explicitly or
+-- | scope subscriptions and close the surrounding `Scope`.
+shutdown :: forall r e a. Hub a -> RIO r e Unit
+shutdown (Hub ref) = liftEffect
+  (Ref.modify_ (\s -> s { isShutdown = true }) ref)
 
 -- | Subscribe. The returned `Subscription` must be released with
 -- | `unsubscribe` (or use `subscribeScoped`).

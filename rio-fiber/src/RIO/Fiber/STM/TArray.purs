@@ -12,6 +12,7 @@ module RIO.Fiber.STM.TArray
   , read
   , write
   , modify
+  , swap
   , freeze
   ) where
 
@@ -59,6 +60,19 @@ modify :: forall a. TArray a -> Int -> (a -> a) -> STM Unit
 modify (TArray xs) i f = case Array.index xs i of
   Nothing -> pure unit
   Just tv -> STM.modifyTVar tv f
+
+-- | Swap the values at indices `i` and `j` atomically. Returns
+-- | `true` only when both indices are in bounds; if either is out
+-- | of bounds the array is unchanged and `false` is returned.
+swap :: forall a. TArray a -> Int -> Int -> STM Boolean
+swap (TArray xs) i j = case Array.index xs i, Array.index xs j of
+  Just ti, Just tj -> do
+    ai <- STM.readTVar ti
+    aj <- STM.readTVar tj
+    STM.writeTVar ti aj
+    STM.writeTVar tj ai
+    pure true
+  _, _ -> pure false
 
 -- | Read every slot atomically and return a plain array snapshot.
 freeze :: forall a. TArray a -> STM (Array a)

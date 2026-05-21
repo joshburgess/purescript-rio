@@ -22,13 +22,21 @@ module RIO.Fiber.Schedule
   , jittered
   , once
   , bothS
+  , intersect
   , andThen
   , compose
   , mapInput
   , mapOutput
+  , dimap
   , passthrough
   , elapsed
   , delays
+  , delayed
+  , collectAll
+  , asUnit
+  , mapDelay
+  , modifyDelayM
+  , addDelayM
   , whileInput
   , whileOutput
   , untilInput
@@ -37,10 +45,12 @@ module RIO.Fiber.Schedule
   , repeatN
   , retry
   , retryN
+  , eventually
   ) where
 
 import Prelude hiding (compose)
 
+import Data.Array (snoc) as Array
 import Data.DateTime.Instant (unInstant)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
@@ -144,6 +154,17 @@ bothS (Schedule sa) (Schedule sb) = Schedule \input -> do
     Step b delA sa', Step c delB sb' ->
       Step (Tuple b c) (maxDelay delA delB) (bothS sa' sb')
 
+-- | Alias for `bothS` matching rio-aff's `intersect` naming. The
+-- | combined schedule continues only while both inputs continue;
+-- | per-step delay is the maximum of the two. Provided for symmetry
+-- | with rio-aff.
+intersect
+  :: forall a b c
+   . Schedule a b
+  -> Schedule a c
+  -> Schedule a (Tuple b c)
+intersect = bothS
+
 -- | Run the first schedule until it halts, then switch to the second.
 andThen
   :: forall a b c
@@ -177,6 +198,22 @@ mapInput f (Schedule step) = Schedule \input -> do
   pure case d of
     Halt b -> Halt b
     Step b delay next -> Step b delay (mapInput f next)
+
+-- | Transform both the input and the output of a schedule in a
+-- | single step. `dimap pre post s` is `mapOutput post (mapInput
+-- | pre s)`; it exists as a named entry point so the Profunctor
+-- | shape of schedules is discoverable.
+dimap
+  :: forall a a' b b'
+   . (a' -> a)
+  -> (b -> b')
+  -> Schedule a b
+  -> Schedule a' b'
+dimap pre post (Schedule step) = Schedule \input -> do
+  d <- step (pre input)
+  pure case d of
+    Halt b -> Halt (post b)
+    Step b delay next -> Step (post b) delay (dimap pre post next)
 
 -- | Sequential composition: thread the output of the first schedule
 -- | into the input of the second. Both schedules must continue for
@@ -239,6 +276,89 @@ delays (Schedule step) = Schedule \input -> do
   pure case d of
     Halt _ -> Halt (Milliseconds 0.0)
     Step _ delay next -> Step delay delay (delays next)
+
+-- | Add a one-time delay to the first emitted step. Subsequent
+-- | steps run on the underlying schedule's normal cadence with no
+-- | adjustment. Useful to phase-offset a periodic schedule (so two
+-- | pollers don't tick in lockstep) or give a warm-up window before
+-- | the first action fires.
+delayed :: forall a b. Milliseconds -> Schedule a b -> Schedule a b
+delayed (Milliseconds offset) (Schedule step) = Schedule \input -> do
+  d <- step input
+  pure case d of
+    Halt b -> Halt b
+    Step b (Milliseconds delay) next ->
+      Step b (Milliseconds (delay + offset)) next
+
+-- | Each step emits the array of every output the schedule has
+-- | produced so far (inclusive of the current one). Cadence and
+-- | termination are unchanged; only the output type widens.
+-- |
+-- | The accumulator grows without bound, so pair with `recurs`,
+-- | `untilOutput`, or similar to stop early on unbounded schedules.
+collectAll :: forall a b. Schedule a b -> Schedule a (Array b)
+collectAll = go []
+  where
+  go acc (Schedule step) = Schedule \input -> do
+    d <- step input
+    pure case d of
+      Halt b -> Halt (Array.snoc acc b)
+      Step b delay next ->
+        let acc' = Array.snoc acc b
+        in Step acc' delay (go acc' next)
+
+-- | Discard the inner schedule's output type by replacing every
+-- | emission with `unit`. Cadence and termination are preserved;
+-- | only the output type changes. Mirrors ZIO `Schedule.unit`
+-- | (renamed to avoid shadowing `unit :: Unit`).
+asUnit :: forall a b. Schedule a b -> Schedule a Unit
+asUnit = mapOutput (\_ -> unit)
+
+-- | Transform every per-step delay through a pure function. The
+-- | decision shape and output are preserved; only the sleep
+-- | duration changes.
+mapDelay
+  :: forall a b
+   . (Milliseconds -> Milliseconds)
+  -> Schedule a b
+  -> Schedule a b
+mapDelay f (Schedule step) = Schedule \input -> do
+  d <- step input
+  pure case d of
+    Halt b -> Halt b
+    Step b delay next -> Step b (f delay) (mapDelay f next)
+
+-- | Effectful sibling of `mapDelay`. The transform runs in `Effect`
+-- | so it can read refs, hit a random source, or sample any other
+-- | Effect-level state.
+modifyDelayM
+  :: forall a b
+   . (Milliseconds -> Effect Milliseconds)
+  -> Schedule a b
+  -> Schedule a b
+modifyDelayM f (Schedule step) = Schedule \input -> do
+  d <- step input
+  case d of
+    Halt b -> pure (Halt b)
+    Step b delay next -> do
+      delay' <- f delay
+      pure (Step b delay' (modifyDelayM f next))
+
+-- | Add an effectful delta to each step's delay, computed from the
+-- | step's output. The decision and underlying delay are preserved;
+-- | only an additive adjustment is layered on top.
+addDelayM
+  :: forall a b
+   . (b -> Effect Milliseconds)
+  -> Schedule a b
+  -> Schedule a b
+addDelayM f (Schedule step) = Schedule \input -> do
+  d <- step input
+  case d of
+    Halt b -> pure (Halt b)
+    Step b (Milliseconds delay) next -> do
+      Milliseconds add <- f b
+      pure (Step b (Milliseconds (delay + add)) (addDelayM f next))
 
 -- | Continue only while the input satisfies `p`. An input that
 -- | fails the predicate halts immediately; the schedule's last
@@ -323,6 +443,19 @@ retry schedule action = go schedule
 -- | `retry (recurs n)` — up to `n` retries.
 retryN :: forall r e a. Int -> RIO r e a -> RIO r e a
 retryN n = retry (recurs n)
+
+-- | Run `action`; on any typed failure, immediately try again.
+-- | Repeats forever until a success, so the result type loses the
+-- | error row entirely. Defects (uncaught exceptions, `die`) skip
+-- | the retry loop and propagate.
+-- |
+-- | No clock service is required because there is no inter-attempt
+-- | delay. For backed-off retries with a cap, reach for `retry`
+-- | with an explicit schedule instead.
+eventually :: forall r e e' a. RIO r e a -> RIO r e' a
+eventually action = go
+  where
+  go = catchAll (\_ -> go) action
 
 maxDelay :: Milliseconds -> Milliseconds -> Milliseconds
 maxDelay (Milliseconds a) (Milliseconds b) = Milliseconds (max a b)

@@ -15,6 +15,7 @@ module RIO.Aff.Layer
   , combine
   , fromRecord
   , fromRIO
+  , memoize
   , mergeLayers
   , passthrough
   , provideLayer
@@ -25,9 +26,14 @@ module RIO.Aff.Layer
 
 import Prelude hiding ((>>>))
 
-import Data.Either (Either)
+import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Data.Variant (Variant)
+import Effect (Effect)
+import Effect.AVar (empty, tryPut) as EAV
 import Effect.Aff (Aff, attempt, bracket)
+import Effect.Aff.AVar (AVar) as AVarA
+import Effect.Aff.AVar (read) as AVarA
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Data.Array (foldr)
@@ -36,6 +42,7 @@ import Record (union) as Record
 import Record.Unsafe (unsafeGet, unsafeSet)
 import Unsafe.Coerce (unsafeCoerce)
 
+import RIO.Aff.Cause (Cause(..), attemptCause, failCause)
 import RIO.Aff.Internal (RIO(..), mkRIO, unRIO, unsafeUnRIO)
 import RIO.Aff.Resource (Scope(..), scoped)
 
@@ -229,6 +236,70 @@ buildLayer
   -> Aff (Either (Variant e) (Record rOut))
 buildLayer (Layer rio) = unRIO (scoped rio) {}
 
+-- | Wrap a layer so its build is shared across every use. The first
+-- | call to the returned layer runs the underlying build; concurrent
+-- | first calls single-flight on an `AVar`; subsequent calls return
+-- | the cached record without re-running the build.
+-- |
+-- | The shared build allocates resources against the scope of the
+-- | first caller. If that scope closes before later callers finish,
+-- | the cached record's finalizers have already run. For long-lived
+-- | sharing, ensure the first `provideLayer` outlives every later
+-- | use.
+-- |
+-- | A typed failure or defect produced by the build is captured and
+-- | replayed on every subsequent call: the underlying action does
+-- | not run again to "try again". Wrap the layer in a retry schedule
+-- | *before* memoizing if retry semantics are required.
+-- |
+-- | ```purescript
+-- | sharedDb <- liftEffect (memoize dbLayer)
+-- | -- both call sites see the same DB record; the build runs once
+-- | runRIO (provideLayer sharedDb program1)
+-- | runRIO (provideLayer sharedDb program2)
+-- | ```
+memoize
+  :: forall rIn e rOut
+   . Layer rIn e rOut
+  -> Effect (Layer rIn e rOut)
+memoize (Layer build) = do
+  cell <- Ref.new Nothing
+  pure (Layer (memoCell build cell))
+
+memoCell
+  :: forall rIn e rOut
+   . RIO (scope :: Scope | rIn) e (Record rOut)
+  -> Ref.Ref (Maybe (AVarA.AVar (Either (Cause e) (Record rOut))))
+  -> RIO (scope :: Scope | rIn) e (Record rOut)
+memoCell build cell = do
+  decision <- liftEffect do
+    existing <- Ref.read cell
+    case existing of
+      Just avar -> pure (Awaiter avar)
+      Nothing -> do
+        avar <- EAV.empty
+        Ref.write (Just avar) cell
+        pure (Owner avar)
+  case decision of
+    Awaiter avar -> do
+      result <- mkRIO \_ -> AVarA.read avar
+      replayCause result
+    Owner avar -> do
+      outcome <- attemptCause build
+      _ <- liftEffect (EAV.tryPut outcome avar)
+      replayCause outcome
+  where
+  replayCause
+    :: Either (Cause e) (Record rOut)
+    -> RIO (scope :: Scope | rIn) e (Record rOut)
+  replayCause = case _ of
+    Right r -> pure r
+    Left c -> failCause c
+
+data Decision e rOut
+  = Awaiter (AVarA.AVar (Either (Cause e) (Record rOut)))
+  | Owner (AVarA.AVar (Either (Cause e) (Record rOut)))
+
 -- | Plumb a layer into a program: build the layer's services,
 -- | feed them as the inner program's environment, and run the
 -- | program. Layer-build failures and program failures are unioned
@@ -263,14 +334,19 @@ provideLayer
   -> RIO rIn eOut a
 provideLayer (Layer layerRio) program = mkRIO \rInRec ->
   bracket
-    (liftEffect (Ref.new []))
-    ( \ref -> do
-        fins <- liftEffect (Ref.read ref)
+    ( liftEffect do
+        finRef <- Ref.new []
+        causeRef <- Ref.new Nothing
+        pure { finRef, causeRef }
+    )
+    ( \refs -> do
+        fins <- liftEffect (Ref.read refs.finRef)
         foldr (\fin acc -> attempt fin *> acc) (pure unit) fins
     )
-    ( \ref -> do
+    ( \refs -> do
         let
-          scope = Scope ref
+          scope = Scope
+            { finalizers: refs.finRef, pendingCause: refs.causeRef }
           envWithScope = unsafeSet "scope" scope rInRec
         outRec <- unsafeUnRIO layerRio envWithScope
         unsafeUnRIO program outRec

@@ -60,6 +60,7 @@ module RIO.Aff.Stream.Par
   , mergeMap
   , partition
   , partitionEither
+  , partitioned
   , zipLatest
   , zipLatestWith
   , zipPar
@@ -243,6 +244,35 @@ partitionEither upstream = do
   pure
     { lefts: consumer leftQ failureRef
     , rights: consumer rightQ failureRef
+    }
+
+-- | Split a stream into two by a boolean predicate: `yes` carries
+-- | every element for which `p a` is `true`, `no` carries the rest.
+-- | The source is consumed once by a forked pump that routes each
+-- | element into the appropriate output queue and propagates
+-- | end-of-stream to both sides on completion.
+-- |
+-- | Each output queue is bounded (capacity `defaultBuffer`). A slow
+-- | consumer on one side backpressures the pump, which in turn
+-- | pauses the other; consume both streams in parallel to keep
+-- | things flowing.
+-- |
+-- | Failure model matches `mergeAll`: the first observed producer-
+-- | side typed failure or defect shuts both queues down, and either
+-- | consumer surfaces the same captured cause on its next pull.
+partitioned
+  :: forall r e a
+   . (a -> Boolean)
+  -> Stream r e a
+  -> RIO r e { yes :: Stream r e a, no :: Stream r e a }
+partitioned p upstream = do
+  yesQ <- liftEffect (Queue.bounded defaultBuffer)
+  noQ <- liftEffect (Queue.bounded defaultBuffer)
+  failureRef <- liftEffect (Ref.new (Nothing :: Maybe (Cause e)))
+  _ <- fork (partitionedProducer p yesQ noQ failureRef upstream)
+  pure
+    { yes: consumer yesQ failureRef
+    , no: consumer noQ failureRef
     }
 
 -- | Bounded-concurrency `map`: apply `f` to each upstream element
@@ -483,6 +513,46 @@ partitionEitherProducer leftQ rightQ failureRef upstream = do
         case e of
           Left l -> void (Queue.offer leftQ l)
           Right x -> void (Queue.offer rightQ x)
+        drainTo rest
+
+-- | The producer side of `partitioned`: drains upstream under
+-- | `attemptCause`, routes each element to one of the two queues by
+-- | the predicate, and shuts both queues down on completion or
+-- | failure.
+partitionedProducer
+  :: forall r e a
+   . (a -> Boolean)
+  -> Queue a
+  -> Queue a
+  -> Ref.Ref (Maybe (Cause e))
+  -> Stream r e a
+  -> RIO r () Unit
+partitionedProducer p yesQ noQ failureRef upstream = do
+  outcome <- attemptCause (drainTo upstream)
+  case outcome of
+    Right _ -> do
+      Queue.shutdown yesQ
+      Queue.shutdown noQ
+    Left cause -> do
+      liftEffect
+        ( Ref.modify_
+            ( case _ of
+                Nothing -> Just cause
+                existing -> existing
+            )
+            failureRef
+        )
+      Queue.shutdown yesQ
+      Queue.shutdown noQ
+  where
+  drainTo :: Stream r e a -> RIO r e Unit
+  drainTo s = do
+    step <- unStream s
+    case step of
+      Done -> pure unit
+      Yield a rest -> do
+        if p a then void (Queue.offer yesQ a)
+        else void (Queue.offer noQ a)
         drainTo rest
 
 -- | The producer side of `partition`: drains upstream under

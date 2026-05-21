@@ -25,6 +25,7 @@ module RIO.Aff.Concurrency
   , forkAll
   , forkAllUntracked
   , forkScoped
+  , forkSupervised
   , forkUntracked
   , interrupt
   , join
@@ -79,10 +80,11 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import Prim.Row (class Cons) as Row
-import Type.Proxy (Proxy)
+import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
 
 import RIO.Aff.Cause (Cause(..), combineParallel) as Cause
+import RIO.Aff.Env (ask) as Env
 import RIO.Aff.Exit (Exit(..), die, fromEither) as Exit
 import RIO.Aff.Exit (Exit(..))
 import RIO.Aff.Internal (RIO(..), matchTypedFailure, mkEffectRIO, mkRIO, mkTypedFailureError, rioFail, unRIO, unsafeUnRIO)
@@ -330,6 +332,33 @@ forkScoped scope inner = mkRIO \r -> do
   let cleanup = Aff.killFiber (Aff.error "RIO.forkScoped: scope exit") f.underlying
   unsafeUnRIO (addFinalizer scope cleanup) r
   pure fib
+
+-- | Fork a child fiber bound to the ambient supervisor scope
+-- | installed by `RIO.Aff.Resource.supervised`. When that block
+-- | exits, the child is interrupted via the scope's finalizer pass.
+-- |
+-- | The body's environment row must declare `(supervisor :: Scope)`;
+-- | inside a `supervised` block this label is bound to a fresh
+-- | scope, so `forkSupervised` resolves to a `forkScoped` against
+-- | that scope.
+-- |
+-- | Useful when several pieces of work want to register themselves
+-- | as supervised children of the same enclosing block without
+-- | having to thread the `Scope` through manually.
+-- |
+-- | ```purescript
+-- | supervised do
+-- |   _ <- forkSupervised pollerOne
+-- |   _ <- forkSupervised pollerTwo
+-- |   serveForever
+-- | ```
+forkSupervised
+  :: forall r e e' a
+   . RIO (supervisor :: Scope | r) e a
+  -> RIO (supervisor :: Scope | r) e' (Fiber e a)
+forkSupervised inner = do
+  scope <- Env.ask (Proxy :: Proxy "supervisor")
+  forkScoped scope inner
 
 -- | Wait for a forked fiber to finish and surface its result.
 -- |

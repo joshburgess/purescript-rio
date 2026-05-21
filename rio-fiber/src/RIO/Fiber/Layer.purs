@@ -25,6 +25,7 @@ module RIO.Fiber.Layer
   , scoped
   , chainLayer
   , mergeLayers
+  , passthrough
   , provide
   , provideScoped
   , memoize
@@ -104,6 +105,41 @@ mergeLayers (Layer a) (Layer b) = Layer \scope -> do
   r1 <- a scope
   r2 <- b scope
   pure (Record.merge r1 r2)
+
+-- | Re-export the layer's input row as part of its output. The
+-- | resulting layer hands downstream consumers both the produced
+-- | services *and* the upstream ones the layer was built against.
+-- |
+-- | The plain `chainLayer` "consumes" the input row: chaining
+-- | `configLayer` and then `dbLayer` yields a layer whose output is
+-- | just `(db :: Database)`, even though `dbLayer`'s caller probably
+-- | also wants `(config :: Config)` at hand. `passthrough` adds the
+-- | input row back into the output:
+-- |
+-- | ```purescript
+-- | -- configLayer :: Layer e ()                 (config :: Config)
+-- | -- dbLayer     :: Layer e (config :: Config) (db :: Database)
+-- | --
+-- | -- without passthrough: only `db` is visible downstream
+-- | base = chainLayer configLayer dbLayer
+-- |
+-- | -- with passthrough on dbLayer: both are visible downstream
+-- | base = chainLayer configLayer (passthrough dbLayer)
+-- | -- :: Layer e () (config :: Config, db :: Database)
+-- | ```
+-- |
+-- | The required output row is supplied by the `Union` constraint:
+-- | `rIn` plus the layer's own output `rOut` equals `rPassed`. If the
+-- | rows aren't disjoint, the compiler rejects the call.
+passthrough
+  :: forall e rIn rOut rPassed
+   . Union rOut rIn rPassed
+  => Layer e rIn rOut
+  -> Layer e rIn rPassed
+passthrough (Layer build) = Layer \scope -> do
+  outRec <- build scope
+  inRec <- F.ask
+  pure (Record.union outRec inRec :: Record rPassed)
 
 -- | Run a program against the environment a layer produces. A fresh
 -- | `Scope` is opened for the layer's lifetime and closed once the

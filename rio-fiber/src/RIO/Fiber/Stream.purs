@@ -34,10 +34,14 @@ module RIO.Fiber.Stream
   , paginate
   , paginateRIO
   , haltWhen
+  , interruptWhen
   , map
+  , mapM
   , mapRIO
   , filter
+  , filterM
   , take
+  , takeWhile
   , takeUntil
   , drop
   , dropWhile
@@ -70,6 +74,7 @@ module RIO.Fiber.Stream
   , groupBy
   , zip
   , zipWith
+  , zipWithIndex
   , zipPar
   , zipLatest
   , zipLatestWith
@@ -84,6 +89,7 @@ module RIO.Fiber.Stream
   , broadcast
   , share
   , partitioned
+  , distinct
   , distinctBy
   , timeoutPerPull
   , acquireReleaseStream
@@ -112,6 +118,8 @@ import RIO.Fiber.Cause as Cause
 import RIO.Fiber.Clock as Clock
 import RIO.Fiber.Core (RIO)
 import RIO.Fiber.Core as F
+import RIO.Fiber.Deferred (Deferred)
+import RIO.Fiber.Deferred as Deferred
 import RIO.Fiber.Hub (Hub)
 import RIO.Fiber.Hub as Hub
 import RIO.Fiber.Mailbox (Mailbox)
@@ -460,6 +468,39 @@ haltWhen signal source = Stream do
           Right Done -> pure Done
           Right (Yield a rest) -> pure (Yield a (go done rest))
 
+-- | Interrupt the stream when `sentinel` is fired by racing the
+-- | sentinel's completion against each upstream pull. If the
+-- | sentinel wins, the in-flight pull is cancelled (under `race`
+-- | semantics) and the stream emits `Done`; if the sentinel
+-- | fails, that failure is raised on the error row.
+-- |
+-- | The difference from `haltWhen`: `interruptWhen` will
+-- | terminate a pull that has already started; `haltWhen` will
+-- | only observe the halt between pulls.
+-- |
+-- | Mirrors ZIO `ZStream.interruptWhen` and Effect-TS
+-- | `Stream.interruptWhen`.
+interruptWhen
+  :: forall r e a
+   . Deferred e Unit
+  -> Stream r e a
+  -> Stream r e a
+interruptWhen sentinel s = Stream do
+  poll <- Deferred.poll sentinel
+  case poll of
+    Just (Left v) -> F.fail v
+    Just (Right _) -> pure Done
+    Nothing -> F.race
+      (Deferred.await sentinel *> pure Done)
+      ( case s of
+          Stream pull -> do
+            step <- pull
+            case step of
+              Done -> pure Done
+              Yield a rest ->
+                pure (Yield a (interruptWhen sentinel rest))
+      )
+
 -- | Transform every element with `f`. Lazy: the function runs as
 -- | elements are pulled.
 map :: forall r e a b. (a -> b) -> Stream r e a -> Stream r e b
@@ -482,6 +523,12 @@ mapRIO f (Stream pull) = Stream do
       b <- f a
       pure (Yield b (mapRIO f rest))
 
+-- | Alias for `mapRIO` matching rio-aff's `mapM` naming. Provided
+-- | so code ported from rio-aff snippets reads the same; reach for
+-- | `mapRIO` in new code.
+mapM :: forall r e a b. (a -> RIO r e b) -> Stream r e a -> Stream r e b
+mapM = mapRIO
+
 -- | Keep only elements satisfying `p`. Pulls the upstream stream
 -- | until a matching element appears or it ends.
 filter :: forall r e a. (a -> Boolean) -> Stream r e a -> Stream r e a
@@ -495,6 +542,26 @@ filter p (Stream pull) = Stream (loop pull)
         | p a -> pure (Yield a (filter p (Stream rest)))
         | otherwise -> loop rest
 
+-- | Filter with an effectful predicate. The predicate runs in the
+-- | same `RIO r e` as the stream's pull effect, so it can read
+-- | services, hit refs, or itself fail with a typed error (which
+-- | aborts the stream).
+filterM
+  :: forall r e a
+   . (a -> RIO r e Boolean)
+  -> Stream r e a
+  -> Stream r e a
+filterM p (Stream pull) = Stream (loop pull)
+  where
+  loop next = do
+    s <- next
+    case s of
+      Done -> pure Done
+      Yield a (Stream rest) -> do
+        keep <- p a
+        if keep then pure (Yield a (filterM p (Stream rest)))
+        else loop rest
+
 -- | Take at most `n` elements from the stream. Non-positive `n`
 -- | becomes the empty stream.
 take :: forall r e a. Int -> Stream r e a -> Stream r e a
@@ -506,6 +573,21 @@ take n s
         pure case step of
           Done -> Done
           Yield a rest -> Yield a (take (n - 1) rest)
+
+-- | Yield elements while `p` holds, then stop. The first element
+-- | failing the predicate is NOT included. If the stream ends
+-- | before any element fails the predicate, every element is
+-- | forwarded.
+takeWhile :: forall r e a. (a -> Boolean) -> Stream r e a -> Stream r e a
+takeWhile p = go
+  where
+  go (Stream pull) = Stream do
+    step <- pull
+    case step of
+      Done -> pure Done
+      Yield a rest
+        | p a -> pure (Yield a (go rest))
+        | otherwise -> pure Done
 
 -- | Yield elements until `p` matches an element, then stop. The
 -- | matching element IS included in the output. If the stream ends
@@ -1123,6 +1205,19 @@ zipWith f (Stream pullA) (Stream pullB) = Stream do
         Done -> pure Done
         Yield b restB -> pure (Yield (f a b) (zipWith f restA restB))
 
+-- | Pair each element with its 0-based position in the stream.
+zipWithIndex
+  :: forall r e a
+   . Stream r e a
+  -> Stream r e (Tuple Int a)
+zipWithIndex = go 0
+  where
+  go i (Stream pull) = Stream do
+    step <- pull
+    case step of
+      Done -> pure Done
+      Yield a rest -> pure (Yield (Tuple i a) (go (i + 1) rest))
+
 -- | Run two streams in parallel, pairing elements positionally. The
 -- | output ends as soon as either side ends.
 zipPar :: forall r e a b. Stream r e a -> Stream r e b -> Stream r e (Tuple a b)
@@ -1712,6 +1807,13 @@ changes source = Stream (start source)
       Yield a (Stream rest)
         | a == prev -> loop prev rest
         | otherwise -> pure (Yield a (go a (Stream rest)))
+
+-- | Alias for `changes` matching rio-aff's `distinct` naming. Drop
+-- | consecutive duplicate elements, keeping the first of each run.
+-- | Provided for symmetry with rio-aff, where consumers may already
+-- | reach for that name.
+distinct :: forall r e a. Eq a => Stream r e a -> Stream r e a
+distinct = changes
 
 -- | Filter out consecutive elements whose extracted key is equal to
 -- | the previous one. A keyed variant of `changes`: useful when the

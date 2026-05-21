@@ -25,7 +25,10 @@ module RIO.Fiber.Queue
   , dropping
   , sliding
   , offer
+  , offerAll
   , take
+  , takeAll
+  , takeUpTo
   , tryOffer
   , tryTake
   , size
@@ -36,7 +39,9 @@ module RIO.Fiber.Queue
 import Prelude
 
 import Data.Array (filter, length, snoc, uncons)
+import Data.Array (snoc) as Array
 import Data.Either (Either(..))
+import Data.Foldable (for_)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Ref (Ref)
@@ -250,6 +255,43 @@ tryTake (Queue ref) = liftEffect do
         Nothing -> pure unit
       pure (Just x)
     Nothing -> pure Nothing
+
+-- | Offer each element in turn. Equivalent to `for_ xs (offer q)`,
+-- | exposed as a named entry point for symmetry with rio-aff.
+-- |
+-- | Backpressure applies per element: on a bounded queue this call
+-- | suspends once the buffer fills, resumes as slots free up, and
+-- | returns when the last element has been accepted.
+offerAll :: forall r e a. Queue a -> Array a -> RIO r e Unit
+offerAll q xs = for_ xs (offer q)
+
+-- | Drain everything currently buffered, without blocking. Returns
+-- | the items in FIFO order. Wakes one blocked offerer per item
+-- | drained (so bounded-queue producers can refill the buffer).
+takeAll :: forall r e a. Queue a -> RIO r e (Array a)
+takeAll q = go []
+  where
+  go acc = do
+    item <- tryTake q
+    case item of
+      Nothing -> pure acc
+      Just a -> go (Array.snoc acc a)
+
+-- | Drain up to `n` items, non-blocking. Returns fewer than `n` if
+-- | the queue runs dry before the cap. `n <= 0` yields an empty
+-- | array immediately.
+takeUpTo :: forall r e a. Queue a -> Int -> RIO r e (Array a)
+takeUpTo q n
+  | n <= 0 = pure []
+  | otherwise = go [] n
+      where
+      go acc remaining
+        | remaining <= 0 = pure acc
+        | otherwise = do
+            item <- tryTake q
+            case item of
+              Nothing -> pure acc
+              Just a -> go (Array.snoc acc a) (remaining - 1)
 
 -- | Current item count.
 size :: forall r e a. Queue a -> RIO r e Int
