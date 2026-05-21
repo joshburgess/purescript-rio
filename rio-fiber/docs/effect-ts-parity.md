@@ -430,13 +430,20 @@ emitting whichever completes first.
 
 ### #13 `Tracer` span events / links / status / kind
 
-**Problem.** `RIO.Fiber.Tracer.Span` exposes only
-`addAttribute :: String -> String -> Effect Unit` and `finish`.
-OTel spans also carry: timestamped events (`addEvent`),
-cross-trace links (`addLink`), an explicit status (`Ok`,
-`Error`), and a `SpanKind` (Server / Client / Producer /
-Consumer / Internal). Without these, the `rio-fiber-otel`
-adapter exports fidelity-lossy spans.
+**Status.** Done. `Span` now carries `addEvent`, `addLink`,
+`setStatus`, and the recording / OTel adapters forward each
+through. `withSpan` defaults to `Internal`; `withSpanWith`
+takes an explicit `SpanKind`. A stable `spanId :: SpanId`
+field is exposed on `Span` itself so external integrations
+can correlate spans by id.
+
+**Problem (resolved).** Previously `RIO.Fiber.Tracer.Span`
+exposed only `addAttribute :: String -> String -> Effect Unit`
+and `finish`. OTel spans also carry: timestamped events
+(`addEvent`), cross-trace links (`addLink`), an explicit
+status (`Ok`, `Error`), and a `SpanKind` (Server / Client /
+Producer / Consumer / Internal). Without these, the
+`rio-fiber-otel` adapter exported fidelity-lossy spans.
 
 **Shape.**
 
@@ -729,8 +736,8 @@ the bounded-concurrency footgun, the micro-batching gap, the
 OTel-span fidelity gap, the histogram-export gap, and the
 stream-async constructor gap.
 
-**Batch 2.** Items #3, #6 (streaming surface) plus #15, #20
-(stream-async + stream-queue/hub adapters).
+**Batch 2.** Items #3, #6 (streaming surface) plus #20
+(stream-queue/hub adapters). #15 already landed in Batch 1.5.
 
 **Batch 3.** Items #7, #8, #9 plus #17, #18, #19 (production
 observability and resource lifecycle).
@@ -831,12 +838,19 @@ that prevents `memoize`'s sharing.
 
 ### #27 STM atomic primitives
 
-**Problem.** Our STM has `TVar`, `TArray`, `TChan`, `TMVar`,
-`TQueue`. Missing the trio that makes STM *compositionally
-atomic*: a semaphore-typed acquire/release that participates
-in transactions, a keyed atomic map, and an STM one-shot
+**Status.** Done. `RIO.Fiber.STM.TSemaphore`,
+`RIO.Fiber.STM.TMap`, and `RIO.Fiber.STM.TDeferred` ship as
+the compositionally-atomic counterparts to the existing
+`TVar` / `TArray` / `TChan` / `TMVar` / `TQueue`. `TSet` and
+`TPubSub` landed alongside.
+
+**Problem (resolved).** Previously the STM surface had `TVar`,
+`TArray`, `TChan`, `TMVar`, and `TQueue` only. Missing was
+the trio that makes STM *compositionally atomic*: a
+semaphore-typed acquire/release that participates in
+transactions, a keyed atomic map, and an STM one-shot
 deferred. The regular `Semaphore` lives outside STM, so
-acquire-then-check patterns have race windows that don't roll
+acquire-then-check patterns had race windows that didn't roll
 back.
 
 **Shape.**

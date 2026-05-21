@@ -275,10 +275,14 @@ explicit `advance` controller, deterministic across forks. See
   Out of scope; `docs/06-concurrency.md` calls these out under
   "what RIO does not give you". `forkScoped` covers the
   common "fiber bounded by enclosing scope" case.
-- **Interrupt-with-cause.** ZIO carries a structured `Cause`
-  through interruption (interrupted-by-whom,
-  interrupted-due-to-failure-elsewhere); RIO surfaces kills as
-  `Aff` exceptions with a string message.
+- **Full interrupt-with-cause distinguishing interrupter
+  identity.** ZIO carries a structured `Cause` through
+  interruption that records *who* did the interrupting and
+  *why*. rio-fiber's `Cause` keeps an `Interrupt FiberId` leaf
+  (so interrupter id survives) but does not yet model
+  "interrupted-due-to-failure-elsewhere" as a distinct case;
+  rio-aff folds interruption into `Die` because `Aff` does not
+  expose a structured kill signal at the user level.
 - **Property-test integration tuned for effectful programs.**
   Plain `purescript-quickcheck` works, but RIO has no
   Aff-aware generators or shrinkers yet.

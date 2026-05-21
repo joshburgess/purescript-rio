@@ -292,9 +292,13 @@ explicit `advance` controller, deterministic across forks. See
   Out of scope; `docs/06-concurrency.md` calls these out under
   "what RIO does not give you". `forkScoped` covers the
   common "fiber bounded by enclosing scope" case.
-- **Interrupt-with-cause.** Effect carries a structured
-  `Cause` through interruption; RIO surfaces kills as `Aff`
-  exceptions with a string message.
+- **Full interrupt-with-cause distinguishing interrupter
+  identity.** Effect carries a structured `Cause` through
+  interruption. rio-fiber's `Cause` keeps an `Interrupt FiberId`
+  leaf (interrupter id survives) but does not yet model
+  "interrupted-due-to-failure-elsewhere" as a distinct case;
+  rio-aff folds interruption into `Die` because `Aff` does not
+  expose a structured kill signal at the user level.
 
 ## Things RIO has that Effect does not
 
@@ -309,7 +313,11 @@ explicit `advance` controller, deterministic across forks. See
   composing layers into the type system without needing a
   separate combinator for "this layer can be combined with
   that one".
-- **No JS runtime overhead from a fiber scheduler.** `RIO` runs
-  on `Aff`, which compiles to plain Promise-like callbacks in
-  the standard PureScript output. The cost model is closer to
-  hand-written async / await than to a managed fiber pool.
+- **rio-aff: no JS runtime overhead from a fiber scheduler.**
+  The rio-aff package runs on `Aff`, which compiles to plain
+  Promise-like callbacks in the standard PureScript output. The
+  cost model is closer to hand-written async / await than to a
+  managed fiber pool. The premier rio-fiber package does ship a
+  custom fiber interpreter, but it is intentionally lighter than
+  ZIO's or Effect's: a single-threaded scheduler tuned for the
+  JS event loop, not a work-stealing pool.

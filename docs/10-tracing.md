@@ -32,17 +32,24 @@ span for this fiber. Use `withSpanWith` for an explicit
 `SpanKind` (`Server`, `Client`, `Producer`, `Consumer`,
 `Internal`).
 
-Span status is independent of `withSpan`'s success / failure:
-the span finishes with `StatusUnset` by default unless the body
-calls `setStatus`:
+Span status is independent of `withSpan`'s success / failure
+in rio-fiber: the span finishes with `StatusUnset` by default
+unless the body calls `setStatus`:
 
-- `StatusUnset` — default; most exporters treat as implicit OK.
+- `StatusUnset` (rio-fiber default) — most exporters treat as
+  implicit OK.
 - `StatusOk` — explicitly mark success.
 - `StatusError msg` — explicitly mark failure with a message.
 
 If you want a failed `withSpan` body to mark the span as
 `StatusError` automatically, call `setStatus` in a `catchAll`
 before re-raising.
+
+rio-aff uses a different, finer-grained status shape that
+`withSpan` sets automatically from the outcome: `SpanOk` on
+success, `SpanFailed` on typed failure, `SpanInterrupted` if
+the fiber is killed mid-action. There is no explicit-message
+form on the aff side.
 
 ### Parent / child relationships
 
@@ -114,9 +121,15 @@ when you want the active span without naming it.
 Any backend (Honeycomb, Jaeger, custom) implements the same
 `Tracer` record. Call sites do not change.
 
-The aff package mirrors this surface: `RIO.Aff.Tracer`,
+The aff package mirrors most of this surface: `RIO.Aff.Tracer`,
 `RIO.Aff.Test.Tracer`, `RIO.Aff.Tracer.OTel`, with
-`rio-aff-otel` for the live adapter.
+`rio-aff-otel` for the live adapter. Two differences worth
+flagging: the aff `Span` exposes attributes but no `addEvent`
+or `addLink` operations, and the aff OTel adapter
+(`RIO.Aff.Tracer.OTel.Adapter`) forwards lifecycle, attributes,
+and status but does NOT forward span events or links to the
+OTel SDK. For full event / link fidelity over OTel, use
+rio-fiber + rio-fiber-otel.
 
 ## Metrics
 
@@ -177,4 +190,8 @@ OTel metrics exporter) implements the same record.
   `rio-fiber/src/RIO/Fiber/Test/Metrics.purs`,
   `rio-fiber/src/RIO/Fiber/Metric/OTel.purs`: metrics
   primitives, recording backend, and OTLP exporter.
-- The aff equivalents live under `rio-aff/src/RIO/Aff/...`.
+- The aff equivalents: `rio-aff/src/RIO/Aff/Tracer.purs`,
+  `rio-aff/src/RIO/Aff/Test/Tracer.purs`,
+  `rio-aff-otel/src/RIO/Tracer/OTel/Adapter.purs` (module
+  `RIO.Aff.Tracer.OTel.Adapter`), and the metrics counterparts
+  under `rio-aff/src/RIO/Aff/Metric*.purs`.

@@ -132,8 +132,10 @@ The user-facing API is small:
 - `STM.check :: Boolean -> STM Unit` retries unless the predicate
   holds.
 
-Plus the STM-aware structures: `TVar`, `TMVar`, `TChan`, `TQueue`,
-`TArray`.
+Plus the STM-aware structures: `TVar` (from `RIO.Fiber.STM`),
+`TArray`, `TChan`, `TDeferred`, `TMap`, `TMVar`, `TPubSub`,
+`TQueue`, `TSemaphore`, and `TSet` (each in its own
+`RIO.Fiber.STM.<Name>` module).
 
 ### A typical pattern: a counter with bounded capacity
 

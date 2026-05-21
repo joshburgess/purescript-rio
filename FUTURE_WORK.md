@@ -36,10 +36,11 @@ typed-error rows, the residual jargon stays. Tracked in
 
 ### Config rotation triggers
 
-`RIO.Config.Rotating` ships `newRotating`, `readRotating`,
-`writeRotating`, and `withRotation`. Polling / signal-triggered
-rotation is left to the caller; a polling helper or signal-based
-trigger could land if a clear pattern emerges from real use.
+`RIO.Fiber.Config.Rotating` and `RIO.Aff.Config.Rotating` both
+ship `newRotating`, `readRotating`, `writeRotating`, and
+`withRotation`. Polling / signal-triggered rotation is left to
+the caller; a polling helper or signal-based trigger could
+land if a clear pattern emerges from real use.
 
 ## Out of scope for the core demonstration
 

@@ -125,8 +125,10 @@ prefix `RIO.Aff.*` rather than `RIO.Fiber.*`:
   `parTraverseN`, `parSequence`, `zipPar`, `race`, `raceAll`.
 - `RIO.Aff.Deferred`, `RIO.Aff.Semaphore`, `RIO.Aff.Queue`,
   `RIO.Aff.Hub`: async coordination primitives.
-- `RIO.Aff.STM` plus `STM.TQueue`, `STM.TMap`, `STM.TSemaphore`,
-  `STM.THub`: software transactional memory.
+- `RIO.Aff.STM` (with `TVar` / `TRef`) plus `STM.TArray`,
+  `STM.TChan`, `STM.TDeferred`, `STM.THub`, `STM.TMap`,
+  `STM.TMVar`, `STM.TQueue`, `STM.TSemaphore`, and `STM.TSet`:
+  software transactional memory.
 - `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
   `RIO.Aff.Stream.Concurrent`, `RIO.Aff.Stream.Resource`,
   `RIO.Aff.Stream.Timed`, `RIO.Aff.Sink`, `RIO.Aff.Channel`:
