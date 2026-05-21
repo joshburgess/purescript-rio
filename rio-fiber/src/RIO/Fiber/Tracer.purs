@@ -40,6 +40,7 @@
 module RIO.Fiber.Tracer
   ( Tracer(..)
   , Span(..)
+  , SpanId(..)
   , Attr
   , SpanKind(..)
   , SpanStatus(..)
@@ -48,6 +49,7 @@ module RIO.Fiber.Tracer
   , startSpan
   , startSpanWith
   , finishSpan
+  , spanId
   , addAttribute
   , addEvent
   , addLink
@@ -72,6 +74,19 @@ import RIO.Fiber.Ref (getFiberRef, newFiberRef, setFiberRef)
 
 -- | A key/value attribute on a span or event.
 type Attr = { key :: String, value :: String }
+
+-- | The identity a `Span` carries for cross-span reference. The
+-- | string is whatever shape the producing tracer chooses: the
+-- | default no-op tracer emits the empty string; the in-memory
+-- | recording tracer (`RIO.Fiber.Test.Tracer`) emits its sequence
+-- | number formatted as decimal; an OTLP-backed tracer emits the
+-- | W3C 16-hex span identifier. Callers that need a particular
+-- | shape should map at the export boundary, not here.
+newtype SpanId = SpanId String
+
+derive newtype instance eqSpanId :: Eq SpanId
+derive newtype instance ordSpanId :: Ord SpanId
+derive newtype instance showSpanId :: Show SpanId
 
 -- | The role a span plays in the trace, used by OpenTelemetry-style
 -- | visualizers to distinguish inbound work (`Server`), outbound
@@ -112,14 +127,24 @@ instance showSpanStatus :: Show SpanStatus where
   show (StatusError msg) = "error: " <> msg
 
 -- | An opaque span handle. Implementations stash whatever state they
--- | need to attribute / finish via the closures in the record.
+-- | need to attribute / finish via the closures in the record;
+-- | `spanId` is the only field readers should rely on, and is the
+-- | stable identity callers can use to correlate spans across
+-- | `addLink` / `parent` / OTel-style exports.
 newtype Span = Span
-  { addAttribute :: String -> String -> Effect Unit
+  { spanId :: SpanId
+  , addAttribute :: String -> String -> Effect Unit
   , addEvent :: String -> Array Attr -> Effect Unit
   , addLink :: Span -> Effect Unit
   , setStatus :: SpanStatus -> Effect Unit
   , finish :: Effect Unit
   }
+
+-- | Project a span's identifier. The accessor is total and pure:
+-- | every `Span` is built with a `spanId`, set once at start time
+-- | by the producing tracer.
+spanId :: Span -> SpanId
+spanId (Span s) = s.spanId
 
 -- | What `startSpan` is told about a new span: its name, initial
 -- | attributes, parent (if a span is active on the current fiber),
@@ -139,12 +164,15 @@ newtype Tracer = Tracer
   }
 
 -- | The default tracer is a no-op: spans record nothing and finish
--- | quietly.
+-- | quietly. Every span shares the empty `SpanId`, which is enough
+-- | for code that reads the id reflectively without participating
+-- | in a real trace.
 defaultTracer :: Tracer
 defaultTracer = Tracer
   { startSpan: \_ -> pure
       ( Span
-          { addAttribute: \_ _ -> pure unit
+          { spanId: SpanId ""
+          , addAttribute: \_ _ -> pure unit
           , addEvent: \_ _ -> pure unit
           , addLink: \_ -> pure unit
           , setStatus: \_ -> pure unit

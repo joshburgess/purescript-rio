@@ -13,6 +13,7 @@ import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
 import RIO.Fiber.Tracer
   ( Span(..)
+  , SpanId(..)
   , SpanKind(..)
   , SpanStatus(..)
   , Tracer(..)
@@ -67,7 +68,8 @@ recordingTracer ref = Tracer
             ref
       pure
         ( Span
-            { addAttribute: \k v -> do
+            { spanId: SpanId (show idx)
+            , addAttribute: \k v -> do
                 Ref.modify_ (\as -> Array.snoc as { key: k, value: v }) attrsRef
                 attrs <- Ref.read attrsRef
                 updateAt (\r -> r { attrs = attrs })
@@ -154,7 +156,8 @@ spec = describe "rio-fiber: Tracer" do
             Ref.modify_ (\xs -> Array.snoc xs parentName) tracker
             pure
               ( Span
-                  { addAttribute: \_ _ -> pure unit
+                  { spanId: SpanId req.name
+                  , addAttribute: \_ _ -> pure unit
                   , addEvent: \_ _ -> pure unit
                   , addLink: \_ -> pure unit
                   , setStatus: \_ -> pure unit
@@ -215,7 +218,8 @@ spec = describe "rio-fiber: Tracer" do
             Ref.modify_ (\xs -> Array.snoc xs (map (\_ -> req.name) req.parent)) seen
             pure
               ( Span
-                  { addAttribute: \_ _ -> pure unit
+                  { spanId: SpanId req.name
+                  , addAttribute: \_ _ -> pure unit
                   , addEvent: \_ _ -> pure unit
                   , addLink: \_ -> pure unit
                   , setStatus: \_ -> pure unit

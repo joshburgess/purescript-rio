@@ -49,6 +49,7 @@ import Effect.Ref as Ref
 
 import RIO.Fiber.Tracer
   ( Span(..)
+  , SpanId(..)
   , SpanKind(..)
   , SpanStatus(..)
   , StartSpanRequest
@@ -97,11 +98,14 @@ foreign import otelSetStatusUnset :: OTelSpan -> Effect Unit
 
 foreign import otelEndSpan :: OTelSpan -> Effect Unit
 
+foreign import otelSpanId :: OTelSpan -> Effect String
+
 -- | The opaque record inside a fiber `Span` newtype. We compare
 -- | by reference identity to recover the OTel handle for a parent
 -- | that the adapter previously produced.
 type SpanRec =
-  { addAttribute :: String -> String -> Effect Unit
+  { spanId :: SpanId
+  , addAttribute :: String -> String -> Effect Unit
   , addEvent :: String -> Array { key :: String, value :: String } -> Effect Unit
   , addLink :: Span -> Effect Unit
   , setStatus :: SpanStatus -> Effect Unit
@@ -155,11 +159,13 @@ makeOTelTracer name = do
       otelSpan <- case parentOtel of
         Nothing -> otelStartRootSpan otel req.name req.attributes tag
         Just p -> otelStartChildSpan otel req.name req.attributes tag p
+      sid <- otelSpanId otelSpan
 
       let
         rec :: SpanRec
         rec =
-          { addAttribute: \k v -> otelSetAttribute otelSpan k v
+          { spanId: SpanId sid
+          , addAttribute: \k v -> otelSetAttribute otelSpan k v
           , addEvent: \evName evAttrs -> otelAddEvent otelSpan evName evAttrs
           , addLink: \(Span linkSpan) -> do
               mTarget <- lookupOTel linkSpan

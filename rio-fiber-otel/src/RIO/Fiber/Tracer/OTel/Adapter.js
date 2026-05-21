@@ -76,3 +76,8 @@ export const otelEndSpan = (span) => () => {
 };
 
 export const refEq = (a) => (b) => a === b;
+
+export const otelSpanId = (span) => () => {
+  const ctx = span.spanContext();
+  return ctx ? ctx.spanId : "";
+};
