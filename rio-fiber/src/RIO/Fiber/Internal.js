@@ -44,6 +44,14 @@ const FOR_EACH = 23;
 const MAP = 24;
 const APPLY = 25;
 const FORK_ALL_INLINE = 26;
+const SELF_ID = 27;
+const SELF_LABEL_GET = 28;
+const SELF_LABEL_SET = 29;
+const MASK_WITH_RESTORE = 30;
+const RESTORE_INTERRUPTIBLE = 31;
+const RACE_ALL = 32;
+const YIELD_NOW = 33;
+const CHECK_INTERRUPTIBLE = 34;
 
 // Continuation-stack frame tags.
 const K_BIND = 0; // next: a -> Op r e b
@@ -57,6 +65,7 @@ const K_FOR_EACH = 7; // sequential traverse: collect this iteration, advance
 const K_MAP = 8;   // apply f to the result without an extra PURE wrap
 const K_APPLY = 9; // value (f) is in hand, now evaluate the second op
 const K_APPLY2 = 10; // both ops complete: apply the captured f to the value
+const K_REMASK = 11; // restore mask++ after a RESTORE_INTERRUPTIBLE op completes
 
 // Fiber statuses.
 const F_RUNNING = 0;
@@ -84,8 +93,13 @@ const C_THEN = 4;
 const C_BOTH = 5;
 
 const CAUSE_EMPTY = { _c: C_EMPTY };
-const CAUSE_INTERRUPT = { _c: C_INTERRUPT };
+// `Interrupt` causes carry the id of the fiber that issued the
+// interrupt. `EXTERNAL_INTERRUPTER_ID = -1` is the sentinel for
+// interrupts that originate outside any running fiber (e.g. the
+// `Fiber.interrupt` Effect API). Internal callers pass `this.id`.
+const EXTERNAL_INTERRUPTER_ID = -1;
 
+function causeInterrupt(byId) { return { _c: C_INTERRUPT, fiberId: byId }; }
 function causeFail(v) { return { _c: C_FAIL, fail: v }; }
 function causeDie(e) { return { _c: C_DIE, die: e }; }
 function causeThen(a, b) {
@@ -104,7 +118,7 @@ function modeToCause(mode, value) {
     case M_OK: return CAUSE_EMPTY;
     case M_FAIL: return causeFail(value);
     case M_DIE: return causeDie(value);
-    case M_INTERRUPT: return CAUSE_INTERRUPT;
+    case M_INTERRUPT: return causeInterrupt(value);
     case M_CAUSE: return value;
     default: return CAUSE_EMPTY;
   }
@@ -112,14 +126,16 @@ function modeToCause(mode, value) {
 
 // Fiber-completion result objects are uniformly shaped as
 // { mode, value } where `mode` is one of the M_* constants and
-// `value` is the payload (or null for M_INTERRUPT). Reading the
-// shape is one hidden-class read per dispatch instead of three
-// hasOwnProperty checks.
+// `value` is the payload. For M_INTERRUPT, `value` is the numeric
+// id of the fiber that issued the interrupt (or
+// `EXTERNAL_INTERRUPTER_ID` for an external interrupt).
 function makeResult(mode, value) {
   return { mode: mode, value: value };
 }
 
-const RESULT_INTERRUPT = { mode: M_INTERRUPT, value: null };
+function externalInterruptResult() {
+  return { mode: M_INTERRUPT, value: EXTERNAL_INTERRUPTER_ID };
+}
 
 // Lightweight stand-in for an already-completed Fiber. forkInline of
 // a PURE / SYNC body produces a child whose result is known before we
@@ -154,7 +170,7 @@ function resultToCause(r) {
     case M_OK: return CAUSE_EMPTY;
     case M_FAIL: return causeFail(r.value);
     case M_DIE: return causeDie(r.value);
-    case M_INTERRUPT: return CAUSE_INTERRUPT;
+    case M_INTERRUPT: return causeInterrupt(r.value);
     case M_CAUSE: return r.value;
     default: return CAUSE_EMPTY;
   }
@@ -214,6 +230,7 @@ function ForEachFrame(fn, items, results) {
 //   ENSURING        : _1 = action,          _2 = finalizer
 //   UNINTERRUPTIBLE : _1 = inner op
 //   RACE            : _1 = left op,         _2 = right op
+//   RACE_ALL        : _1 = ops array
 //   PAR_TRAVERSE    : _1 = fn,              _2 = items
 //   PEEL            : _1 = inner op
 //   FREF_GET        : _1 = ref
@@ -253,6 +270,19 @@ export const opBind = function (m) {
 // Singleton ASK: no payload, one shape, reuse the object.
 const ASK_NODE = new Op(ASK, -1, null, null);
 export const opAsk = ASK_NODE;
+
+// Singleton self-inspection ops: no payload, share one object.
+const SELF_ID_NODE = new Op(SELF_ID, -1, null, null);
+const SELF_LABEL_GET_NODE = new Op(SELF_LABEL_GET, -1, null, null);
+const YIELD_NOW_NODE = new Op(YIELD_NOW, -1, null, null);
+const CHECK_INTERRUPTIBLE_NODE = new Op(CHECK_INTERRUPTIBLE, -1, null, null);
+export const opCurrentFiberId = SELF_ID_NODE;
+export const opCurrentFiberLabel = SELF_LABEL_GET_NODE;
+export const opSetCurrentFiberLabel = function (label) {
+  return new Op(SELF_LABEL_SET, -1, label, null);
+};
+export const opYieldNow = YIELD_NOW_NODE;
+export const opCheckInterruptible = CHECK_INTERRUPTIBLE_NODE;
 
 // Singleton continuation frames that carry no per-instance payload:
 // pushing the singleton avoids a per-step allocation. Frames are
@@ -466,10 +496,30 @@ export const opUninterruptible = function (op) {
   return new Op(UNINTERRUPTIBLE, -1, op, null);
 };
 
+// `body` is `(Op r e a -> Op r e a) -> Op r e b`. At step time we
+// capture whether the outer mask was zero, push K_UNMASK like a normal
+// `uninterruptible`, and synchronously invoke `body` with a JS function
+// that wraps any inner Op in a RESTORE_INTERRUPTIBLE node (or returns
+// the inner Op unchanged if the outer mask was already non-zero, since
+// "restore" should be a no-op when the surrounding context was already
+// masked).
+export const opMaskWithRestore = function (body) {
+  return new Op(MASK_WITH_RESTORE, -1, body, null);
+};
+
+// Singleton K_REMASK frame: re-increment the mask once the restored
+// inner op completes. Frames are never mutated during unwind, so
+// sharing one object across calls is safe.
+const FRAME_REMASK = new Op(-1, K_REMASK, null, null);
+
 export const opRace = function (left) {
   return function (right) {
     return new Op(RACE, -1, left, right);
   };
+};
+
+export const opRaceAll = function (ops) {
+  return new Op(RACE_ALL, -1, ops, null);
 };
 
 export const opParTraverse = function (fn) {
@@ -511,8 +561,23 @@ export const opModifyFiberRef = function (ref) {
 // finalizers. The MVP API is fire-and-forget: closeScope invokes
 // each finalizer in LIFO order and swallows individual throws so
 // one bad finalizer can't strand the rest.
+//
+// `pendingCause` is set by `_closeScopeExit` just before the
+// finalizers run so that exit-aware finalizers (added via
+// `addFinalizerExit`) can read the closing cause from the scope
+// object. Plain finalizers ignore it.
 function makeScope() {
-  return { finalizers: [], closed: false };
+  return {
+    finalizers: [],
+    closed: false,
+    pendingCause: null,
+    // Fibers registered for *await*: `closeScopeAwait` interrupts them
+    // (via their finalizer) then suspends until each has resolved. This
+    // is the awaitable-finalizer story for `forkScoped`-style children:
+    // by the time the awaiting close returns, every child has finished
+    // running its own cleanup.
+    joinables: [],
+  };
 }
 
 export const _newScope = function () {
@@ -531,16 +596,102 @@ export const _addFinalizerEff = function (scope) {
   };
 };
 
+// Register a fiber for "await on close". `closeScopeAwait` reads this
+// list after running synchronous finalizers and suspends until each
+// has resolved. Joinables are accepted even after the scope has been
+// marked closed, because `addFinalizerRIO` starts its own fiber from
+// inside the finalizer pass — by the time it tries to register, the
+// scope's `closed` flag is already set, but the awaiting close path
+// hasn't yet drained the list.
+export const _scopeAddJoinable = function (scope) {
+  return function (fib) {
+    return function () {
+      scope.joinables.push(fib);
+    };
+  };
+};
+
+// Walk the joinable list. Used by `closeScopeAwait` to drive the
+// await loop from PureScript side.
+export const _scopeJoinables = function (scope) {
+  return function () {
+    return scope.joinables;
+  };
+};
+
+export const _scopeClearJoinables = function (scope) {
+  return function () {
+    scope.joinables = [];
+  };
+};
+
+function runFinalizers(scope) {
+  const fs = scope.finalizers;
+  scope.finalizers = [];
+  for (let i = fs.length - 1; i >= 0; i--) {
+    try { fs[i](); } catch (_) {}
+  }
+}
+
 export const _closeScope = function (scope) {
   return function () {
     if (scope.closed) return;
     scope.closed = true;
-    const fs = scope.finalizers;
-    scope.finalizers = [];
-    for (let i = fs.length - 1; i >= 0; i--) {
-      try { fs[i](); } catch (_) {}
-    }
+    runFinalizers(scope);
   };
+};
+
+// Close the scope with a known exit cause (null means success).
+// The cause is stashed on the scope so exit-aware finalizers can
+// observe it; plain finalizers ignore it.
+export const _closeScopeExit = function (scope) {
+  return function (causeOrNull) {
+    return function () {
+      if (scope.closed) return;
+      scope.closed = true;
+      scope.pendingCause = causeOrNull;
+      runFinalizers(scope);
+      scope.pendingCause = null;
+    };
+  };
+};
+
+// Read the scope's pending close cause. Returns `null` outside the
+// close window or when the scope closed with a success outcome.
+export const _scopePendingCause = function (scope) {
+  return function () {
+    return scope.pendingCause;
+  };
+};
+
+// `NullableCause e` FFI representation: a possibly-null `JSCause`.
+// The runtime form is literally `null | JSCause`; the four helpers
+// below are the only sanctioned way the PS side touches it.
+export const _causeNullable = function () {
+  return null;
+};
+
+export const _causeFromCause = function (c) {
+  return c;
+};
+
+export const _causeNullableIsJust = function (n) {
+  return n !== null;
+};
+
+export const _causeNullableValue = function (n) {
+  return n;
+};
+
+// `NullableLabel` FFI representation: the runtime form is literally
+// `null | string`. Mirrors NullableCause; lets us pass a fiber's label
+// across the FFI without depending on an external Maybe encoding.
+export const _nullableLabelIsJust = function (n) {
+  return n !== null;
+};
+
+export const _nullableLabelValue = function (n) {
+  return n;
 };
 
 // Fiber ----------------------------------------------------------------
@@ -565,6 +716,7 @@ export const _registerSupervisor = function (sup) {
 
 function Fiber(op, env, frefs) {
   this.id = _nextFiberId++;
+  this.label = null;
   this.current = op;
   this.value = null;
   this.mode = M_OK;
@@ -578,6 +730,12 @@ function Fiber(op, env, frefs) {
   // alloc until the first observer arrives avoids a per-fiber [].
   this.observers = null;
   this.interrupted = false;
+  // Numeric id of the fiber that first interrupted this one. Stored
+  // alongside `interrupted` so the resulting `Interrupt` cause can be
+  // attributed. `EXTERNAL_INTERRUPTER_ID` (-1) means "issued from
+  // outside any running fiber"; we keep the first interrupter set
+  // and ignore subsequent calls.
+  this.interruptedBy = EXTERNAL_INTERRUPTER_ID;
   // Depth of nested uninterruptible regions. While > 0, interrupts
   // are deferred (the flag stays set; the step loop just doesn't
   // act on it).
@@ -660,8 +818,12 @@ Fiber.prototype.observe = function (cb) {
   }
 };
 
-Fiber.prototype.interrupt = function () {
+Fiber.prototype.interrupt = function (byId) {
   if (this.status === F_DONE) return;
+  // Keep the first interrupter; later interrupts are redundant.
+  if (!this.interrupted) {
+    this.interruptedBy = byId === undefined ? EXTERNAL_INTERRUPTER_ID : byId;
+  }
   this.interrupted = true;
   if (this.status === F_SUSPENDED) {
     const c = this.canceller;
@@ -687,6 +849,9 @@ Fiber.prototype.interrupt = function () {
 Fiber.prototype._installResult = function (r) {
   const m = r.mode;
   if (m === M_INTERRUPT) {
+    if (!this.interrupted) {
+      this.interruptedBy = r.value;
+    }
     this.interrupted = true;
   } else {
     this.value = r.value;
@@ -697,7 +862,7 @@ Fiber.prototype._installResult = function (r) {
 
 Fiber.prototype._completeFromMode = function () {
   if (this.mode === M_INTERRUPT) {
-    this._complete(RESULT_INTERRUPT);
+    this._complete(makeResult(M_INTERRUPT, this.interruptedBy));
   } else {
     this._complete(makeResult(this.mode, this.value));
   }
@@ -720,7 +885,7 @@ Fiber.prototype._stepInner = function () {
   let ticks = TICK_BUDGET;
   while (true) {
     if (--ticks < 0) {
-      scheduleFiber(this);
+      scheduleFiberDeferred(this);
       return;
     }
 
@@ -740,11 +905,12 @@ Fiber.prototype._stepInner = function () {
       this.mode !== M_CAUSE &&
       (this.current === null ||
         (this.current._tag !== ENSURING &&
-          this.current._tag !== UNINTERRUPTIBLE))
+          this.current._tag !== UNINTERRUPTIBLE &&
+          this.current._tag !== MASK_WITH_RESTORE))
     ) {
       this.current = null;
       this.mode = M_INTERRUPT;
-      this.value = null;
+      this.value = this.interruptedBy;
     }
 
     if (this.current !== null) {
@@ -785,6 +951,17 @@ Fiber.prototype._stepInner = function () {
           // loop descends.
           let bindOp = op;
           bindLoop: while (true) {
+            // An unbounded BIND chain (e.g. `forever`) keeps re-emitting a
+            // fresh BIND from the continuation, so the inner loop would
+            // otherwise spin without ever returning to the outer
+            // tick/interrupt check. Charge a tick per inner iteration and
+            // bail out when the budget is exhausted, restoring `this.current`
+            // so the fiber resumes at the same bind.
+            if (--ticks < 0) {
+              this.current = bindOp;
+              scheduleFiberDeferred(this);
+              return;
+            }
             const inner = bindOp._1;
             switch (inner._tag) {
               case PURE: {
@@ -1083,6 +1260,35 @@ Fiber.prototype._stepInner = function () {
           this.value = this.env;
           this.mode = M_OK;
           break;
+        case SELF_ID:
+          this.value = this.id;
+          this.mode = M_OK;
+          break;
+        case SELF_LABEL_GET:
+          this.value = this.label;
+          this.mode = M_OK;
+          break;
+        case SELF_LABEL_SET:
+          this.label = op._1;
+          this.value = undefined;
+          this.mode = M_OK;
+          break;
+        case CHECK_INTERRUPTIBLE:
+          // Reflect the current mask state into the success channel.
+          // Cheap inline read; no need to suspend.
+          this.value = this.mask === 0;
+          this.mode = M_OK;
+          break;
+        case YIELD_NOW:
+          // Cooperative yield: re-enqueue ourselves and break out of
+          // the inner step loop. Same effect as exhausting TICK_BUDGET
+          // but caller-driven. The fiber stays F_RUNNING (we will be
+          // picked up by the next drain pass); no canceller needed
+          // because we own the resumption.
+          this.value = undefined;
+          this.mode = M_OK;
+          scheduleFiber(this);
+          return;
         case LOCAL: {
           const prev = this.env;
           this.env = op._1(this.env);
@@ -1208,7 +1414,7 @@ Fiber.prototype._stepInner = function () {
           return;
         }
         case INTERRUPT: {
-          op._1.interrupt();
+          op._1.interrupt(this.id);
           this.value = undefined;
           this.mode = M_OK;
           break;
@@ -1221,6 +1427,37 @@ Fiber.prototype._stepInner = function () {
         case UNINTERRUPTIBLE:
           this.mask++;
           this.stack.push(FRAME_UNMASK);
+          this.current = op._1;
+          continue;
+        case MASK_WITH_RESTORE: {
+          // Capture whether the surrounding mask was zero. If it was,
+          // `restore inner` should decrement the mask for `inner`'s
+          // duration so the inner op is interruptible; if not, restore
+          // is the identity (the outer block was already masked, so
+          // there is nothing to "restore" to). Then bump the mask the
+          // same way `UNINTERRUPTIBLE` does, build the JS-level restore
+          // wrapper, and synchronously invoke the body with it to get
+          // the actual op to step into.
+          const outerWasZero = this.mask === 0;
+          this.mask++;
+          this.stack.push(FRAME_UNMASK);
+          const restoreFn = outerWasZero
+            ? function (inner) {
+                return new Op(RESTORE_INTERRUPTIBLE, -1, inner, null);
+              }
+            : function (inner) {
+                return inner;
+              };
+          this.current = op._1(restoreFn);
+          continue;
+        }
+        case RESTORE_INTERRUPTIBLE:
+          // Drop the mask back to its pre-`uninterruptibleMask` value
+          // for the duration of the inner op, then K_REMASK puts it
+          // back on the way out. Like UNINTERRUPTIBLE in shape, just
+          // inverted in direction.
+          this.mask--;
+          this.stack.push(FRAME_REMASK);
           this.current = op._1;
           continue;
         case RACE: {
@@ -1243,7 +1480,7 @@ Fiber.prototype._stepInner = function () {
               const m = r.mode;
               if (m === M_OK) {
                 settled = true;
-                loser.interrupt();
+                loser.interrupt(self.id);
                 self._resumeAsync(r);
                 return;
               }
@@ -1252,7 +1489,12 @@ Fiber.prototype._stepInner = function () {
                 if (bothCompleted === 2) {
                   settled = true;
                   if (firstFailure === null) {
-                    self._resumeAsync(RESULT_INTERRUPT);
+                    // Both branches interrupted with no observed
+                    // failure: surface as a single interrupt against
+                    // the race-owning fiber. Pick the loser's
+                    // attributed id (`r.value`) so the propagation
+                    // chain reflects who actually interrupted last.
+                    self._resumeAsync(makeResult(M_INTERRUPT, r.value));
                   } else {
                     self._resumeAsync(makeResult(M_CAUSE, firstFailure));
                   }
@@ -1278,8 +1520,91 @@ Fiber.prototype._stepInner = function () {
           scheduleFiber(rightFiber);
           this.status = F_SUSPENDED;
           this.canceller = function () {
-            leftFiber.interrupt();
-            rightFiber.interrupt();
+            leftFiber.interrupt(self.id);
+            rightFiber.interrupt(self.id);
+          };
+          return;
+        }
+        case RACE_ALL: {
+          // Flat fan-out race: spawn one fiber per op, settle on the
+          // first success, interrupt the rest. Failures (typed fail,
+          // defect, or composed cause) are accumulated until either a
+          // sibling succeeds (in which case the failures are discarded)
+          // or every sibling has settled (in which case the accumulated
+          // cause is reported). If every branch is interrupted with no
+          // observed failure, the race itself is interrupted, attributed
+          // to the last branch's interrupter.
+          const opsArr = op._1;
+          const total = opsArr.length;
+          if (total === 0) {
+            this.value = new Error("rio-fiber: raceAll on an empty array");
+            this.mode = M_DIE;
+            break;
+          }
+          if (total === 1) {
+            this.current = opsArr[0];
+            continue;
+          }
+          const selfR = this;
+          this.frefsOwn = false;
+          const childFibers = new Array(total);
+          let settledR = false;
+          let failureAcc = null;
+          let remaining = total;
+          let lastInterrupterId = EXTERNAL_INTERRUPTER_ID;
+          const interruptLosers = function (winnerIdx) {
+            for (let j = 0; j < total; j++) {
+              if (j !== winnerIdx) childFibers[j].interrupt(selfR.id);
+            }
+          };
+          for (let i = 0; i < total; i++) {
+            const idx = i;
+            const child = new Fiber(opsArr[idx], this.env, this.frefs);
+            childFibers[idx] = child;
+            child.observe(function (r) {
+              if (settledR) return;
+              const m = r.mode;
+              if (m === M_OK) {
+                settledR = true;
+                interruptLosers(idx);
+                selfR._resumeAsync(r);
+                return;
+              }
+              if (m === M_INTERRUPT) {
+                lastInterrupterId = r.value;
+                remaining--;
+                if (remaining === 0) {
+                  settledR = true;
+                  if (failureAcc === null) {
+                    selfR._resumeAsync(
+                      makeResult(M_INTERRUPT, lastInterrupterId)
+                    );
+                  } else {
+                    selfR._resumeAsync(makeResult(M_CAUSE, failureAcc));
+                  }
+                }
+                return;
+              }
+              // typed failure, defect, or composed cause: hold it
+              // while other branches still race, in case one succeeds.
+              const thisCause = resultToCause(r);
+              failureAcc =
+                failureAcc === null
+                  ? thisCause
+                  : causeBoth(failureAcc, thisCause);
+              remaining--;
+              if (remaining === 0) {
+                settledR = true;
+                selfR._resumeAsync(makeResult(M_CAUSE, failureAcc));
+              }
+            });
+          }
+          for (let i = 0; i < total; i++) scheduleFiber(childFibers[i]);
+          this.status = F_SUSPENDED;
+          this.canceller = function () {
+            for (let i = 0; i < total; i++) {
+              childFibers[i].interrupt(selfR.id);
+            }
           };
           return;
         }
@@ -1338,7 +1663,7 @@ Fiber.prototype._stepInner = function () {
               }
               settled = true;
               for (let j = 0; j < n; j++) {
-                if (j !== idx) fibers[j].interrupt();
+                if (j !== idx) fibers[j].interrupt(self.id);
               }
               self._resumeAsync(r);
             });
@@ -1349,7 +1674,7 @@ Fiber.prototype._stepInner = function () {
           this.status = F_SUSPENDED;
           this.canceller = function () {
             for (let i = 0; i < n; i++) {
-              fibers[i].interrupt();
+              fibers[i].interrupt(self.id);
             }
           };
           return;
@@ -1883,7 +2208,7 @@ Fiber.prototype._stepInner = function () {
       // can fold leaf ops inline without re-entering the outer dispatch
       // switch.
       if (--ticks < 0) {
-        scheduleFiber(this);
+        scheduleFiberDeferred(this);
         return;
       }
       if (
@@ -1894,7 +2219,7 @@ Fiber.prototype._stepInner = function () {
         this.mode !== M_CAUSE
       ) {
         this.mode = M_INTERRUPT;
-        this.value = null;
+        this.value = this.interruptedBy;
       }
       if (this.stack.length === 0) {
         this._completeFromMode();
@@ -2395,6 +2720,9 @@ Fiber.prototype._stepInner = function () {
         case K_UNMASK:
           this.mask--;
           break;
+        case K_REMASK:
+          this.mask++;
+          break;
         case K_FOR_EACH: {
           if (this.mode === M_OK) {
             const results = frame.results;
@@ -2467,11 +2795,10 @@ Fiber.prototype._stepInner = function () {
           // captured outcome is the final word; if the caller wants
           // to re-propagate the interrupt they can do it from the
           // returned tagged result.
-          this.value = this.mode === M_INTERRUPT
-            ? RESULT_INTERRUPT
-            : makeResult(this.mode, this.value);
+          this.value = makeResult(this.mode, this.value);
           this.mode = M_OK;
           this.interrupted = false;
+          this.interruptedBy = EXTERNAL_INTERRUPTER_ID;
           break;
         }
         case K_MAP: {
@@ -3035,6 +3362,32 @@ function scheduleFiber(f) {
   }
 }
 
+// Macrotask-yielding reschedule. Used by the tick-exhaustion paths so
+// an unbounded fiber (e.g. `forever`) does not hog the microtask drain
+// forever and starve pending timers. Microtask-only rescheduling keeps
+// re-entering the same _runDrain, so an N-iteration tight loop never
+// gives Node's event loop the chance to fire a `sleep` timer. Routing
+// tick-exhausted reschedules through `setTimeout`/`setImmediate`
+// guarantees one macrotask boundary per exhaustion, which is where
+// timer callbacks land.
+const _queueMacrotask =
+  typeof setImmediate !== "undefined"
+    ? function (cb) { setImmediate(cb); }
+    : function (cb) { setTimeout(cb, 0); };
+
+function _runDeferred(f) {
+  if (!f.queued) return;
+  f.queued = false;
+  _pendingCount--;
+  f.step();
+}
+
+function scheduleFiberDeferred(f) {
+  f.queued = true;
+  _pendingCount++;
+  _queueMacrotask(function () { _runDeferred(f); });
+}
+
 function _flushPending() {
   // Called at the outermost step() exit. If anything is still queued
   // (i.e. wasn't picked up by an inline JOIN / JOIN_ALL drain), drain
@@ -3106,7 +3459,32 @@ export const _fiberObserve = function (f) {
 
 export const _fiberInterrupt = function (f) {
   return function () {
-    f.interrupt();
+    f.interrupt(EXTERNAL_INTERRUPTER_ID);
+  };
+};
+
+export const _fiberId = function (f) {
+  return f.id;
+};
+
+export const _fiberLabel = function (f) {
+  return function () {
+    return f.label;
+  };
+};
+
+export const _fiberSetLabel = function (f) {
+  return function (label) {
+    return function () {
+      f.label = label;
+    };
+  };
+};
+
+// 0 = Running, 1 = Suspended, 2 = Done.
+export const _fiberStatusCode = function (f) {
+  return function () {
+    return f.status;
   };
 };
 
@@ -3276,6 +3654,10 @@ export const _resultDie = function (r) {
   return r.value;
 };
 
+export const _resultInterruptedBy = function (r) {
+  return r.value;
+};
+
 export const _resultCause = function (r) {
   return r.value;
 };
@@ -3306,13 +3688,14 @@ export const _causeRight = function (c) {
 export const _causeEmpty = CAUSE_EMPTY;
 export const _causeFail = function (v) { return causeFail(v); };
 export const _causeDie = function (e) { return causeDie(e); };
-export const _causeInterrupt = CAUSE_INTERRUPT;
+export const _causeInterrupt = function (byId) { return causeInterrupt(byId); };
 export const _causeThen = function (a) {
   return function (b) { return causeThen(a, b); };
 };
 export const _causeBoth = function (a) {
   return function (b) { return causeBoth(a, b); };
 };
+export const _causeInterruptValue = function (c) { return c.fiberId; };
 
 export const opFailCause = function (c) {
   return new Op(FAIL_CAUSE, -1, c, null);

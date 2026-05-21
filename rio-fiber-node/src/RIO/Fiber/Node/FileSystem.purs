@@ -416,11 +416,11 @@ writeTextFile
 writeTextFile enc p s = withFs \fs -> fs.writeTextFile enc p s
 
 -- | A production-ready implementation backed by `Node.FS.Aff`.
--- | Provide it via `provide` / `provideAll` or wrap it in a
+-- | Provide it via `provide` / `fromValue` or wrap it in a
 -- | `Layer`.
 -- |
 -- | ```purescript
--- | main = launchAff_ (runRIO (provideAll { fs: liveFileSystem } program))
+-- | main = runAffThrow (provide (fromValue { fs: liveFileSystem }) program)
 -- | ```
 liveFileSystem :: FileSystem
 liveFileSystem =

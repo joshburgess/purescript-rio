@@ -17,6 +17,7 @@ import RIO.Aff.Cause
   , catchAllCause
   , failCause
   , foldCauseRIO
+  , ignore
   , tapErrorCause
   )
 import RIO.Aff.Core (RIO, die, fail, runRIO, runRIO', sandbox)
@@ -189,3 +190,42 @@ spec = describe "RIO.Aff.Cause (foldCauseRIO / catchAllCause / failCause / tapEr
       result `shouldEqual` (Right 3 :: Either _ _)
       fired <- liftEffect (Ref.read probe)
       fired `shouldEqual` 0
+
+  describe "ignore" do
+    it "swallows a typed failure and returns unit" do
+      probe <- liftEffect (Ref.new 0)
+      let
+        program :: RIO () () Unit
+        program = ignore do
+          liftEffect (Ref.modify_ (_ + 1) probe)
+          (fail (Proxy :: Proxy "boom") 1 :: RIO () Errs Int)
+      result <- runRIO program
+      result `shouldEqual` (Right unit :: Either _ _)
+      seen <- liftEffect (Ref.read probe)
+      seen `shouldEqual` 1
+
+    it "swallows a defect and returns unit" do
+      let
+        program :: RIO () () Unit
+        program = ignore (die (Exception.error "kapow") :: RIO () () Int)
+      result <- runRIO program
+      result `shouldEqual` (Right unit :: Either _ _)
+
+    it "discards a successful result" do
+      let
+        program :: RIO () () Unit
+        program = ignore (pure 42 :: RIO () Errs Int)
+      result <- runRIO program
+      result `shouldEqual` (Right unit :: Either _ _)
+
+    it "discharges the typed-error row" do
+      -- The outer program has no `boom` in its row, but `ignore`
+      -- absorbs the inner action's typed failure.
+      let
+        inner :: RIO () Errs Int
+        inner = fail (Proxy :: Proxy "boom") 99
+
+        program :: RIO () () Unit
+        program = ignore inner
+      result <- runRIO program
+      result `shouldEqual` (Right unit :: Either _ _)

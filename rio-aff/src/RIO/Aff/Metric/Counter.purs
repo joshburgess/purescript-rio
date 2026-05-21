@@ -27,6 +27,7 @@ module RIO.Aff.Metric.Counter
   , increment
   , incrementBy
   , value
+  , withCounter
   ) where
 
 import Prelude
@@ -35,6 +36,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
+import RIO.Aff.Cause (ensuringWith)
 import RIO.Aff.Core (RIO)
 
 newtype Counter = Counter (Ref Number)
@@ -57,3 +59,16 @@ incrementBy delta (Counter ref) =
 -- | Read the counter's current total.
 value :: forall r e. Counter -> RIO r e Number
 value (Counter ref) = liftEffect (Ref.read ref)
+
+-- | Increment `counter` once per completion of `action` regardless of
+-- | outcome (success, typed failure, or defect). The action's value
+-- | and failure semantics pass through unchanged.
+-- |
+-- | Useful for tagging an effect with a "how many times did this run"
+-- | measure without weaving counter increments through every call
+-- | site. The increment runs inside the uninterruptible finalizer
+-- | that `ensuringWith` installs, so a late cancellation cannot skip
+-- | it.
+withCounter :: forall r e a. Counter -> RIO r e a -> RIO r e a
+withCounter counter action =
+  ensuringWith action (\_ -> increment counter)

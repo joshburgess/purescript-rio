@@ -10,14 +10,21 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 
 import RIO.Aff.Core (RIO, runRIO)
+import Data.Maybe (Maybe(..))
+
 import RIO.Aff.Stream
   ( Stream
+  , changes
   , chunk
   , distinct
+  , distinctBy
   , dropWhile
   , flatten
   , fromArray
+  , interleave
   , intersperse
+  , paginate
+  , paginateM
   , runCollect
   , scan
   , scanM
@@ -233,3 +240,101 @@ spec = describe "RIO.Aff.Stream combinators" do
           (distinct (fromArray [] :: Stream () () Int))
       result <- runRIO program
       result `shouldEqual` (Right [] :: Either _ (Array Int))
+
+  describe "distinctBy" do
+    it "collapses consecutive elements with equal keys, keeping the first" do
+      let
+        program :: RIO () () (Array (Tuple Int String))
+        program = runCollect
+          ( distinctBy (\(Tuple k _) -> k)
+              ( fromArray
+                  [ Tuple 1 "a", Tuple 1 "b", Tuple 2 "c", Tuple 2 "d"
+                  , Tuple 3 "e", Tuple 1 "f"
+                  ]
+              )
+          )
+      result <- runRIO program
+      result `shouldEqual`
+        ( Right [ Tuple 1 "a", Tuple 2 "c", Tuple 3 "e", Tuple 1 "f" ]
+            :: Either _ (Array (Tuple Int String))
+        )
+
+    it "distinctBy on an empty stream is empty" do
+      let
+        program :: RIO () () (Array Int)
+        program = runCollect
+          (distinctBy identity (fromArray [] :: Stream () () Int))
+      result <- runRIO program
+      result `shouldEqual` (Right [] :: Either _ (Array Int))
+
+  describe "changes" do
+    it "is an adjacency-only deduplicator, like distinct" do
+      let
+        program :: RIO () () (Array Int)
+        program = runCollect
+          (changes (fromArray [ 1, 1, 2, 2, 1, 1 ]))
+      result <- runRIO program
+      result `shouldEqual` (Right [ 1, 2, 1 ] :: Either _ (Array Int))
+
+  describe "paginate / paginateM" do
+    it "paginate emits each page and stops when the next cursor is Nothing" do
+      let
+        -- Three pages, each carrying one value, then no more.
+        step :: Int -> Tuple Int (Maybe Int)
+        step n =
+          if n >= 3 then Tuple n Nothing
+          else Tuple n (Just (n + 1))
+
+        program :: RIO () () (Array Int)
+        program = runCollect (paginate 1 step)
+      result <- runRIO program
+      result `shouldEqual` (Right [ 1, 2, 3 ] :: Either _ (Array Int))
+
+    it "paginateM threads RIO through every page request" do
+      counter <- liftEffect (Ref.new 0)
+      let
+        step :: Int -> RIO () () (Tuple Int (Maybe Int))
+        step n = do
+          _ <- liftEffect (Ref.modify (_ + 1) counter)
+          pure
+            ( if n >= 3 then Tuple n Nothing
+              else Tuple n (Just (n + 1))
+            )
+
+        program :: RIO () () (Array Int)
+        program = runCollect (paginateM 1 step)
+      result <- runRIO program
+      result `shouldEqual` (Right [ 1, 2, 3 ] :: Either _ (Array Int))
+      calls <- liftEffect (Ref.read counter)
+      calls `shouldEqual` 3
+
+  describe "interleave" do
+    it "alternates left, right, left, right" do
+      let
+        program :: RIO () () (Array Int)
+        program = runCollect
+          (interleave (fromArray [ 1, 2, 3 ]) (fromArray [ 10, 20, 30 ]))
+      result <- runRIO program
+      result `shouldEqual`
+        (Right [ 1, 10, 2, 20, 3, 30 ] :: Either _ (Array Int))
+
+    it "forwards the tail of the longer side once the shorter ends" do
+      let
+        program :: RIO () () (Array Int)
+        program = runCollect
+          (interleave (fromArray [ 1, 2 ]) (fromArray [ 10, 20, 30, 40 ]))
+      result <- runRIO program
+      -- After 1, 10, 2, 20 the left is exhausted; the rest of the
+      -- right is then forwarded in order.
+      result `shouldEqual`
+        (Right [ 1, 10, 2, 20, 30, 40 ] :: Either _ (Array Int))
+
+    it "interleave with an empty left forwards the right unchanged" do
+      let
+        program :: RIO () () (Array Int)
+        program = runCollect
+          ( interleave (fromArray [] :: Stream () () Int)
+              (fromArray [ 1, 2, 3 ])
+          )
+      result <- runRIO program
+      result `shouldEqual` (Right [ 1, 2, 3 ] :: Either _ (Array Int))

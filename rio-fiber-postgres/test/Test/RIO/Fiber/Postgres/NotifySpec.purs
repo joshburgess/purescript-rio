@@ -26,7 +26,7 @@ import Test.Spec.Assertions (fail, shouldEqual)
 import Type.Proxy (Proxy(..))
 
 import RIO.Fiber.Aff (fromAff, runAffEither)
-import RIO.Fiber.Core (catchAll, fail) as RIO
+import RIO.Fiber.Core (catchAll, causeOf, fail, fork, interrupt, join, sleep) as RIO
 import RIO.Fiber.Core (RIO)
 import RIO.Fiber.Layer (provideScoped)
 import RIO.Fiber.Postgres (PgError, Postgres, pgErrorMessage, withTransaction)
@@ -44,8 +44,8 @@ type DbErr = (db :: PgError)
 type AppRow = (postgres :: Postgres, notify :: Notify)
 type ErrPlus = (db :: PgError, forced :: Unit)
 
--- | Local `catchTag`: variant-row equivalent of rio-aff's
--- | `RIO.catchTag`.
+-- | Local `catchTag`: catches one tag in a variant-row error and
+-- | lets the rest of the row re-raise on the smaller row.
 catchTag
   :: forall sym x r e e' a
    . IsSymbol sym
@@ -205,6 +205,36 @@ spec conn = do
             catchTag forcedTag (\_ -> pure unit) attempt
             fromAff (delay (Milliseconds 300.0))
             fromAff (liftEffect (Ref.read ref))
+      result <- runApp conn program
+      case result of
+        Left v -> fail
+          ( "program failed: "
+              <> (Variant.case_ # Variant.on dbTag pgErrorMessage) v
+          )
+        Right got -> got `shouldEqual` Nothing
+
+    it "withListen: interrupting the body unsubscribes the handler" do
+      ref <- liftEffect (Ref.new Nothing)
+      let
+        channel = "rio_test_chan_cancel"
+        payload = "should-not-arrive"
+
+        program :: RIO AppRow DbErr (Maybe String)
+        program = do
+          fib <- RIO.fork
+            ( withListen dbTag channel
+                (\n -> Ref.write n.payload ref)
+                (RIO.sleep (Milliseconds 1000.0))
+            )
+          -- give the listener time to register, then kill it.
+          RIO.sleep (Milliseconds 200.0)
+          RIO.interrupt fib
+          _ <- RIO.causeOf (RIO.join fib)
+          -- after interruption the UNLISTEN finalizer should have
+          -- run; a notify on the channel must not call the handler.
+          notify dbTag channel payload
+          fromAff (delay (Milliseconds 300.0))
+          fromAff (liftEffect (Ref.read ref))
       result <- runApp conn program
       case result of
         Left v -> fail

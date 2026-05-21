@@ -17,6 +17,10 @@ module RIO.Fiber.Random
   , nextNumber
   , nextInt
   , nextBoolean
+  , shuffle
+  , choice
+  , uuid
+  , bytes
   , withRandom
   , getRandom
   , setRandom
@@ -24,12 +28,19 @@ module RIO.Fiber.Random
 
 import Prelude
 
+import Data.Array (index, length)
+import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Random (random, randomInt, randomBool) as R
 import Effect.Unsafe (unsafePerformEffect)
-import RIO.Fiber.Core (RIO, ensuring, liftEffect)
+import RIO.Fiber.Core (RIO, liftEffect)
 import RIO.Fiber.Internal (FiberRef)
-import RIO.Fiber.Ref (getFiberRef, newFiberRef, setFiberRef)
+import RIO.Fiber.Ref (getFiberRef, locally, newFiberRef, setFiberRef)
+
+foreign import _uuid :: Effect String
+foreign import _bytes :: Int -> Effect (Array Int)
+foreign import _shuffleWith
+  :: forall a. (Int -> Int -> Effect Int) -> Array a -> Effect (Array a)
 
 -- | A randomness implementation. Tests can substitute a
 -- | deterministic one (e.g. backed by a seeded PRNG or a canned
@@ -69,6 +80,40 @@ nextBoolean = do
   Random rng <- getFiberRef randomRef
   liftEffect rng.boolean
 
+-- | Return a uniformly-random permutation of the input array using
+-- | Fisher-Yates with `nextInt`. Defers to the active `Random`
+-- | service, so a `withRandom` override reseeds shuffles too.
+shuffle :: forall r e a. Array a -> RIO r e (Array a)
+shuffle xs = do
+  Random rng <- getRandom
+  if length xs <= 1 then pure xs
+  else liftEffect (_shuffleWith rng.int xs)
+
+-- | Pick a uniformly-random element from the array. Returns `Nothing`
+-- | when the array is empty; otherwise samples a single index via the
+-- | active `Random` service.
+choice :: forall r e a. Array a -> RIO r e (Maybe a)
+choice xs = do
+  let n = length xs
+  if n == 0 then pure Nothing
+  else do
+    i <- nextInt 0 (n - 1)
+    pure (index xs i)
+
+-- | A random v4 UUID. Uses the platform's CSPRNG (Web Crypto on
+-- | modern Node and browsers). The returned string is the canonical
+-- | hyphenated form, e.g. `f47ac10b-58cc-4372-a567-0e02b2c3d479`.
+uuid :: forall r e. RIO r e String
+uuid = liftEffect _uuid
+
+-- | A random byte array of length `n`, drawn from the platform CSPRNG.
+-- | Each element is in `[0, 255]`. Suitable for nonces, salts, and
+-- | session tokens. Negative or zero `n` yields an empty array.
+bytes :: forall r e. Int -> RIO r e (Array Int)
+bytes n
+  | n <= 0 = pure []
+  | otherwise = liftEffect (_bytes n)
+
 -- | Read the active randomness implementation.
 getRandom :: forall r e. RIO r e Random
 getRandom = getFiberRef randomRef
@@ -81,7 +126,4 @@ setRandom = setFiberRef randomRef
 -- | Run `body` with `rng` as the active randomness service,
 -- | restoring the previous implementation on exit.
 withRandom :: forall r e a. Random -> RIO r e a -> RIO r e a
-withRandom rng body = do
-  prev <- getRandom
-  setRandom rng
-  ensuring (setRandom prev) body
+withRandom rng body = locally randomRef rng body

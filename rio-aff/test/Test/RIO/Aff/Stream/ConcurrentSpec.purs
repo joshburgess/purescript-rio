@@ -18,7 +18,7 @@ import RIO.Aff.Concurrency (fork, join, zipPar)
 import RIO.Aff.Core (RIO, fail, runRIO, scoped)
 import RIO.Aff.Resource (Scope)
 import RIO.Aff.Stream (Stream, fromArray, mapM, runCollect)
-import RIO.Aff.Stream.Concurrent (broadcastDynamic)
+import RIO.Aff.Stream.Concurrent (broadcastDynamic, share)
 
 spec :: Spec Unit
 spec = describe "RIO.Aff.Stream.Concurrent" do
@@ -127,3 +127,28 @@ spec = describe "RIO.Aff.Stream.Concurrent" do
           (Array.last ys) `shouldEqual` Just 4
         Left _ ->
           Spec.fail "expected dynamic broadcast to succeed"
+
+  describe "share" do
+    it "behaves as an alias of broadcastDynamic for the common case" do
+      let
+        program :: RIO () () (Tuple (Array Int) (Array Int))
+        program = scoped do
+          let
+            source :: Stream (scope :: Scope | ()) () Int
+            source = mapM
+              ( \n -> do
+                  liftAff (delay (Milliseconds 5.0))
+                  pure n
+              )
+              (fromArray [ 10, 20, 30 ])
+          subscribe <- share source
+          s1 <- subscribe
+          s2 <- subscribe
+          zipPar (runCollect s1) (runCollect s2)
+      r <- runRIO program
+      case r of
+        Right (Tuple xs ys) -> do
+          xs `shouldEqual` [ 10, 20, 30 ]
+          ys `shouldEqual` [ 10, 20, 30 ]
+        Left _ ->
+          Spec.fail "expected share to deliver every element to both subscribers"

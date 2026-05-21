@@ -13,6 +13,8 @@ module RIO.Aff.STM.TSemaphore
   , newTSemaphore
   , releaseN
   , releaseTSemaphore
+  , tryAcquireN
+  , tryAcquireTSemaphore
   , withTSemaphore
   ) where
 
@@ -56,6 +58,25 @@ releaseN n (TSemaphore ref) = modifyTRef ref (_ + n)
 -- | Current number of available permits.
 availableTSemaphore :: forall e. TSemaphore -> STM e Int
 availableTSemaphore (TSemaphore ref) = readTRef ref
+
+-- | Non-blocking acquire of one permit. Returns `true` and deducts
+-- | a permit when one is available; returns `false` (with no
+-- | change) when the semaphore is exhausted. Pair this with `check`
+-- | or `orElse` to compose with other transactional waits.
+tryAcquireTSemaphore :: forall e. TSemaphore -> STM e Boolean
+tryAcquireTSemaphore = tryAcquireN 1
+
+-- | Non-blocking acquire of `n` permits at once. Returns `true`
+-- | only when at least `n` are available; otherwise leaves the
+-- | semaphore unchanged and returns `false`.
+tryAcquireN :: forall e. Int -> TSemaphore -> STM e Boolean
+tryAcquireN n (TSemaphore ref) = do
+  available <- readTRef ref
+  if available >= n then do
+    writeTRef ref (available - n)
+    pure true
+  else
+    pure false
 
 -- | Acquire one permit, run `action`, release the permit on every
 -- | termination path. Equivalent to `acquireRelease` over a single

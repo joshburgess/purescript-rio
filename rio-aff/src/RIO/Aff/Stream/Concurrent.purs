@@ -37,6 +37,7 @@
 -- | ```
 module RIO.Aff.Stream.Concurrent
   ( broadcastDynamic
+  , share
   ) where
 
 import Prelude
@@ -111,3 +112,19 @@ broadcastDynamic source = do
         case err of
           Just v -> rethrow v
           Nothing -> pure Done
+
+-- | Alias for `broadcastDynamic`. Provided for symmetry with
+-- | rio-fiber's `share`: the semantics are the same (one forked
+-- | publisher, on-demand subscribers, no replay of past values).
+-- |
+-- | rio-fiber's `share` takes an `Int` capacity for each
+-- | subscriber's bounded buffer; this rio-aff port uses
+-- | `RIO.Aff.Hub`, which gives every subscriber an unbounded buffer,
+-- | so there is no capacity to pass. A slow subscriber falls
+-- | behind in memory rather than blocking the producer.
+share
+  :: forall r e e' a
+   . Stream (scope :: Scope | r) e a
+  -> RIO (scope :: Scope | r) e'
+       (RIO (scope :: Scope | r) e' (Stream (scope :: Scope | r) e a))
+share = broadcastDynamic

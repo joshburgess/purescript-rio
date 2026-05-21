@@ -30,18 +30,28 @@
 module RIO.Aff.Sink
   ( Sink(..)
   , Step(..)
+  , mkSink
   , unSink
   , runSink
   , aggregate
+  , aggregateWithin
   , transduce
+  , peel
   , drain
+  , dropN
+  , dropWhile
   , head
   , last
   , count
   , collect
+  , findM
   , foldL
   , foldM
+  , foldUntil
+  , foldMUntil
+  , mkString
   , take
+  , takeN
   , find
   , any
   , all
@@ -65,8 +75,15 @@ import Prelude
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
+import Effect.Aff (Milliseconds(..))
+import Effect.Class (liftEffect)
 
+import RIO.Aff.Clock (Clock)
+import RIO.Aff.Clock as Clock
+import RIO.Aff.Concurrency (fork, race)
 import RIO.Aff.Core (RIO)
+import RIO.Aff.Queue (Queue)
+import RIO.Aff.Queue as Queue
 import RIO.Aff.Stream (Stream)
 import RIO.Aff.Stream as Stream
 
@@ -83,6 +100,16 @@ newtype Sink r e i a = Sink (RIO r e (Step r e i a))
 
 unSink :: forall r e i a. Sink r e i a -> RIO r e (Step r e i a)
 unSink (Sink s) = s
+
+-- | Build a `Sink` from its underlying step action. A friendlier
+-- | alias for the `Sink` constructor; useful when the call site
+-- | doesn't want to take a dependency on the newtype wrapper.
+-- |
+-- | The action runs once per `runSink` call, so any `Ref`s
+-- | allocated inside it stay local to that run rather than
+-- | leaking between runs.
+mkSink :: forall r e i a. RIO r e (Step r e i a) -> Sink r e i a
+mkSink = Sink
 
 -- | Run a sink against a stream. Pulls from `stream` and feeds
 -- | each yielded value into the sink's step. Stops on stream
@@ -103,6 +130,34 @@ runSink sink stream = do
       case sstep of
         Stream.Done -> finish
         Stream.Yield i rest -> runSink (k i) rest
+
+-- | Run a sink over a prefix of the stream and hand back the
+-- | sink's result alongside the remaining stream. The sink decides
+-- | the prefix: it stops as soon as it halts, leaving the unread
+-- | tail of the upstream as the continuation. If the stream ends
+-- | before the sink halts, the sink's `finish` synthesises the
+-- | result and the returned stream is empty.
+-- |
+-- | The complement to `runSink`: where `runSink` drains the stream
+-- | for one final answer, `peel` extracts a prefix and lets the
+-- | caller keep going with the rest. Compose with `transduce` for
+-- | "apply this sink over and over, emit each result".
+peel
+  :: forall r e i a
+   . Sink r e i a
+  -> Stream r e i
+  -> RIO r e (Tuple a (Stream r e i))
+peel sink stream = do
+  step <- unSink sink
+  case step of
+    Halt a -> pure (Tuple a stream)
+    Need k finish -> do
+      sstep <- Stream.unStream stream
+      case sstep of
+        Stream.Done -> do
+          a <- finish
+          pure (Tuple a Stream.empty)
+        Stream.Yield i rest -> peel (k i) rest
 
 -- | Repeatedly run `sink` against `stream`, emitting each
 -- | sink result as a stream element. Each cycle starts from a
@@ -177,6 +232,93 @@ transduce
   -> Stream r e b
 transduce = aggregate
 
+-- | Aggregate elements with a `Sink`, but emit at least every
+-- | `duration` even when the sink has not yet halted. The classic
+-- | "batch up to N elements or every T milliseconds, whichever
+-- | comes first" idiom: pair `aggregateWithin duration (take n)`
+-- | and downstream sees batches of at most `n`, with no element
+-- | waiting longer than `duration`.
+-- |
+-- | A forced flush calls the current sink's `finish` to synthesise
+-- | a `b` from whatever has accumulated, then starts a fresh sink
+-- | for the next window. Empty windows (no elements arrived before
+-- | the timeout) do not produce an emission; the window simply
+-- | restarts.
+-- |
+-- | Internally the upstream is pulled into a small bounded queue
+-- | from a forked fiber, and the consumer races each queue `take`
+-- | against a `Clock.sleep` derived from the window start. Tests
+-- | that provide a virtual `Clock` can drive flush timing
+-- | deterministically.
+aggregateWithin
+  :: forall r e a b
+   . Milliseconds
+  -> Sink (clock :: Clock | r) e a b
+  -> Stream (clock :: Clock | r) e a
+  -> Stream (clock :: Clock | r) e b
+aggregateWithin (Milliseconds dur) sinkTpl source = Stream.Stream do
+  q <- liftEffect (Queue.bounded 16 :: _ (Queue (Maybe a)))
+  _ <- fork do
+    Stream.forEach (\a -> Queue.offer q (Just a) *> pure unit) source
+    _ <- Queue.offer q Nothing
+    pure unit
+  case freshWindow q of
+    Stream.Stream pull -> pull
+  where
+  freshWindow :: Queue (Maybe a) -> Stream (clock :: Clock | r) e b
+  freshWindow q = Stream.Stream do
+    sstep <- unSink sinkTpl
+    case sstep of
+      Halt b -> do
+        -- Sink halts before consuming: drop one input to guarantee
+        -- progress and emit. If upstream is already drained, stop.
+        m <- Queue.take q
+        case m of
+          Nothing -> pure (Stream.Yield b Stream.empty)
+          Just Nothing -> pure (Stream.Yield b Stream.empty)
+          Just (Just _) ->
+            pure (Stream.Yield b (freshWindow q))
+      Need k finish -> do
+        Milliseconds now <- Clock.now
+        runWindow q k finish now false
+
+  runWindow
+    :: Queue (Maybe a)
+    -> (a -> Sink (clock :: Clock | r) e a b)
+    -> RIO (clock :: Clock | r) e b
+    -> Number
+    -> Boolean
+    -> RIO (clock :: Clock | r) e
+         (Stream.Step (clock :: Clock | r) e b)
+  runWindow q k finish windowStart hasData = do
+    Milliseconds now <- Clock.now
+    let remaining = max 0.0 (dur - (now - windowStart))
+    outcome <- race
+      (map Just (Queue.take q))
+      (Clock.sleep (Milliseconds remaining) *> pure Nothing)
+    case outcome of
+      Nothing ->
+        if hasData then do
+          b <- finish
+          pure (Stream.Yield b (freshWindow q))
+        else
+          runWindow q k finish now false
+      Just Nothing ->
+        if hasData then do
+          b <- finish
+          pure (Stream.Yield b Stream.empty)
+        else pure Stream.Done
+      Just (Just Nothing) ->
+        if hasData then do
+          b <- finish
+          pure (Stream.Yield b Stream.empty)
+        else pure Stream.Done
+      Just (Just (Just a)) -> do
+        sstep <- unSink (k a)
+        case sstep of
+          Halt b -> pure (Stream.Yield b (freshWindow q))
+          Need k' finish' -> runWindow q k' finish' windowStart true
+
 -- | Drain the stream for its effects; return `unit`.
 drain :: forall r e i. Sink r e i Unit
 drain = Sink (pure (Need (\_ -> drain) (pure unit)))
@@ -224,6 +366,46 @@ foldM seed step = go seed
       acc' <- step acc i
       unSink (go acc')
 
+-- | Fold until the accumulator satisfies `stop`, then halt early
+-- | with that accumulator. `stop` is checked against the new
+-- | accumulator after each input is folded in, so the seed itself
+-- | never triggers early halt. If the stream ends first, the final
+-- | accumulator is returned regardless.
+foldUntil
+  :: forall r e i a
+   . (a -> Boolean)
+  -> (a -> i -> a)
+  -> a
+  -> Sink r e i a
+foldUntil stop step seed = go seed
+  where
+  go acc = Sink (pure (Need next (pure acc)))
+    where
+    next i =
+      let
+        acc' = step acc i
+      in
+        if stop acc' then Sink (pure (Halt acc'))
+        else go acc'
+
+-- | Effectful variant of `foldUntil`. The step runs in `RIO`, so
+-- | it can fail or observe services. Termination still happens
+-- | when `stop` returns `true` for the resulting accumulator.
+foldMUntil
+  :: forall r e i a
+   . (a -> Boolean)
+  -> (a -> i -> RIO r e a)
+  -> a
+  -> Sink r e i a
+foldMUntil stop step seed = go seed
+  where
+  go acc = Sink (pure (Need next (pure acc)))
+    where
+    next i = Sink do
+      acc' <- step acc i
+      if stop acc' then pure (Halt acc')
+      else unSink (go acc')
+
 -- | The first `n` elements as an array. If the stream has fewer
 -- | than `n` elements, returns whatever was collected.
 take :: forall r e i. Int -> Sink r e i (Array i)
@@ -242,11 +424,66 @@ take n
             if remaining' == 0 then Sink (pure (Halt acc'))
             else go acc' remaining'
 
+-- | Alias for `take`, named to mirror `dropN` and to match the
+-- | rio-fiber naming.
+takeN :: forall r e i. Int -> Sink r e i (Array i)
+takeN = take
+
 -- | The first element matching `p`, or `Nothing` if none does.
 find :: forall r e i. (i -> Boolean) -> Sink r e i (Maybe i)
 find p = Sink (pure (Need step (pure Nothing)))
   where
   step i = if p i then Sink (pure (Halt (Just i))) else find p
+
+-- | The first element for which the effectful predicate returns
+-- | `true`, or `Nothing` if the stream ends without a match.
+-- | Mirrors `find` but lets the predicate consult `RIO` services
+-- | or fail with a typed error.
+findM :: forall r e i. (i -> RIO r e Boolean) -> Sink r e i (Maybe i)
+findM p = Sink (pure (Need step (pure Nothing)))
+  where
+  step i = Sink do
+    ok <- p i
+    if ok then pure (Halt (Just i))
+    else unSink (findM p)
+
+-- | Skip the first `n` elements, then collect every remaining
+-- | element into an array. A non-positive `n` collects the whole
+-- | stream (equivalent to `collect`). If the stream has fewer
+-- | than `n` elements the result is the empty array.
+dropN :: forall r e i. Int -> Sink r e i (Array i)
+dropN n
+  | n <= 0 = collect
+  | otherwise = skip n
+      where
+      skip 0 = collect
+      skip k = Sink (pure (Need (\_ -> skip (k - 1)) (pure [])))
+
+-- | Skip leading elements while the predicate holds, then collect
+-- | the rest into an array - including the first element that
+-- | failed the predicate. Returns the empty array if every
+-- | element matched or the stream is empty.
+dropWhile :: forall r e i. (i -> Boolean) -> Sink r e i (Array i)
+dropWhile p = Sink (pure (Need step (pure [])))
+  where
+  step i =
+    if p i then dropWhile p
+    else collectFrom [ i ]
+
+  collectFrom acc =
+    Sink (pure (Need (\j -> collectFrom (Array.snoc acc j)) (pure acc)))
+
+-- | Concatenate every input into one string, joining adjacent
+-- | inputs with `sep`. The separator appears only between
+-- | elements: zero inputs yield `""`, one input yields the input
+-- | unchanged, two inputs yield `a <> sep <> b`, and so on.
+mkString :: forall r e. String -> Sink r e String String
+mkString sep = Sink (pure (Need start (pure "")))
+  where
+  start s = go s
+
+  go acc =
+    Sink (pure (Need (\s -> go (acc <> sep <> s)) (pure acc)))
 
 -- | Whether any element matches `p`. Short-circuits on the first
 -- | match.

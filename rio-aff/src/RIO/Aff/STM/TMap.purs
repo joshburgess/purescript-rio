@@ -15,6 +15,7 @@ module RIO.Aff.STM.TMap
   , keysTMap
   , lookupTMap
   , memberTMap
+  , modifyTMap
   , newTMap
   , sizeTMap
   , updateTMap
@@ -98,3 +99,17 @@ updateTMap
   -> TMap k v
   -> STM e Unit
 updateTMap k f (TMap ref) = modifyTRef ref (Map.update (Just <<< f) k)
+
+-- | Apply a function `f :: v -> Maybe v` to the value at `k`. A
+-- | `Just v'` writes back `v'`; a `Nothing` deletes the key. No-op
+-- | when `k` is absent. This is the "update-or-delete" variant of
+-- | `updateTMap`; use it when an update can decide to remove the
+-- | entry (e.g. decrementing a refcount that has hit zero).
+modifyTMap
+  :: forall e k v
+   . Ord k
+  => k
+  -> (v -> Maybe v)
+  -> TMap k v
+  -> STM e Unit
+modifyTMap k f (TMap ref) = modifyTRef ref (Map.update f k)

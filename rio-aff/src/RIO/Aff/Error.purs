@@ -16,6 +16,9 @@ module RIO.Aff.Error
   , die
   , either
   , fail
+  , filterOrDie
+  , filterOrFail
+  , firstSuccessOf
   , foldRIO
   , fromEither
   , fromMaybe
@@ -39,6 +42,7 @@ module RIO.Aff.Error
 
 import Prelude
 
+import Data.Array (foldl, uncons) as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Symbol (class IsSymbol, reflectSymbol)
@@ -697,3 +701,72 @@ mapBoth
   -> RIO r e' b
 mapBoth onError onSuccess inner =
   mapError onError (map onSuccess inner)
+
+-- | Run `action`; if its success value fails `predicate`, raise the
+-- | typed failure built by `onFalse`. Successes that satisfy the
+-- | predicate are forwarded unchanged.
+-- |
+-- | The handler receives the success value (so the failure can
+-- | carry context) and returns a `Variant e` on the same row, which
+-- | is re-raised via `rethrow`. Typed failures and defects from
+-- | inside `action` are untouched: the guard only fires on the
+-- | success branch.
+-- |
+-- | Mirrors ZIO `ZIO.filterOrFail` / Effect-TS
+-- | `Effect.filterOrFail`.
+-- |
+-- | ```purescript
+-- | -- accept only positive amounts; everything else becomes a
+-- | -- typed "invalidAmount" failure
+-- | validAmount = filterOrFail (_ > 0)
+-- |   (\n -> Variant.inj (Proxy :: _ "invalidAmount") n)
+-- |   readAmount
+-- | ```
+filterOrFail
+  :: forall r e a
+   . (a -> Boolean)
+  -> (a -> Variant e)
+  -> RIO r e a
+  -> RIO r e a
+filterOrFail predicate onFalse action = do
+  a <- action
+  if predicate a then pure a else rethrow (onFalse a)
+
+-- | Like `filterOrFail`, but a predicate violation becomes a defect
+-- | (via `die`). The error row is preserved because the failure
+-- | surfaces through the `Aff` exception channel rather than as a
+-- | typed error.
+-- |
+-- | Use this when a violation indicates a programmer bug rather
+-- | than a recoverable condition.
+filterOrDie
+  :: forall r e a
+   . (a -> Boolean)
+  -> (a -> Error)
+  -> RIO r e a
+  -> RIO r e a
+filterOrDie predicate onFalse action = do
+  a <- action
+  if predicate a then pure a else die (onFalse a)
+
+-- | Sequential fallback. Tries each action in order; the first to
+-- | succeed wins and the rest are not started. If every action
+-- | fails with a typed error, the last failure propagates. An
+-- | empty array raises a defect: a chain with nothing to try has
+-- | no defined fallback.
+-- |
+-- | This is the sequential analogue of `raceAll`: same "first
+-- | success wins" semantics, but actions are tried one at a time
+-- | rather than concurrently. Useful when each branch itself does
+-- | work (DNS lookups, retry strategies with different backoffs)
+-- | and you'd rather pay for the cheaper branches first.
+-- |
+-- | ```purescript
+-- | -- try the cache, then a local replica, then the origin
+-- | record <- firstSuccessOf [ fromCache key, fromReplica key, fromOrigin key ]
+-- | ```
+firstSuccessOf :: forall r e a. Array (RIO r e a) -> RIO r e a
+firstSuccessOf actions = case Array.uncons actions of
+  Nothing -> die (Exception.error "RIO.firstSuccessOf: empty array")
+  Just { head, tail } ->
+    Array.foldl (\acc next -> catchAll (\_ -> next) acc) head tail

@@ -44,13 +44,27 @@ type Sleeper =
   , resume :: Either Error Unit -> Effect Unit
   }
 
--- | A `Clock` paired with the controller used to advance its
+-- | A `Clock` paired with the controllers used to drive its
 -- | virtual time. A test typically holds the whole record, passes
--- | `clock` to the program under test, and calls `advance` from
--- | the test thread.
+-- | `clock` to the program under test, and calls `advance` (or
+-- | `setEpoch`) from the test thread.
+-- |
+-- | * `advance` shifts virtual time forward by a delta.
+-- | * `setEpoch` jumps virtual time to an absolute value (going
+-- |   backwards is allowed but fires no sleepers).
+-- | * `readEpoch` returns the current absolute virtual time;
+-- |   semantically equivalent to running `clock.now` but exposed
+-- |   on the test side so the controller can read time without
+-- |   touching the program's `RIO` channel.
+-- |
+-- | Both `advance` and `setEpoch` fire any pending sleepers whose
+-- | deadline is at or before the new virtual time, in deadline
+-- | order.
 type TestClock =
   { clock :: Clock
   , advance :: Milliseconds -> Aff Unit
+  , readEpoch :: Aff Milliseconds
+  , setEpoch :: Milliseconds -> Aff Unit
   }
 
 -- | Allocate a fresh test clock starting at virtual time 0.
@@ -92,9 +106,8 @@ newTestClock = liftEffect do
               (Ref.modify_ (Array.filter (\s -> s.tag /= tag)) sleepersRef)
           )
 
-    advance :: Milliseconds -> Aff Unit
-    advance (Milliseconds d) = liftEffect do
-      Ref.modify_ (_ + d) currentRef
+    firePending :: Effect Unit
+    firePending = do
       current <- Ref.read currentRef
       pending <- Ref.read sleepersRef
       let
@@ -103,7 +116,24 @@ newTestClock = liftEffect do
       Ref.write no sleepersRef
       for_ ordered \s -> s.resume (Right unit)
 
+    advance :: Milliseconds -> Aff Unit
+    advance (Milliseconds d) = liftEffect do
+      Ref.modify_ (_ + d) currentRef
+      firePending
+
+    setEpoch :: Milliseconds -> Aff Unit
+    setEpoch (Milliseconds e) = liftEffect do
+      Ref.write e currentRef
+      firePending
+
+    readEpoch :: Aff Milliseconds
+    readEpoch = liftEffect do
+      n <- Ref.read currentRef
+      pure (Milliseconds n)
+
   pure
     { clock: { now: clockNow, sleep: clockSleep }
     , advance
+    , readEpoch
+    , setEpoch
     }

@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
+import Data.Foldable (traverse_)
 import Data.Traversable (traverse)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
@@ -140,6 +141,110 @@ spec = describe "rio-fiber: Queue" do
     case out of
       Success n -> n `shouldEqual` 42
       other -> fail ("expected Success, got " <> describeOutcome other)
+
+  describe "unbounded" do
+    it "accepts every offer without suspending" do
+      q <- liftEffect (Q.unbounded :: _ (Q.Queue Int))
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = do
+          traverse_ (Q.offer q) [ 1, 2, 3, 4, 5 ]
+          traverse (\_ -> Q.take q) [ 1, 2, 3, 4, 5 ]
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ 1, 2, 3, 4, 5 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "tryOffer always returns true" do
+      q <- liftEffect (Q.unbounded :: _ (Q.Queue Int))
+      let
+        prog :: F.RIO () () (Array Boolean)
+        prog = traverse (Q.tryOffer q) [ 1, 2, 3 ]
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ true, true, true ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+  describe "dropping" do
+    it "drops the offered element when full" do
+      q <- liftEffect (Q.dropping 2 :: _ (Q.Queue Int))
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = do
+          Q.offer q 1
+          Q.offer q 2
+          Q.offer q 3 -- dropped
+          Q.offer q 4 -- dropped
+          a <- Q.take q
+          b <- Q.take q
+          pure [ a, b ]
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ 1, 2 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "tryOffer returns false when dropping" do
+      q <- liftEffect (Q.dropping 1 :: _ (Q.Queue Int))
+      let
+        prog :: F.RIO () () (Array Boolean)
+        prog = do
+          ok1 <- Q.tryOffer q 1
+          ok2 <- Q.tryOffer q 2 -- full, dropped
+          pure [ ok1, ok2 ]
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ true, false ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+  describe "sliding" do
+    it "drops the oldest stored element to make room" do
+      q <- liftEffect (Q.sliding 2 :: _ (Q.Queue Int))
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = do
+          Q.offer q 1
+          Q.offer q 2
+          Q.offer q 3 -- drops 1, keeps [2,3]
+          Q.offer q 4 -- drops 2, keeps [3,4]
+          a <- Q.take q
+          b <- Q.take q
+          pure [ a, b ]
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ 3, 4 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "tryOffer always returns true even when full" do
+      q <- liftEffect (Q.sliding 1 :: _ (Q.Queue Int))
+      let
+        prog :: F.RIO () () (Array Boolean)
+        prog = do
+          ok1 <- Q.tryOffer q 1
+          ok2 <- Q.tryOffer q 2 -- evicts 1
+          pure [ ok1, ok2 ]
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` [ true, true ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "delivers directly to a waiting taker before sliding" do
+      q <- liftEffect (Q.sliding 1 :: _ (Q.Queue Int))
+      log <- liftEffect (Ref.new (Nothing :: Maybe Int))
+      let
+        prog :: F.RIO () () Unit
+        prog = do
+          waiter <- F.fork do
+            n <- Q.take q
+            F.liftEffect (Ref.write (Just n) log)
+          F.sleep (Milliseconds 5.0)
+          Q.offer q 7
+          F.join waiter
+      out <- runAff prog {}
+      case out of
+        Success _ -> do
+          got <- liftEffect (Ref.read log)
+          got `shouldEqual` Just 7
+        other -> fail ("expected Success, got " <> describeOutcome other)
 
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"

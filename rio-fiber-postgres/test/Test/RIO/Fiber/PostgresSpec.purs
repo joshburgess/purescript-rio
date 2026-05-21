@@ -12,6 +12,7 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Symbol (class IsSymbol)
+import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple.Nested (type (/\), (/\))
 import Data.Variant (Variant)
 import Data.Variant as Variant
@@ -22,7 +23,7 @@ import Test.Spec.Assertions (fail, shouldEqual)
 import Type.Proxy (Proxy(..))
 
 import RIO.Fiber.Aff (runAffEither)
-import RIO.Fiber.Core (catchAll, fail) as RIO
+import RIO.Fiber.Core (catchAll, causeOf, fail, fork, interrupt, join, sleep) as RIO
 import RIO.Fiber.Core (RIO)
 import RIO.Fiber.Layer (provideScoped)
 import RIO.Fiber.Postgres
@@ -53,9 +54,8 @@ forcedTag = Proxy
 type DbErr = (db :: PgError)
 type DbErrPlus = (db :: PgError, forced :: Unit)
 
--- | Local `catchTag`: variant-row equivalent of rio-aff's
--- | `RIO.catchTag`. Catches one tag and lets the rest of the row
--- | re-raise on the smaller row.
+-- | Local `catchTag`: catches one tag in a variant-row error and
+-- | lets the rest of the row re-raise on the smaller row.
 catchTag
   :: forall sym x r e e' a
    . IsSymbol sym
@@ -316,3 +316,80 @@ spec conn = do
         case result of
           Right _ -> fail "expected the malformed query to raise a typed failure"
           Left _ -> pure unit
+
+    describe "cancellation" do
+      it "withClient: interrupt mid-borrow releases the client back to the pool" do
+        let
+          program :: RIO (postgres :: Postgres) DbErr Int
+          program = do
+            resetTable
+            fib <- RIO.fork
+              ( withClient dbTag \_ ->
+                  RIO.sleep (Milliseconds 500.0)
+              )
+            RIO.sleep (Milliseconds 50.0)
+            RIO.interrupt fib
+            _ <- RIO.causeOf (RIO.join fib)
+            -- on a max=1 pool, this would block forever if the
+            -- interrupted withClient had not released its client.
+            withClient dbTag \_ -> pure 1
+        result <- runAffEither
+          ( provideScoped
+              ( postgresLayer
+                  { connectionString: conn
+                  , max: 1
+                  }
+              )
+              program
+          )
+          {}
+        expectRight 1 result
+
+      it "withTransaction: interrupt mid-body discards uncommitted writes" do
+        let
+          program :: RIO (postgres :: Postgres) DbErr (Array Int)
+          program = do
+            resetTable
+            fib <- RIO.fork
+              ( withTransaction dbTag \client -> do
+                  _ <- execUsing dbTag
+                    ( "insert into rio_test_items values (1, 'killed')"
+                        :: String
+                    )
+                    client
+                  RIO.sleep (Milliseconds 500.0)
+              )
+            RIO.sleep (Milliseconds 50.0)
+            RIO.interrupt fib
+            _ <- RIO.causeOf (RIO.join fib)
+            query dbTag
+              ("select id from rio_test_items" :: String)
+        result <- runWithLayer conn program
+        expectRight ([] :: Array Int) result
+
+      it "withClient: chains a second borrow on the same max=1 pool after a kill" do
+        let
+          program :: RIO (postgres :: Postgres) DbErr (Int /\ Int)
+          program = do
+            resetTable
+            fib <- RIO.fork
+              ( withClient dbTag \_ ->
+                  RIO.sleep (Milliseconds 500.0)
+              )
+            RIO.sleep (Milliseconds 50.0)
+            RIO.interrupt fib
+            _ <- RIO.causeOf (RIO.join fib)
+            a <- withClient dbTag \_ -> pure 1
+            b <- withClient dbTag \_ -> pure 2
+            pure (a /\ b)
+        result <- runAffEither
+          ( provideScoped
+              ( postgresLayer
+                  { connectionString: conn
+                  , max: 1
+                  }
+              )
+              program
+          )
+          {}
+        expectRight (1 /\ 2) result

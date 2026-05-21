@@ -11,15 +11,29 @@ import Effect.Ref as Ref
 import Type.Proxy (Proxy(..))
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
-import RIO.Fiber.Tracer (Span(..), Tracer(..))
+import RIO.Fiber.Tracer
+  ( Span(..)
+  , SpanKind(..)
+  , SpanStatus(..)
+  , Tracer(..)
+  )
 import RIO.Fiber.Tracer as Tracer
 import Test.RIO.Fiber.Helpers (runAff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 
-type Recorded =
+type RecordedEvent =
   { name :: String
   , attrs :: Array { key :: String, value :: String }
+  }
+
+type Recorded =
+  { name :: String
+  , kind :: SpanKind
+  , attrs :: Array { key :: String, value :: String }
+  , events :: Array RecordedEvent
+  , linkCount :: Int
+  , status :: SpanStatus
   , finished :: Boolean
   }
 
@@ -33,27 +47,38 @@ recordingTracer ref = Tracer
         let i = Array.length xs
         Ref.write
           (Array.snoc xs
-            { name: req.name, attrs: req.attributes, finished: false })
+            { name: req.name
+            , kind: req.kind
+            , attrs: req.attributes
+            , events: []
+            , linkCount: 0
+            , status: StatusUnset
+            , finished: false
+            })
           ref
         pure i
+      let
+        updateAt f =
+          Ref.modify_
+            ( \xs -> case Array.modifyAt idx f xs of
+                Just xs' -> xs'
+                _ -> xs
+            )
+            ref
       pure
         ( Span
             { addAttribute: \k v -> do
                 Ref.modify_ (\as -> Array.snoc as { key: k, value: v }) attrsRef
                 attrs <- Ref.read attrsRef
-                Ref.modify_
-                  ( \xs -> case Array.modifyAt idx (\r -> r { attrs = attrs }) xs of
-                      Just xs' -> xs'
-                      _ -> xs
-                  )
-                  ref
-            , finish: do
-                Ref.modify_
-                  ( \xs -> case Array.modifyAt idx (\r -> r { finished = true }) xs of
-                      Just xs' -> xs'
-                      _ -> xs
-                  )
-                  ref
+                updateAt (\r -> r { attrs = attrs })
+            , addEvent: \evName evAttrs ->
+                updateAt (\r -> r { events = Array.snoc r.events { name: evName, attrs: evAttrs } })
+            , addLink: \_ ->
+                updateAt (\r -> r { linkCount = r.linkCount + 1 })
+            , setStatus: \status ->
+                updateAt (\r -> r { status = status })
+            , finish:
+                updateAt (\r -> r { finished = true })
             }
         )
   }
@@ -130,6 +155,9 @@ spec = describe "rio-fiber: Tracer" do
             pure
               ( Span
                   { addAttribute: \_ _ -> pure unit
+                  , addEvent: \_ _ -> pure unit
+                  , addLink: \_ -> pure unit
+                  , setStatus: \_ -> pure unit
                   , finish: pure unit
                   }
               )
@@ -188,6 +216,9 @@ spec = describe "rio-fiber: Tracer" do
             pure
               ( Span
                   { addAttribute: \_ _ -> pure unit
+                  , addEvent: \_ _ -> pure unit
+                  , addLink: \_ -> pure unit
+                  , setStatus: \_ -> pure unit
                   , finish: pure unit
                   }
               )
@@ -205,6 +236,91 @@ spec = describe "rio-fiber: Tracer" do
     xs <- liftEffect (Ref.read seen)
     -- parent has no parent; child sees the parent span
     xs `shouldEqual` [ Nothing, Just "child" ]
+
+  it "addEvent records a timestamped event with attributes on the active span" do
+    recordedRef <- liftEffect (Ref.new ([] :: Array Recorded))
+    let
+      prog :: F.RIO () () Unit
+      prog = Tracer.withTracer (recordingTracer recordedRef) do
+        Tracer.withSpan "event-holder" [] \span -> do
+          Tracer.addEvent span "cache.miss" [ { key: "key", value: "user:42" } ]
+          Tracer.addEvent span "retry" []
+    out <- runAff prog {}
+    case out of
+      Success _ -> pure unit
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    recorded <- liftEffect (Ref.read recordedRef)
+    case Array.head recorded of
+      Just r -> do
+        (map _.name r.events) `shouldEqual` [ "cache.miss", "retry" ]
+        case Array.head r.events of
+          Just first -> (map _.key first.attrs) `shouldEqual` [ "key" ]
+          _ -> fail "expected at least one event"
+      _ -> fail "expected at least one recorded span"
+
+  it "addLink attaches a non-parent reference between spans" do
+    recordedRef <- liftEffect (Ref.new ([] :: Array Recorded))
+    let
+      prog :: F.RIO () () Unit
+      prog = Tracer.withTracer (recordingTracer recordedRef) do
+        Tracer.withSpan "linker" [] \lhs ->
+          Tracer.withSpan "linked" [] \rhs ->
+            Tracer.addLink lhs rhs
+    out <- runAff prog {}
+    case out of
+      Success _ -> pure unit
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    recorded <- liftEffect (Ref.read recordedRef)
+    case Array.find (\r -> r.name == "linker") recorded of
+      Just r -> r.linkCount `shouldEqual` 1
+      _ -> fail "expected a recorded 'linker' span"
+
+  it "setStatus updates the recorded span status" do
+    recordedRef <- liftEffect (Ref.new ([] :: Array Recorded))
+    let
+      prog :: F.RIO () () Unit
+      prog = Tracer.withTracer (recordingTracer recordedRef) do
+        Tracer.withSpan "ok-span" [] \s ->
+          Tracer.setStatus s StatusOk
+        Tracer.withSpan "err-span" [] \s ->
+          Tracer.setStatus s (StatusError "boom")
+    out <- runAff prog {}
+    case out of
+      Success _ -> pure unit
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    recorded <- liftEffect (Ref.read recordedRef)
+    case Array.find (\r -> r.name == "ok-span") recorded of
+      Just r -> r.status `shouldEqual` StatusOk
+      _ -> fail "expected an 'ok-span' record"
+    case Array.find (\r -> r.name == "err-span") recorded of
+      Just r -> r.status `shouldEqual` StatusError "boom"
+      _ -> fail "expected an 'err-span' record"
+
+  it "default withSpan opens a span with Internal kind" do
+    recordedRef <- liftEffect (Ref.new ([] :: Array Recorded))
+    let
+      prog :: F.RIO () () Unit
+      prog = Tracer.withTracer (recordingTracer recordedRef) do
+        Tracer.withSpan "default" [] \_ -> pure unit
+    _ <- runAff prog {}
+    recorded <- liftEffect (Ref.read recordedRef)
+    case Array.head recorded of
+      Just r -> r.kind `shouldEqual` Internal
+      _ -> fail "expected at least one recorded span"
+
+  it "withSpanWith forwards the requested SpanKind to the tracer" do
+    recordedRef <- liftEffect (Ref.new ([] :: Array Recorded))
+    let
+      prog :: F.RIO () () Unit
+      prog = Tracer.withTracer (recordingTracer recordedRef) do
+        Tracer.withSpanWith
+          { name: "inbound", attributes: [], kind: Server }
+          \_ -> Tracer.withSpanWith
+            { name: "outbound", attributes: [], kind: Client }
+            \_ -> pure unit
+    _ <- runAff prog {}
+    recorded <- liftEffect (Ref.read recordedRef)
+    (map (\r -> r.kind) recorded) `shouldEqual` [ Server, Client ]
 
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"

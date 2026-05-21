@@ -5,16 +5,27 @@ import Prelude
 import Data.Array (length)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Data.Time.Duration (Milliseconds(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
 import Effect.Exception (error, message)
 import RIO.Fiber.Cause (Cause(..))
 import RIO.Fiber.Cause as Cause
 import RIO.Fiber.Core as F
+import RIO.Fiber.FiberId (FiberId(..))
+import RIO.Fiber.FiberId as FiberId
+import RIO.Fiber.Inspect as Inspect
+import RIO.Fiber.Internal as Internal
 import Test.RIO.Fiber.Helpers (runAff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Type.Proxy (Proxy(..))
+
+-- Tests don't care which fiber is attributed for most assertions; the
+-- sentinel keeps call sites short and structural equality keyed on the
+-- constructor shape rather than the id.
+interrupt :: forall e. Cause e
+interrupt = Cause.interrupt FiberId.externalFiberId
 
 spec :: Spec Unit
 spec = describe "rio-fiber: Cause" do
@@ -23,22 +34,22 @@ spec = describe "rio-fiber: Cause" do
       Cause.isEmpty (Cause.empty :: Cause ()) `shouldEqual` true
       Cause.isEmpty (Cause.Then Cause.empty Cause.empty :: Cause ())
         `shouldEqual` true
-      Cause.isEmpty (Cause.interrupt :: Cause ()) `shouldEqual` false
+      Cause.isEmpty (interrupt :: Cause ()) `shouldEqual` false
 
     it "then_ and both collapse Empty on either side" do
       let
-        a = Cause.interrupt :: Cause ()
+        a = interrupt :: Cause ()
       case Cause.then_ Cause.empty a of
-        Interrupt -> pure unit
+        Interrupt _ -> pure unit
         _ -> fail "Then Empty a should collapse to a"
       case Cause.both a Cause.empty of
-        Interrupt -> pure unit
+        Interrupt _ -> pure unit
         _ -> fail "Both a Empty should collapse to a"
 
     it "isInterrupted descends into compositions" do
       let
         c :: Cause ()
-        c = Cause.both (Cause.die (error "boom")) Cause.interrupt
+        c = Cause.both (Cause.die (error "boom")) interrupt
       Cause.isInterrupted c `shouldEqual` true
       Cause.hasDefect c `shouldEqual` true
 
@@ -134,14 +145,53 @@ spec = describe "rio-fiber: Cause" do
         c :: Cause (oops :: String)
         c = Cause.then_
           (Cause.fail (Variant.inj (Proxy :: _ "oops") "x"))
-          Cause.interrupt
+          interrupt
 
         prog :: F.RIO () () (Either (Cause (oops :: String)) Int)
         prog = F.causeOf (F.failCause c :: F.RIO () (oops :: String) Int)
       out <- runAff prog {}
       case out of
-        F.Success (Left (Then (Fail _) Interrupt)) -> pure unit
+        F.Success (Left (Then (Fail _) (Interrupt _))) -> pure unit
         _ -> fail "expected Then (Fail _) Interrupt"
+
+    it "interrupting a forked child attributes the cause to the parent fiber id" do
+      let
+        prog :: F.RIO () () { parent :: FiberId, observed :: Either (Cause ()) Unit }
+        prog = do
+          parent <- Inspect.currentFiberId
+          child <- F.fork (F.sleep (Milliseconds 1000.0))
+          F.interrupt child
+          observed <- F.causeOf (F.join child :: F.RIO () () Unit)
+          pure { parent, observed }
+      out <- runAff prog {}
+      case out of
+        F.Success { parent, observed: Left (Interrupt fid) } ->
+          fid `shouldEqual` parent
+        F.Success r ->
+          fail
+            ( "expected Left (Interrupt parentId) carrying "
+                <> show r.parent
+                <> ", got "
+                <> show
+                    (case r.observed of
+                        Left c -> Cause.interrupters c
+                        Right _ -> []
+                    )
+            )
+        _ -> fail "expected Success path"
+
+    it "external Fiber.interrupt attribution uses externalFiberId" do
+      let
+        prog :: F.RIO () () (Either (Cause ()) Unit)
+        prog = do
+          child <- F.fork (F.sleep (Milliseconds 1000.0))
+          F.liftEffect (Internal.interruptFiber child)
+          F.causeOf (F.join child :: F.RIO () () Unit)
+      out <- runAff prog {}
+      case out of
+        F.Success (Left (Interrupt fid)) ->
+          fid `shouldEqual` FiberId.externalFiberId
+        _ -> fail "expected Left (Interrupt externalFiberId)"
 
   describe "introspection helpers" do
     let
@@ -156,7 +206,7 @@ spec = describe "rio-fiber: Cause" do
       let
         c :: Cause (oops :: String)
         c = Cause.both
-          (Cause.both Cause.interrupt (Cause.die (error "boom")))
+          (Cause.both interrupt (Cause.die (error "boom")))
           (Cause.both (mkOops "a") (mkOops "b"))
       case Cause.firstFailure c of
         Just v ->
@@ -170,24 +220,62 @@ spec = describe "rio-fiber: Cause" do
     it "firstFailure is Nothing on an interrupt-only cause" do
       let
         c :: Cause ()
-        c = Cause.both Cause.interrupt Cause.interrupt
+        c = Cause.both interrupt interrupt
       case Cause.firstFailure c of
         Nothing -> pure unit
         Just _ -> fail "expected Nothing"
+
+    it "isInterruptedOnly: true on an all-interrupt cause" do
+      let
+        c :: Cause ()
+        c = Cause.both interrupt interrupt
+      Cause.isInterruptedOnly c `shouldEqual` true
+
+    it "isInterruptedOnly: false on an empty cause" do
+      let c = Cause.empty :: Cause ()
+      Cause.isInterruptedOnly c `shouldEqual` false
+
+    it "isInterruptedOnly: false when a defect leaf is present" do
+      let
+        c :: Cause ()
+        c = Cause.both interrupt (Cause.die (error "boom"))
+      Cause.isInterruptedOnly c `shouldEqual` false
+
+    it "isInterruptedOnly: false when a typed failure leaf is present" do
+      let
+        c :: Cause (oops :: String)
+        c = Cause.both interrupt (mkOops "x")
+      Cause.isInterruptedOnly c `shouldEqual` false
 
     it "interruptCount counts every Interrupt leaf" do
       let
         c :: Cause ()
         c = Cause.both
-          (Cause.both Cause.interrupt (Cause.die (error "x")))
-          (Cause.then_ Cause.interrupt Cause.interrupt)
+          (Cause.both interrupt (Cause.die (error "x")))
+          (Cause.then_ interrupt interrupt)
       Cause.interruptCount c `shouldEqual` 3
+
+    it "interrupters collects every Interrupt leaf id in left-to-right order" do
+      let
+        c :: Cause ()
+        c = Cause.both
+          (Cause.then_
+              (Cause.interrupt (FiberId 11))
+              (Cause.die (error "x")))
+          (Cause.interrupt (FiberId 22))
+      Cause.interrupters c `shouldEqual` [ FiberId 11, FiberId 22 ]
+
+    it "interrupters returns [] on a cause with no interrupts" do
+      let
+        c :: Cause ()
+        c = Cause.then_ Cause.empty (Cause.die (error "boom"))
+      Cause.interrupters c `shouldEqual` []
 
     it "stripInterrupts collapses pure-interrupt subtrees" do
       let
         c :: Cause (oops :: String)
         c = Cause.both
-          (Cause.both Cause.interrupt Cause.interrupt)
+          (Cause.both interrupt interrupt)
           (mkOops "a")
       case Cause.stripInterrupts c of
         Fail _ -> pure unit
@@ -226,7 +314,7 @@ spec = describe "rio-fiber: Cause" do
         c :: Cause (a :: String)
         c = Cause.both
           (Cause.fail (Variant.inj (Proxy :: _ "a") "x"))
-          (Cause.both Cause.interrupt (Cause.die (error "boom")))
+          (Cause.both interrupt (Cause.die (error "boom")))
         out = Cause.flatten c
       length out.failures `shouldEqual` 1
       length out.defects `shouldEqual` 1
@@ -249,7 +337,7 @@ spec = describe "rio-fiber: Cause" do
     it "squash on an interrupt-only cause uses the interrupt placeholder" do
       let
         c :: Cause ()
-        c = Cause.interrupt
+        c = interrupt
         e = Cause.squash (\_ -> error "unused") c
       message e `shouldEqual` "rio-fiber: cause squashed from interrupt"
 
@@ -267,7 +355,7 @@ spec = describe "rio-fiber: Cause" do
           { empty: 0
           , fail: \_ -> 1
           , die: \_ -> 0
-          , interrupt: 0
+          , interrupt: \_ -> 0
           , then_: add
           , both: add
           }
@@ -286,7 +374,7 @@ spec = describe "rio-fiber: Cause" do
       let
         c :: Cause (oops :: String)
         c = Cause.both
-          (Cause.then_ (mkOops "a") Cause.interrupt)
+          (Cause.then_ (mkOops "a") interrupt)
           (Cause.die (error "kaboom"))
         rendered = Cause.prettyPrint renderOops c
       -- Top is Both with two children. Left child is a nested Then;
@@ -295,7 +383,7 @@ spec = describe "rio-fiber: Cause" do
         ( "Both\n"
             <> "|-- Then\n"
             <> "|   |-- Fail oops=a\n"
-            <> "|   `-- Interrupt\n"
+            <> "|   `-- Interrupt by #-1\n"
             <> "`-- Die kaboom"
         )
 
@@ -308,7 +396,7 @@ spec = describe "rio-fiber: Cause" do
       b = Cause.die (error "b")
 
       c :: Cause (oops :: String)
-      c = Cause.interrupt
+      c = interrupt
 
       structEq :: Cause (oops :: String) -> Cause (oops :: String) -> Boolean
       structEq Empty Empty = true
@@ -318,7 +406,7 @@ spec = describe "rio-fiber: Cause" do
         in
           pick x == pick y
       structEq (Die ex) (Die ey) = message ex == message ey
-      structEq Interrupt Interrupt = true
+      structEq (Interrupt _) (Interrupt _) = true
       structEq (Then x1 x2) (Then y1 y2) = structEq x1 y1 && structEq x2 y2
       structEq (Both x1 x2) (Both y1 y2) = structEq x1 y1 && structEq x2 y2
       structEq _ _ = false
@@ -394,28 +482,28 @@ spec = describe "rio-fiber: Cause" do
     it "stripInterrupts is idempotent" do
       let
         c2 :: Cause (oops :: String)
-        c2 = Cause.then_ a (Cause.both Cause.interrupt b)
+        c2 = Cause.then_ a (Cause.both interrupt b)
         stripped = Cause.stripInterrupts c2
       structEq (Cause.stripInterrupts stripped) stripped `shouldEqual` true
 
     it "stripFailures is idempotent" do
       let
         c2 :: Cause (oops :: String)
-        c2 = Cause.both a (Cause.both b Cause.interrupt)
+        c2 = Cause.both a (Cause.both b interrupt)
         stripped = Cause.stripFailures c2
       structEq (Cause.stripFailures stripped) stripped `shouldEqual` true
 
     it "stripDefects is idempotent" do
       let
         c2 :: Cause (oops :: String)
-        c2 = Cause.both a (Cause.both b Cause.interrupt)
+        c2 = Cause.both a (Cause.both b interrupt)
         stripped = Cause.stripDefects c2
       structEq (Cause.stripDefects stripped) stripped `shouldEqual` true
 
     it "stripFailures then stripDefects leaves only interrupts" do
       let
         c2 :: Cause (oops :: String)
-        c2 = Cause.then_ a (Cause.both b Cause.interrupt)
+        c2 = Cause.then_ a (Cause.both b interrupt)
         s = Cause.stripDefects (Cause.stripFailures c2)
       length (Cause.failures s) `shouldEqual` 0
       length (Cause.defects s) `shouldEqual` 0
@@ -424,7 +512,7 @@ spec = describe "rio-fiber: Cause" do
     it "stripFailures and stripDefects commute" do
       let
         c2 :: Cause (oops :: String)
-        c2 = Cause.both a (Cause.both b Cause.interrupt)
+        c2 = Cause.both a (Cause.both b interrupt)
 
         path1 = Cause.stripDefects (Cause.stripFailures c2)
         path2 = Cause.stripFailures (Cause.stripDefects c2)
@@ -437,7 +525,7 @@ spec = describe "rio-fiber: Cause" do
         (Cause.fail (Variant.inj (Proxy :: _ "a") "x"))
         (Cause.both
             (Cause.fail (Variant.inj (Proxy :: _ "b") "y"))
-            (Cause.both Cause.interrupt (Cause.die (error "z")))
+            (Cause.both interrupt (Cause.die (error "z")))
         )
 
     it "fold reproduces isEmpty" do
@@ -446,7 +534,7 @@ spec = describe "rio-fiber: Cause" do
           { empty: true
           , fail: \_ -> false
           , die: \_ -> false
-          , interrupt: false
+          , interrupt: \_ -> false
           , then_: \x y -> x && y
           , both: \x y -> x && y
           }
@@ -459,7 +547,7 @@ spec = describe "rio-fiber: Cause" do
           { empty: false
           , fail: \_ -> false
           , die: \_ -> false
-          , interrupt: true
+          , interrupt: \_ -> true
           , then_: \x y -> x || y
           , both: \x y -> x || y
           }
@@ -472,7 +560,7 @@ spec = describe "rio-fiber: Cause" do
           { empty: false
           , fail: \_ -> false
           , die: \_ -> true
-          , interrupt: false
+          , interrupt: \_ -> false
           , then_: \x y -> x || y
           , both: \x y -> x || y
           }
@@ -485,7 +573,7 @@ spec = describe "rio-fiber: Cause" do
           { empty: 0
           , fail: \_ -> 0
           , die: \_ -> 0
-          , interrupt: 1
+          , interrupt: \_ -> 1
           , then_: add
           , both: add
           }
@@ -498,7 +586,7 @@ spec = describe "rio-fiber: Cause" do
           { empty: 0
           , fail: \_ -> 1
           , die: \_ -> 0
-          , interrupt: 0
+          , interrupt: \_ -> 0
           , then_: add
           , both: add
           }
@@ -511,9 +599,47 @@ spec = describe "rio-fiber: Cause" do
           { empty: 0
           , fail: \_ -> 0
           , die: \_ -> 1
-          , interrupt: 0
+          , interrupt: \_ -> 0
           , then_: add
           , both: add
           }
           sample
       ds `shouldEqual` length (Cause.defects sample)
+
+  describe "find / contains" do
+    let
+      treeWithInterrupt :: Cause (a :: String)
+      treeWithInterrupt = Cause.both
+        (Cause.fail (Variant.inj (Proxy :: _ "a") "x"))
+        (Cause.then_ interrupt (Cause.die (error "z")))
+
+      treeNoInterrupt :: Cause (a :: String)
+      treeNoInterrupt = Cause.both
+        (Cause.fail (Variant.inj (Proxy :: _ "a") "x"))
+        (Cause.die (error "z"))
+
+      isDie :: forall e. Cause e -> Boolean
+      isDie = case _ of
+        Die _ -> true
+        _ -> false
+
+    it "find returns the first matching sub-cause" do
+      case Cause.find Cause.isInterrupted treeWithInterrupt of
+        Just c -> Cause.isInterrupted c `shouldEqual` true
+        Nothing -> fail "expected to find an interrupted sub-cause"
+
+    it "find returns Nothing when no node matches" do
+      case Cause.find Cause.isInterrupted treeNoInterrupt of
+        Nothing -> pure unit
+        Just _ -> fail "expected no match"
+
+    it "find can match a leaf predicate" do
+      case Cause.find isDie treeWithInterrupt of
+        Just (Die e) -> message e `shouldEqual` "z"
+        _ -> fail "expected to find a Die leaf"
+
+    it "contains is the boolean form of find" do
+      Cause.contains Cause.isInterrupted treeWithInterrupt
+        `shouldEqual` true
+      Cause.contains Cause.isInterrupted treeNoInterrupt
+        `shouldEqual` false

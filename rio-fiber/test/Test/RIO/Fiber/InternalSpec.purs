@@ -25,6 +25,7 @@ import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import RIO.Fiber.Cause as Cause
+import RIO.Fiber.FiberId as FiberId
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
 import Test.RIO.Fiber.Helpers (runAff)
@@ -88,14 +89,14 @@ spec = describe "rio-fiber: Internal" do
         c :: Cause.Cause (oops :: String)
         c = Cause.then_
           (Cause.fail (Variant.inj (Proxy :: _ "oops") "first"))
-          Cause.interrupt
+          (Cause.interrupt FiberId.externalFiberId)
 
         prog :: F.RIO () () (Either (Cause.Cause (oops :: String)) Int)
         prog = F.causeOf
           (map (_ + 1) (F.failCause c) :: F.RIO () (oops :: String) Int)
       out <- runAff prog {}
       case out of
-        Success (Left (Cause.Then (Cause.Fail _) Cause.Interrupt)) -> pure unit
+        Success (Left (Cause.Then (Cause.Fail _) (Cause.Interrupt _))) -> pure unit
         other -> fail
           ("expected Then (Fail _) Interrupt, got " <> describeOutcome other)
 

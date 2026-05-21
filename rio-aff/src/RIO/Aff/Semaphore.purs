@@ -20,8 +20,12 @@
 -- | ```
 module RIO.Aff.Semaphore
   ( Semaphore
+  , acquireN
   , available
   , make
+  , parTraverseN
+  , releaseN
+  , validateParN
   , withPermit
   , withPermits
   ) where
@@ -29,14 +33,19 @@ module RIO.Aff.Semaphore
 import Prelude
 
 import Data.Array (filter, snoc, uncons) as Array
+import Data.Array.NonEmpty (NonEmptyArray)
+import Data.Array.NonEmpty as NEA
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Data.Tuple (Tuple(..))
+import Data.Variant (Variant)
 import Effect (Effect)
 import Effect.Aff (Aff, Canceler(..), finally, makeAff, nonCanceler)
 import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
+import RIO.Aff.Concurrency (parTraverse, partitionPar) as Concurrency
 import RIO.Aff.Internal (RIO(..), mkRIO, unsafeUnRIO)
 
 -- | A pending acquirer.
@@ -70,6 +79,88 @@ available (Semaphore ref) = _.available <$> Ref.read ref
 -- | Acquire one permit for the dynamic extent of `action`.
 withPermit :: forall r e a. Semaphore -> RIO r e a -> RIO r e a
 withPermit = withPermits 1
+
+-- | Acquire `n` permits without releasing them. Blocks until `n`
+-- | permits are simultaneously available. `n <= 0` is a no-op.
+-- |
+-- | The released-by-finalizer pairing that `withPermits` does
+-- | automatically is *not* present here: callers are responsible
+-- | for ensuring a matching `releaseN` runs (typically by wrapping
+-- | the use site in a `bracket`-style helper). Use the
+-- | scope-respecting `withPermits` unless you specifically need to
+-- | manage permits manually, e.g. for handoff across fibers.
+acquireN :: forall r e. Int -> Semaphore -> RIO r e Unit
+acquireN n sem
+  | n <= 0 = pure unit
+  | otherwise = mkRIO \_ -> acquire sem n
+
+-- | Release `n` permits. Any waiters that can be satisfied with
+-- | the new total are woken in FIFO order. `n <= 0` is a no-op.
+-- | Releasing more permits than were ever acquired is allowed and
+-- | simply raises the available count.
+releaseN :: forall r e. Int -> Semaphore -> RIO r e Unit
+releaseN n sem
+  | n <= 0 = pure unit
+  | otherwise = liftEffect (release sem n)
+
+-- | Bounded-concurrency parallel traversal that gates progress on
+-- | a caller-supplied semaphore rather than allocating a fresh
+-- | one. Each worker acquires one permit before running `f` and
+-- | releases it whether `f` succeeds, fails, defects, or is
+-- | interrupted.
+-- |
+-- | Use this when several call sites share a single concurrency
+-- | budget (e.g. one shared HTTP-client semaphore across multiple
+-- | fan-outs). For one-shot bounded fan-out with a private budget,
+-- | reach for `RIO.Aff.Concurrency.parTraverseN`.
+-- |
+-- | Failure semantics match `parTraverse`: the first typed failure
+-- | cancels the siblings and surfaces on the parent's row. A
+-- | sibling still waiting on a permit when the cancel lands is
+-- | removed from the waiter queue cleanly.
+parTraverseN
+  :: forall r e a b
+   . Semaphore
+  -> (a -> RIO r e b)
+  -> Array a
+  -> RIO r e (Array b)
+parTraverseN sem f xs =
+  Concurrency.parTraverse (\a -> withPermit sem (f a)) xs
+
+-- | Bounded-concurrency error-accumulating traversal. Caps the
+-- | number of concurrently running workers by gating each branch
+-- | on `sem` and runs every branch to completion (not fail-fast).
+-- |
+-- | On all-success, yields `Right` of the result array in input
+-- | order. If any branch fails with a typed error, every typed
+-- | failure observed is collected into the `Left` of a
+-- | `NonEmptyArray`, also in input order.
+-- |
+-- | This is the bounded-concurrency sibling of
+-- | `RIO.Aff.Concurrency.validatePar`, combining the
+-- | error-accumulation policy with a shared concurrency budget.
+-- | Defects still propagate as defects on the underlying `Aff`
+-- | channel; only typed failures are accumulated.
+-- |
+-- | ```purescript
+-- | -- validate every form field, at most 4 in flight at once, and
+-- | -- report every problem, not just the first
+-- | result <- validateParN sem checkField fields
+-- | case result of
+-- |   Right values -> useAll values
+-- |   Left errors -> reportEvery errors
+-- | ```
+validateParN
+  :: forall r e e' a b
+   . Semaphore
+  -> (a -> RIO r e b)
+  -> Array a
+  -> RIO r e' (Either (NonEmptyArray (Variant e)) (Array b))
+validateParN sem f xs = do
+  Tuple errs succs <- Concurrency.partitionPar (\a -> withPermit sem (f a)) xs
+  pure case NEA.fromArray errs of
+    Nothing -> Right succs
+    Just nea -> Left nea
 
 -- | Acquire `n` permits for the dynamic extent of `action`. The
 -- | request blocks until `n` permits are simultaneously available.

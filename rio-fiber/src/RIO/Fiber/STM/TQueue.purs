@@ -8,6 +8,7 @@
 module RIO.Fiber.STM.TQueue
   ( TQueue
   , new
+  , newSTM
   , readTQueue
   , tryReadTQueue
   , writeTQueue
@@ -38,6 +39,13 @@ newtype TQueue a = TQueue
 new :: forall a. Int -> Effect (TQueue a)
 new cap = do
   items <- STM.newTVar []
+  pure (TQueue { items, capacity: max 1 cap })
+
+-- | `STM`-typed allocator, for callers that need to create a queue
+-- | inside a transaction (e.g. `TPubSub.subscribe`).
+newSTM :: forall a. Int -> STM (TQueue a)
+newSTM cap = do
+  items <- STM.newTVarSTM []
   pure (TQueue { items, capacity: max 1 cap })
 
 -- | Dequeue the next element. Retries when empty.

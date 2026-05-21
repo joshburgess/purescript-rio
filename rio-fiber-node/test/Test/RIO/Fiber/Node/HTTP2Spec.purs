@@ -93,8 +93,8 @@ spec = describe "RIO.Fiber.Node.HTTP2" do
 -- | response body, and tears the connection down.
 roundTrip :: Aff String
 roundTrip = do
-  certBuf <- FSAff.readFile "rio-aff-node/test/fixtures/http2-localhost-cert.pem"
-  keyBuf <- FSAff.readFile "rio-aff-node/test/fixtures/http2-localhost-key.pem"
+  certBuf <- FSAff.readFile "rio-fiber-node/test/fixtures/http2-localhost-cert.pem"
+  keyBuf <- FSAff.readFile "rio-fiber-node/test/fixtures/http2-localhost-key.pem"
 
   srv <- liftEffect $ H2Srv.createSecureServer
     { cert: [ certBuf ], key: [ keyBuf ] }

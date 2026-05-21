@@ -34,6 +34,7 @@ module RIO.Fiber.Semaphore
   , withPermit
   , withPermits
   , parTraverseN
+  , validateParN
   ) where
 
 import Prelude
@@ -41,13 +42,14 @@ import Prelude
 import Data.Array (filter, snoc, uncons)
 import Data.Array as Array
 import Data.Either (Either(..))
-import Data.Foldable (for_)
+import Data.Foldable (foldl, for_)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Exception (error)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
-import RIO.Fiber.Core (RIO, async, bracket, die, liftEffect, parTraverse)
+import RIO.Fiber.Cause as Cause
+import RIO.Fiber.Core (RIO, async, bracket, causeOf, die, failCause, liftEffect, parTraverse)
 
 type State =
   { available :: Int
@@ -158,3 +160,36 @@ parTraverseN n f xs
   | otherwise = do
       sem <- liftEffect (make n)
       parTraverse (\a -> withPermit sem (f a)) xs
+
+-- | Bounded-concurrency error-accumulating traversal. Caps the
+-- | number of concurrently running workers at `n` and runs every
+-- | branch to completion (not fail-fast). On all-success, yields
+-- | the array of results in input order. If any branch failed,
+-- | the resulting typed-failure / defect / interrupt causes are
+-- | merged left-to-right with `Cause.both` and raised via
+-- | `failCause`.
+-- |
+-- | This is the bounded-concurrency sibling to `Core.validatePar`,
+-- | combining `validatePar`'s error-accumulation semantics with
+-- | `parTraverseN`'s concurrency cap. Empty input returns `[]`
+-- | without consuming permits. `n <= 0` on a non-empty input is a
+-- | defect.
+validateParN
+  :: forall r e a b
+   . Int
+  -> (a -> RIO r e b)
+  -> Array a
+  -> RIO r e (Array b)
+validateParN n f xs
+  | Array.null xs = pure []
+  | n <= 0 = die (error "rio-fiber: validateParN requires n >= 1")
+  | otherwise = do
+      results <- parTraverseN n (\a -> causeOf (f a)) xs
+      case partition results of
+        { failures: [], successes } -> pure successes
+        { failures } -> failCause (foldl Cause.both Cause.empty failures)
+  where
+  partition rs = foldl step { failures: [], successes: [] } rs
+
+  step acc (Left c) = acc { failures = acc.failures <> [ c ] }
+  step acc (Right b) = acc { successes = acc.successes <> [ b ] }

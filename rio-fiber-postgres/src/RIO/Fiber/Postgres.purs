@@ -69,7 +69,15 @@ import Effect.Postgres.Error.Except (Except) as PG
 import Effect.Postgres.Pool (release) as PG.PoolE
 
 import RIO.Fiber.Aff (fromAff)
-import RIO.Fiber.Core (RIO, ask, catchAll, fail, liftEffect)
+import RIO.Fiber.Cause as Cause
+import RIO.Fiber.Core
+  ( RIO
+  , ask
+  , causeOf
+  , fail
+  , failCause
+  , liftEffect
+  )
 import RIO.Fiber.Scope (acquireRelease, scoped)
 
 -- | The Postgres service token. Holds a connection pool. Place it
@@ -373,10 +381,11 @@ execPreparedUsing sym name text ps client =
   execUsing sym (PreparedQuery name text ps) client
 
 -- | Acquire a client, issue `BEGIN`, run `use`, then `COMMIT`. If
--- | `use` raises a typed failure, the transaction is rolled back
--- | and the failure is re-raised on the same tag. Defects (Aff
--- | exceptions) skip the rollback path; if you need rollback-on-
--- | defect, sandbox the inner action.
+-- | `use` exits non-successfully for any reason (typed failure,
+-- | defect, or external interrupt) the transaction is rolled back
+-- | before the cause is re-raised. A typed-failure leaf surfaces
+-- | through the regular `catchAll` machinery; a defect / interrupt
+-- | / composite cause surfaces through `causeOf` / `failCause`.
 -- |
 -- | The client is released to the pool on every exit path
 -- | (success, typed failure, defect, or external kill), as with
@@ -390,13 +399,17 @@ withTransaction
   -> RIO (postgres :: Postgres | r) e a
 withTransaction sym use = withClient sym \client -> do
   _ <- execUsing sym ("begin" :: String) client
-  catchAll
-    ( \v -> do
-        _ <- execUsing sym ("rollback" :: String) client
-        fail v
-    )
-    ( do
-        a <- use client
-        _ <- execUsing sym ("commit" :: String) client
-        pure a
-    )
+  result <- causeOf (use client)
+  case result of
+    Right a -> do
+      _ <- execUsing sym ("commit" :: String) client
+      pure a
+    Left cause -> do
+      _ <- execUsing sym ("rollback" :: String) client
+      -- Re-raise the captured cause. For a typed-failure leaf use
+      -- `fail` so the standard `catchAll` machinery sees it; for any
+      -- other cause shape (defect, interrupt, composite) propagate
+      -- the structured cause directly via `failCause`.
+      case Cause.firstFailure cause of
+        Just v -> fail v
+        Nothing -> failCause cause

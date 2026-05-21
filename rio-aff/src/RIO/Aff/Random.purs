@@ -17,12 +17,14 @@
 -- | ```
 module RIO.Aff.Random
   ( Random
+  , bytes
   , nextBoolean
   , nextInt
   , nextNumber
   , nextRange
   , pickRandom
   , shuffle
+  , uuid
   , weighted
   , liveRandom
   ) where
@@ -33,6 +35,7 @@ import Data.Array as Array
 import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
+import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
@@ -40,6 +43,9 @@ import Effect.Random (random, randomBool, randomInt, randomRange) as Random
 import Type.Proxy (Proxy(..))
 
 import RIO.Aff.Core (RIO, ask)
+
+foreign import _uuid :: Effect String
+foreign import _bytes :: Int -> Effect (Array Int)
 
 -- | The service record.
 -- |
@@ -169,6 +175,27 @@ weighted pairs =
     Just { head: Tuple w a, tail } ->
       if w > 0.0 && draw < w then Just a
       else selectAt (draw - (if w > 0.0 then w else 0.0)) tail
+
+-- | A random v4 UUID drawn from the platform CSPRNG (Web Crypto on
+-- | modern Node and browsers). The returned string is the canonical
+-- | hyphenated form, e.g. `f47ac10b-58cc-4372-a567-0e02b2c3d479`.
+-- |
+-- | Bypasses the `Random` service: tests that need to override
+-- | `nextNumber` / `nextInt` for reproducibility will not affect
+-- | `uuid` (Web Crypto has no swap point on the service record).
+uuid :: forall r e. RIO r e String
+uuid = liftEffect _uuid
+
+-- | A random byte array of length `n` drawn from the platform
+-- | CSPRNG. Each element is in `[0, 255]`. Suitable for nonces,
+-- | salts, and session tokens. Negative or zero `n` yields an
+-- | empty array.
+-- |
+-- | Bypasses the `Random` service for the same reason as `uuid`.
+bytes :: forall r e. Int -> RIO r e (Array Int)
+bytes n
+  | n <= 0 = pure []
+  | otherwise = liftEffect (_bytes n)
 
 -- | A production-ready implementation backed by `Effect.Random`,
 -- | which in turn delegates to `Math.random()`. Provide it via

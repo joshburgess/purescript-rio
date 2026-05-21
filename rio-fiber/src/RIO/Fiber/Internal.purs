@@ -30,6 +30,17 @@ module RIO.Fiber.Internal
   , opFail
   , opCatchAll
   , opAsk
+  , opCurrentFiberId
+  , opCurrentFiberLabel
+  , opSetCurrentFiberLabel
+  , opYieldNow
+  , opCheckInterruptible
+  , NullableLabel
+  , nullableLabelToMaybe
+  , _fiberId
+  , _fiberLabel
+  , _fiberSetLabel
+  , _fiberStatusCode
   , opLocal
   , opAsync
   , opFork
@@ -41,7 +52,9 @@ module RIO.Fiber.Internal
   , opInterrupt
   , opEnsuring
   , opUninterruptible
+  , opMaskWithRestore
   , opRace
+  , opRaceAll
   , opParTraverse
   , opForEach
   , opMap
@@ -53,6 +66,14 @@ module RIO.Fiber.Internal
   , _newScope
   , _addFinalizerEff
   , _closeScope
+  , _closeScopeExit
+  , _scopePendingCause
+  , _scopeAddJoinable
+  , _scopeJoinables
+  , _scopeClearJoinables
+  , NullableCause
+  , maybeCauseToNullable
+  , nullableCauseToMaybe
   , FiberRef
   , _newFiberRef
   , opGetFiberRef
@@ -73,6 +94,7 @@ import Effect (Effect)
 import Effect.Exception (Error)
 import RIO.Fiber.Cause (Cause)
 import RIO.Fiber.Cause as Cause
+import RIO.Fiber.FiberId as FiberId
 import Unsafe.Coerce (unsafeCoerce)
 
 -- | Opaque instruction tree built by FFI factories and stepped by the
@@ -132,6 +154,22 @@ foreign import opBind
   :: forall r e a b. Op r e a -> (a -> Op r e b) -> Op r e b
 
 foreign import opAsk :: forall r e. Op r e (Record r)
+foreign import opCurrentFiberId :: forall r e. Op r e Int
+foreign import opCurrentFiberLabel
+  :: forall r e. Op r e (NullableLabel)
+foreign import opSetCurrentFiberLabel
+  :: forall r e. String -> Op r e Unit
+foreign import opYieldNow :: forall r e. Op r e Unit
+foreign import opCheckInterruptible :: forall r e. Op r e Boolean
+
+foreign import data NullableLabel :: Type
+foreign import _nullableLabelIsJust :: NullableLabel -> Boolean
+foreign import _nullableLabelValue :: NullableLabel -> String
+
+nullableLabelToMaybe :: NullableLabel -> Maybe String
+nullableLabelToMaybe n =
+  if _nullableLabelIsJust n then Just (_nullableLabelValue n)
+  else Nothing
 foreign import opFail :: forall r e a. Variant e -> Op r e a
 foreign import opCatchAll
   :: forall r e e' a
@@ -192,10 +230,31 @@ foreign import opEnsuring
 -- | on it) until the mask is released.
 foreign import opUninterruptible :: forall r e a. Op r e a -> Op r e a
 
+-- | Run the body uninterruptibly, but pass the body a "restore" wrapper
+-- | that temporarily drops the mask back to its pre-block value. If the
+-- | surrounding region was already masked, the restore wrapper is a
+-- | no-op; otherwise it makes its argument interruptible for the
+-- | duration of that argument's execution. The runtime never inspects
+-- | the inner Op's type, so the wrapper is parametric in `b`. We
+-- | express that with a phantom `b` here and let `Core.uninterruptibleMask`
+-- | promote it to a true rank-2 type via `unsafeCoerce` on the body.
+foreign import opMaskWithRestore
+  :: forall r e a b
+   . ((Op r e b -> Op r e b) -> Op r e a)
+  -> Op r e a
+
 -- | Run two ops concurrently; resume with the first non-interrupted
 -- | outcome and interrupt the loser. If both are interrupted the
 -- | parent inherits the interrupt.
 foreign import opRace :: forall r e a. Op r e a -> Op r e a -> Op r e a
+
+-- | Flat fan-out race over an array of ops. Resumes with the first
+-- | success and interrupts the rest. If every branch is interrupted
+-- | the parent inherits the interrupt; if every branch fails the
+-- | failures are composed with `Cause.both`. An empty input array
+-- | raises a defect (no defined winner). A single-element array is
+-- | stepped directly into the inner op (no fan-out).
+foreign import opRaceAll :: forall r e a. Array (Op r e a) -> Op r e a
 
 -- | Fork one fiber per item and await all results in order. Fails
 -- | fast: the first non-success outcome interrupts the siblings and
@@ -235,6 +294,62 @@ foreign import _newScope :: Effect Scope
 foreign import _addFinalizerEff :: Scope -> Effect Unit -> Effect Unit
 foreign import _closeScope :: Scope -> Effect Unit
 
+-- | Close the scope with a known exit cause. `null` means the scope
+-- | closed because the body succeeded; a non-null `JSCause` means the
+-- | body failed, defected, or was interrupted. The cause is staged on
+-- | the scope object so exit-aware finalizers can read it via
+-- | `_scopePendingCause`.
+foreign import _closeScopeExit
+  :: forall e. Scope -> NullableCause e -> Effect Unit
+
+-- | Read the scope's currently-staged close cause. Returns `null`
+-- | outside the close window or when the scope closed with success.
+foreign import _scopePendingCause
+  :: forall e. Scope -> Effect (NullableCause e)
+
+-- | Register a fiber with the scope so an awaiting close can suspend
+-- | until it has resolved. Heterogeneous types are erased: any
+-- | `Fiber e a` may be registered, and the awaiting side does not
+-- | observe the inner result. Registering after the scope has closed
+-- | is a no-op.
+foreign import _scopeAddJoinable
+  :: forall e a. Scope -> Fiber e a -> Effect Unit
+
+-- | Snapshot the scope's currently-registered joinable list.
+foreign import _scopeJoinables
+  :: forall e a. Scope -> Effect (Array (Fiber e a))
+
+-- | Drop the scope's joinable list. Used by the awaiting close path
+-- | after it has consumed the snapshot, so a re-close doesn't double-
+-- | await the same fibers.
+foreign import _scopeClearJoinables :: Scope -> Effect Unit
+
+-- | Phantom newtype over a possibly-null `JSCause`. The PureScript
+-- | side uses `Nullable` semantics: `null` ↔ `Nothing`,
+-- | non-null ↔ `Just cause`.
+foreign import data NullableCause :: Row Type -> Type
+
+foreign import _causeNullable :: forall e. Effect (NullableCause e)
+foreign import _causeFromCause
+  :: forall e. JSCause e -> NullableCause e
+foreign import _causeNullableIsJust
+  :: forall e. NullableCause e -> Boolean
+foreign import _causeNullableValue
+  :: forall e. NullableCause e -> JSCause e
+
+-- | PS-side helper: convert a `Maybe (Cause e)` to its FFI nullable
+-- | form. `Nothing` becomes the null cell; `Just c` is forwarded
+-- | through `causeToJS`.
+maybeCauseToNullable :: forall e. Maybe (Cause e) -> Effect (NullableCause e)
+maybeCauseToNullable Nothing = _causeNullable
+maybeCauseToNullable (Just c) = pure (_causeFromCause (causeToJS c))
+
+-- | PS-side helper: convert an FFI nullable cause to `Maybe (Cause e)`.
+nullableCauseToMaybe :: forall e. NullableCause e -> Maybe (Cause e)
+nullableCauseToMaybe n
+  | _causeNullableIsJust n = Just (jsToCause (_causeNullableValue n))
+  | otherwise = Nothing
+
 -- | A per-fiber mutable cell. Each fiber owns an isolated copy of
 -- | every `FiberRef` value; forking inherits the parent's value at
 -- | the moment of fork, and subsequent writes in either fiber are
@@ -257,13 +372,14 @@ foreign import opFailCause :: forall r e a. JSCause e -> Op r e a
 foreign import _causeEmpty :: forall e. JSCause e
 foreign import _causeFail :: forall e. Variant e -> JSCause e
 foreign import _causeDie :: forall e. Error -> JSCause e
-foreign import _causeInterrupt :: forall e. JSCause e
+foreign import _causeInterrupt :: forall e. Int -> JSCause e
 foreign import _causeThen :: forall e. JSCause e -> JSCause e -> JSCause e
 foreign import _causeBoth :: forall e. JSCause e -> JSCause e -> JSCause e
 
 foreign import _causeTag :: forall e. JSCause e -> Int
 foreign import _causeFailValue :: forall e. JSCause e -> Variant e
 foreign import _causeDieValue :: forall e. JSCause e -> Error
+foreign import _causeInterruptValue :: forall e. JSCause e -> Int
 foreign import _causeLeft :: forall e. JSCause e -> JSCause e
 foreign import _causeRight :: forall e. JSCause e -> JSCause e
 
@@ -280,7 +396,7 @@ causeToJS :: forall e. Cause e -> JSCause e
 causeToJS Cause.Empty = _causeEmpty
 causeToJS (Cause.Fail v) = _causeFail v
 causeToJS (Cause.Die err) = _causeDie err
-causeToJS Cause.Interrupt = _causeInterrupt
+causeToJS (Cause.Interrupt fid) = _causeInterrupt (FiberId.unFiberId fid)
 causeToJS (Cause.Then a b) = _causeThen (causeToJS a) (causeToJS b)
 causeToJS (Cause.Both a b) = _causeBoth (causeToJS a) (causeToJS b)
 
@@ -293,7 +409,7 @@ jsToCause c =
     if t == 0 then Cause.Empty
     else if t == 1 then Cause.Fail (_causeFailValue c)
     else if t == 2 then Cause.Die (_causeDieValue c)
-    else if t == 3 then Cause.Interrupt
+    else if t == 3 then Cause.Interrupt (FiberId.FiberId (_causeInterruptValue c))
     else if t == 4 then Cause.Then (jsToCause (_causeLeft c)) (jsToCause (_causeRight c))
     else Cause.Both (jsToCause (_causeLeft c)) (jsToCause (_causeRight c))
 
@@ -323,6 +439,14 @@ foreign import _fiberObserve
 
 foreign import _fiberInterrupt :: forall e a. Fiber e a -> Effect Unit
 
+foreign import _fiberId :: forall e a. Fiber e a -> Int
+foreign import _fiberLabel :: forall e a. Fiber e a -> Effect NullableLabel
+foreign import _fiberSetLabel
+  :: forall e a. Fiber e a -> String -> Effect Unit
+
+-- | 0 = Running, 1 = Suspended, 2 = Done.
+foreign import _fiberStatusCode :: forall e a. Fiber e a -> Effect Int
+
 -- | Fused sync runner used by `runRIO'`. Starts the fiber, then if it
 -- | completed with M_OK returns the value directly; otherwise throws.
 -- | Skips the Maybe / Outcome / Either round-trip the layered runner
@@ -346,6 +470,7 @@ foreign import _resultIsCause :: forall e a. FiberResult e a -> Boolean
 foreign import _resultOk :: forall e a. FiberResult e a -> a
 foreign import _resultFail :: forall e a. FiberResult e a -> Variant e
 foreign import _resultDie :: forall e a. FiberResult e a -> Error
+foreign import _resultInterruptedBy :: forall e a. FiberResult e a -> Int
 foreign import _resultCause :: forall e a. FiberResult e a -> JSCause e
 
 resultToOutcome :: forall e a. FiberResult e a -> Outcome e a
@@ -369,7 +494,7 @@ causeToOutcome c = case findLeaf c of
   findLeaf :: Cause e -> Maybe (Outcome e a)
   findLeaf Cause.Empty = Nothing
   findLeaf (Cause.Die err) = Just (Die err)
-  findLeaf Cause.Interrupt = Just Interrupted
+  findLeaf (Cause.Interrupt _) = Just Interrupted
   findLeaf (Cause.Fail v) = Just (Fail v)
   findLeaf (Cause.Then a b) = preferDefect (findLeaf a) (findLeaf b)
   findLeaf (Cause.Both a b) = preferDefect (findLeaf a) (findLeaf b)
@@ -390,7 +515,8 @@ peelToCauseEither :: forall e a. FiberResult e a -> Either (Cause e) a
 peelToCauseEither r
   | _resultIsOk r = Right (_resultOk r)
   | _resultIsFail r = Left (Cause.fail (_resultFail r))
-  | _resultIsInterrupted r = Left Cause.interrupt
+  | _resultIsInterrupted r =
+      Left (Cause.interrupt (FiberId.FiberId (_resultInterruptedBy r)))
   | _resultIsCause r = Left (jsToCause (_resultCause r))
   | otherwise = Left (Cause.die (_resultDie r))
 

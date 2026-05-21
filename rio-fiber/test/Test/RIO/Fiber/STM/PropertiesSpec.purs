@@ -112,7 +112,10 @@ spec = describe "rio-fiber: STM (property tests)" do
   -- only ever hold one value, so without atomicity the consumer
   -- could observe gaps or duplicates. Conservation pins the count.
   it "TMVar producer/consumer never drops or duplicates items" do
-    forAll 10 (chooseInt 0 30) \n -> do
+    -- `chooseInt 1 30` because `Data.Array.range 1 0` is `[1, 0]`
+    -- (descending), which would make the producer/consumer step
+    -- over `[1, 0]` for n=0 and break the conservation invariant.
+    forAll 10 (chooseInt 1 30) \n -> do
       seen <- liftEffect (Ref.new ([] :: Array Int))
       let
         producer :: TMVar Int -> RIO () () Unit
@@ -133,7 +136,7 @@ spec = describe "rio-fiber: STM (property tests)" do
       xs <- liftEffect (Ref.read seen)
       -- TMVar guarantees alternating put/take, so a single consumer
       -- sees the producer's exact sequence in order.
-      xs `shouldEqual` (if n == 0 then [] else Array.range 1 n)
+      xs `shouldEqual` Array.range 1 n
 
   -- Multiple writers pushing into a bounded TQueue concurrently
   -- with a single reader draining it. The reader records every

@@ -1,24 +1,32 @@
 # Constraints and limitations: the `Aff` foundation
 
-This document is required reading before you commit to `rio` for
-anything ambitious. It tells you, in concrete terms, what `rio` is
-built on top of and what that choice gives up. The short version:
+This document is required reading before you commit to `rio-aff`
+for anything ambitious. It tells you, in concrete terms, what
+`rio-aff` is built on top of and what that choice gives up
+relative to `rio-fiber` (which owns its runtime end-to-end).
+The short version:
 
-> `rio` is a strict superset of `Effect.Aff`. Every primitive in
-> `rio` ultimately compiles to an `Aff` action. Anything `Aff`
-> cannot do, `rio` cannot do either.
+> `rio-aff` is a strict superset of `Effect.Aff`. Every
+> primitive in `rio-aff` ultimately compiles to an `Aff` action.
+> Anything `Aff` cannot do, `rio-aff` cannot do either.
 
-That is a deliberate choice. It is also a hard upper bound. The
-sections below spell out what the bound looks like in practice and
-where a future `rio` (or a fork) would have to replace `Aff` with
-a custom fiber runtime to escape it.
+That is a deliberate trade. It is also a hard upper bound. The
+sections below spell out what the bound looks like in practice
+and how `rio-fiber` lifts each ceiling by replacing the `Aff`
+interpreter with a custom fiber runtime.
 
 If you have used ZIO in Scala or Effect in TypeScript, you
 will recognise most of these ceilings: those libraries hit them
 too, but they solve them by shipping their own fiber runtime
-rather than reusing a host effect type.
+rather than reusing a host effect type, which is the path
+`rio-fiber` takes.
 
-## Why `Aff`?
+This is the cost analysis you need if you're choosing between
+the two runtimes. The headline trade-offs are in the
+[main README](../README.md); this document is the precise
+version.
+
+## Why ship `rio-aff` at all?
 
 `rio` started as a prototype to answer a specific question: can
 PureScript's row types and `Variant` carry the ZIO / Effect
@@ -30,8 +38,8 @@ service-injection vocabulary, the layer algebra, the typed-error
 catch combinators, the cause tree, the schedule combinators)
 exists to make that case.
 
-Building on `Effect.Aff` was the pragmatic choice for that
-prototype. The reasoning was:
+Building the first iteration on `Effect.Aff` was the pragmatic
+choice for that prototype. The reasoning was:
 
 - **Keep the initial scope tractable.** Writing a full custom
   fiber runtime is a multi-month effort on its own, and on its
@@ -44,27 +52,29 @@ prototype. The reasoning was:
   safety, its cooperative cancellation, its `bracket` /
   `finally` finaliser guarantees, and its `Promise` interop are
   already correct. Reimplementing any of those badly would have
-  made `rio` worse than `Aff`, not better, and would have
+  made the package worse than `Aff`, not better, and would have
   obscured whether the row-type design itself was viable.
 - **Get to a usable surface quickly.** The goal was to ship a
   working proof of concept: services, typed errors, layers,
   concurrency, streams, STM, observability, all with a test
   story (`itRIO`, `newTestClock`) that exercises the same
-  surface real users would. That meant prioritising vocabulary
-  and ergonomics over runtime ownership.
-- **Make the case for the design.** If `rio` looked compelling
-  on top of `Aff`, that was evidence the typed-channel approach
-  was worth carrying further (including, eventually, on top of
-  a custom runtime). If it did not look compelling, no amount
-  of bespoke scheduling would save it. Starting with `Aff` made
-  the design question separable from the runtime question.
+  surface real users would.
+- **Make the case for the design.** If the row-type approach
+  looked compelling on top of `Aff`, that was evidence the
+  typed-channel design was worth carrying further (including,
+  eventually, on top of a custom runtime). If it did not look
+  compelling, no amount of bespoke scheduling would save it.
+  Starting with `Aff` made the design question separable from
+  the runtime question.
 
-So this is a proof of concept that the ZIO / Effect pattern
-ports to PureScript, demonstrated with a real surface, real
-tests, and real example services, while explicitly deferring
-the "own the runtime" question. The constraints documented
-below are the price of that deferral. They are also the menu
-of work for a future version that chooses to take it on.
+That bet paid off: the row-type design holds up, and the
+follow-on package [`rio-fiber`](../rio-fiber/) is the result of
+then taking on the runtime question separately. `rio-fiber` is
+now the recommended default. `rio-aff` remains in the workspace
+as the ecosystem-friendly alternative: same vocabulary, same
+three-channel design, but interpreted on top of `Aff` for
+codebases that want to stay in the `Aff` ecosystem end-to-end.
+The constraints documented below are the price of that choice.
 
 ## The core type, restated
 
@@ -82,7 +92,7 @@ reifies the final outcome back as an `Aff`, where typed
 failures appear in the `Left` branch and successes in
 `Right`. Three things follow immediately:
 
-1. There *is* a separate `rio` interpreter; the synchronous
+1. There *is* a separate `rio-aff` interpreter; the synchronous
    bind chain does not pay a per-bind `Aff` cost. But once any
    step suspends, the rest of the work rides on `Aff`'s
    scheduler. `runRIO` evaluates the program to a final `Aff`
@@ -90,15 +100,15 @@ failures appear in the `Left` branch and successes in
    (`launchAff_`, `Aff.runAff`, etc.).
 2. Typed errors are a userland encoding. The `Either (Variant e)`
    wrapper is not visible to `Aff`. `Aff`'s own error channel is
-   a single untyped `Error` and is used by `rio` only for
+   a single untyped `Error` and is used by `rio-aff` only for
    defects (the `Die` arm of `Cause`).
 3. Cancellation, async waits, and bracketing for the async
-   portion of a program are `Aff`'s. `rio` adds vocabulary
+   portion of a program are `Aff`'s. `rio-aff` adds vocabulary
    (typed names, structured composition, `Scope`-based
    finalisers) but the underlying async mechanism is whatever
    `Aff` provides.
 
-## What `Aff` gives `rio` for free
+## What `Aff` gives `rio-aff` for free
 
 These are good defaults and a large part of why building on
 `Aff` is sensible at all:
@@ -110,7 +120,7 @@ These are good defaults and a large part of why building on
   `Aff.finally` guarantee finaliser execution on success,
   failure, and cancellation.
 - A fiber primitive. `Aff.forkAff` gives you a `Fiber` you can
-  `joinFiber` or `killFiber`. `rio`'s `fork`, `join`, and
+  `joinFiber` or `killFiber`. `rio-aff`'s `fork`, `join`, and
   `interrupt` are thin typed wrappers over these.
 - Synchronisation via `Effect.Aff.AVar` (single-slot blocking
   variable). `RIO.Deferred` and most of `RIO.STM`'s blocking
@@ -119,16 +129,16 @@ These are good defaults and a large part of why building on
   JS `Promise` can be lifted with one call.
 - Single-threaded JS semantics. There is no need to worry about
   data races on shared mutable references inside a single tick.
-  `rio`'s STM implementation exploits this directly.
+  `rio-aff`'s STM implementation exploits this directly.
 
-## What `Aff` cannot give `rio`
+## What `Aff` cannot give `rio-aff`
 
 Here is the meaningful list. Each item is a real ceiling, not a
 nit. Read them as design constraints, not bugs.
 
 ### 1. Typed errors are wrapping, not a native channel
 
-`rio`'s typed-error story works by wrapping every result in
+`rio-aff`'s typed-error story works by wrapping every result in
 `Either (Variant e) a` inside the `Aff`. `Aff`'s own error
 channel is reserved for defects (uncaught exceptions, the `Die`
 case in `Cause`).
@@ -140,7 +150,7 @@ Concretely:
   combinators like `Aff.attempt` only see the `Right (Either ...)`
   layer; they do not inspect the `Variant`.
 - A native fiber runtime can short-circuit the success
-  continuation as soon as a typed failure is raised. `rio` has
+  continuation as soon as a typed failure is raised. `rio-aff` has
   to compute `Left v`, return it from the `Aff`, and let the
   next monadic bind notice and propagate. That is one extra
   allocation per bind in the failure case.
@@ -161,7 +171,7 @@ death, every interrupt, every parallel join produces a `Cause`
 node without any user instrumentation. `Effect.Cause` is the
 same in Effect.
 
-`rio`'s `RIO.Cause` is a userland reification. `attemptCause`,
+`rio-aff`'s `RIO.Cause` is a userland reification. `attemptCause`,
 `parTraverseCause`, `raceCause`, and friends manually walk the
 known failure shapes and produce a `Cause` tree. That works
 because the failure modes are enumerable (typed failure via
@@ -178,7 +188,7 @@ downsides:
   `Aff` cancellations through `bracket` finalisers; whether
   the caller can distinguish "killed" from "the bracketed
   computation returned" depends on how the finaliser was
-  written. `rio` is consistent about this for its own
+  written. `rio-aff` is consistent about this for its own
   primitives, but a custom runtime could surface
   `Interrupted FiberId` as a first-class cause without that
   discipline.
@@ -190,7 +200,7 @@ kill signal at the next async boundary. Synchronous loops do not
 yield. There is also no first-class concept of "this region is
 uninterruptible".
 
-`rio` exposes `uninterruptible` and pairs `acquireRelease` with
+`rio-aff` exposes `uninterruptible` and pairs `acquireRelease` with
 `Aff.bracket` so resources are always released, but:
 
 - `uninterruptible` is implemented by acquiring a guard around
@@ -223,7 +233,7 @@ name, or an inspectable parent / child relationship. You cannot:
 
 ZIO's `FiberId`, `Fiber.Runtime#dump`, and `Supervisor` API are
 the obvious comparison. None of those have an analogue in `Aff`,
-so none has one in `rio` either. The closest thing is `RIO.Tracer`
+so none has one in `rio-aff` either. The closest thing is `RIO.Tracer`
 spans, but those are an observability concern attached to the
 *logical* call tree, not the runtime fiber tree.
 
@@ -235,7 +245,7 @@ the restore is guaranteed by `Aff.finally`.
 
 What it does *not* give you is the ZIO `FiberRef` semantic of
 "a forked fiber gets a copy of the parent's value, mutates
-locally, and merges back on join". `rio`'s `Local` has the
+locally, and merges back on join". `rio-aff`'s `Local` has the
 opposite default by design: a child fiber sees the parent's
 current value at read time, and a child's writes are visible
 to the parent.
@@ -273,7 +283,7 @@ above. `Aff` cannot, because it does not own the dispatch.
 `Aff.delay` calls `setTimeout`. There is no hook into it. A
 test cannot virtualise `Aff.delay`.
 
-`rio` works around this by routing every sleep through the
+`rio-aff` works around this by routing every sleep through the
 `Clock` service. `RIO.Test.Clock.newTestClock` is a fake clock
 that advances on demand, and every `RIO.Schedule` runner sleeps
 through `Clock`, so the test clock can drive retries and
@@ -287,7 +297,7 @@ cannot.
 
 A custom runtime owns time at the runtime layer (ZIO's
 `TestClock` virtualises every internal timer, not just
-user-level sleeps). `Aff` cannot give that to `rio`.
+user-level sleeps). `Aff` cannot give that to `rio-aff`.
 
 ### 8. STM atomicity depends on JS single-threadedness
 
@@ -302,14 +312,14 @@ sharing memory) the same implementation would be unsound. We
 would need real CAS loops or a transaction log. That is a
 runtime concern, not a library one. If PureScript ever has a
 backend with preemption (a native code generator with threads,
-say), `rio`'s STM would need a rewrite.
+say), `rio-aff`'s STM would need a rewrite.
 
 This is a niche concern, but worth knowing if you are evaluating
-`rio` for portability to a non-JS backend.
+`rio-aff` for portability to a non-JS backend.
 
 ### 9. `Aff.bracket` is the only release primitive
 
-`rio`'s resource safety, layer release order, scope finalisation,
+`rio-aff`'s resource safety, layer release order, scope finalisation,
 and concurrency cancellation all bottom out in `Aff.bracket` and
 `Aff.finally`. The good news: those are battle-tested and
 correct. The not-so-good news:
@@ -320,7 +330,7 @@ correct. The not-so-good news:
   one at a time as the scope unwinds.
 - The "is this release running because we succeeded, failed
   typed-ly, died, or were killed?" distinction is reconstructed
-  by `rio` (via `RIO.Resource`'s `Exit`-aware variants) rather
+  by `rio-aff` (via `RIO.Resource`'s `Exit`-aware variants) rather
   than passed by `Aff`. It works, but the bookkeeping is in
   userland.
 
@@ -350,99 +360,125 @@ returns one), the resulting `Aff` is *not* cancellable by
 HTTP request, file read, or whatever else is still running. The
 caller's continuation just never resumes.
 
-`rio` inherits this. Any third-party `Aff` library that wraps a
+`rio-aff` inherits this. Any third-party `Aff` library that wraps a
 `Promise` will exhibit this. Use `AbortController`-aware wrappers
 where they exist, or accept that "killed fiber" does not always
 mean "work stopped".
 
 ### 12. Stack traces are JS stacks
 
-`rio` does not maintain its own call graph for error reporting.
+`rio-aff` does not maintain its own call graph for error reporting.
 `prettyCauseWithStack` renders the JS stack attached to each
 `Die` leaf when one is available, which is fine for sync defects
 and most async ones, but you do not get the curated "this is
 where the typed failure was raised, this is where each handler
 caught and re-raised it" trace that ZIO offers.
 
-## What a custom fiber runtime would provide
+## What a custom fiber runtime provides: `rio-fiber`
 
-If `rio` (or a successor) ever shipped its own runtime in place
-of `Aff`, here is what would change. Use this as a forward
-roadmap, not a current feature list.
+Every ceiling listed above is one a custom fiber runtime can
+lift. `rio-fiber` is that runtime. The list below was originally
+a forward roadmap; everything in it now ships in
+[`rio-fiber`](../rio-fiber/) and is testable today:
 
-- **Native typed-error channel.** `Either (Variant e) a` would
-  become two separate continuations inside the runtime, removing
-  the per-bind `Either` allocation in the failure path.
+- **Native typed-error channel.** `Either (Variant e) a` is gone
+  from the bind path. The runtime carries failure and success as
+  two separate continuations; the per-bind allocation in the
+  failure case disappears.
 - **Native `Cause` tree.** Every fiber death produces a `Cause`
-  node automatically; `parTraverseCause` and `raceCause` would
-  no longer need to reconstruct the tree from observed outcomes.
+  node automatically. `parTraverseCause` and `raceCause` no
+  longer have to reconstruct the tree from observed outcomes;
+  the runtime hands them one.
 - **First-class `Interrupted` leaf.** Kills propagate as
-  `Cause.Interrupted FiberId` rather than as `Aff` cancellation
+  `Cause.Interrupt FiberId` rather than as `Aff` cancellation
   that finalisers reconstruct.
-- **`FiberRef` with copy-on-fork semantics.** Both the "shared"
-  default and the "isolated" alternative would be available;
-  `Local` would be one implementation, `FiberRef` another.
-- **Interrupt masking with restoration.** Nested
-  `uninterruptible` regions with `restore` blocks the way ZIO
-  does it.
-- **Fiber identity, naming, and supervision.** A real
-  `FiberId`, parent / child links, a `Supervisor` API, and a
-  `dump` that prints the fiber forest for stuck-fiber debugging.
-- **A real scheduler.** Priorities, yield-on-bind throttling,
-  a blocking-executor pool for synchronous I/O, optional
-  cooperative work-stealing if a backend ever supports it.
-- **Virtual time at the runtime layer.** `TestClock` style:
-  every timer, every sleep, every internal back-off becomes
-  virtualised, not just user-level `Clock.sleep`.
-- **Structured `Exit` to finalisers.** Releases receive an
-  `Exit e a` describing why they ran, without userland
-  bookkeeping.
-- **Cancellable Promise interop.** First-class
-  `AbortController` integration so killing a fiber actually
-  aborts in-flight `fetch` requests.
-- **Curated traces.** A logical effect-graph trace rather than
-  the host JS stack.
+- **`FiberRef` with copy-on-fork semantics.** Per-fiber state
+  that is shared until either side mutates and then forks
+  copy-on-write. `RIO.Fiber.Ref` is the primitive; `Local`-style
+  ambient state is one use of it.
+- **Interrupt masking with restoration.** `uninterruptible`
+  with a `restore` block, nested correctly, the way ZIO does it.
+- **Fiber identity and supervision.** A real `FiberId`, parent /
+  child links via `Scope`, a `Supervisor` API
+  (`RIO.Fiber.Supervisor`), and observer hooks for every fiber
+  start and end.
+- **Virtual time at the runtime layer.** `RIO.Fiber.TestClock`
+  drives every sleeping fiber: `advance n` finds every fiber
+  parked on a deadline `<= now + n` and resumes it. No more
+  Clock-discipline workaround.
+- **Structured `Exit` (`Cause`) to finalisers.** Releases see
+  the failure cause; `acquireReleaseCause` is the cause-tracking
+  variant.
+- **STM with `retry`-on-`TVar`-change.** Transactions park on
+  the set of `TVar`s they read and wake only when one of them
+  changes; no rerunning loop.
+- **Higher fork throughput.** `forkAll x16 + joinAll` runs at
+  roughly 5x the speed of `forkAff x16 + joinFiber` (a single
+  specialised op vs. a per-element bind chain).
 
-That is a substantial undertaking. ZIO has spent years on its
-runtime; Effect has rebuilt large parts of theirs more than
-once. Reusing `Aff` is the pragmatic choice while `rio` proves
-its surface and gathers users. Replacing `Aff` is the eventual
-escape hatch if the ceiling starts to bite.
+The pieces that remain runtime-level open work even with
+`rio-fiber` on the table:
+
+- **Cancellable Promise interop.** Killing a fiber that is
+  parked inside a `fetch` does not, on its own, abort the
+  underlying request. `AbortController` plumbing is still
+  per-call userland today.
+- **Curated cause traces.** `prettyCause` renders the cause
+  tree well, but the stack frames it shows are JS frames, not a
+  logical "this is where the failure was raised, this is where
+  each handler caught and re-raised it" trace.
+- **Priority scheduling.** The fiber runtime is FIFO; there is
+  no notion of priority bands or yield-on-bind throttling.
+
+If `rio-fiber` covers your ceiling list, you can move there
+today. If your ceiling is in the second list above, both
+runtimes share it.
 
 ## What this means for users today
 
-If you are evaluating `rio` for production use, here is the
-honest summary:
+If you are evaluating the workspace for production use:
 
-- For the typical Node service (HTTP handlers, Postgres,
-  scheduled jobs, observability), `rio` is genuinely usable.
-  The ceilings above almost never come up because the workloads
-  are I/O bound, the fibers are short-lived, and the failure
-  modes are coarse-grained.
-- For anything CPU-heavy, latency-sensitive, or that needs to
-  introspect the fiber forest in production, those ceilings
-  will show. You can mitigate (route CPU work to a
-  `worker_threads` pool, instrument with `RIO.Tracer`, lean on
-  property tests), but you cannot remove them without replacing
-  the runtime.
-- For test stability, route every sleep through `Clock`. Treat
-  any direct `Aff.delay` as a smell in test setup. If you depend
-  on a third-party `Aff` library that sleeps internally, your
-  test clock will not catch it.
+- For new projects, pick [`rio-fiber`](../rio-fiber/). The
+  ceilings in this document do not apply: typed errors are
+  native, `Cause` is native, `FiberRef` and structured
+  concurrency are real, the `TestClock` actually wakes fibers.
+- For projects that need to stay on `Aff` (existing codebase,
+  framework that hands you `Aff a` handlers, library you
+  depend on that runs the fiber), pick `rio-aff`. The
+  workloads where it shines are the typical Node service
+  shape: HTTP handlers, Postgres, scheduled jobs, observability.
+  The ceilings rarely show because the workloads are I/O bound,
+  the fibers are short-lived, and the failure modes are
+  coarse-grained.
+- For CPU-heavy, latency-sensitive, or fiber-introspection
+  workloads on `rio-aff`, those ceilings will show. You can
+  mitigate (route CPU work to a `worker_threads` pool,
+  instrument with `RIO.Aff.Tracer`, lean on property tests),
+  but you cannot remove them without replacing the runtime.
+  In that case, switch to `rio-fiber`.
+- For test stability on `rio-aff`, route every sleep through
+  `Clock`. Treat any direct `Aff.delay` as a smell in test
+  setup. If you depend on a third-party `Aff` library that
+  sleeps internally, your test clock will not catch it.
+  `rio-fiber`'s `TestClock` does not have this problem because
+  it wakes parked fibers directly.
 - For typed-error ergonomics and service injection, you get the
-  full ZIO / Effect feel; those are language-level features
-  carried by PureScript's row types, not runtime features, and
-  they do not depend on `Aff` at all.
-- For cancellation correctness, prefer `acquireRelease` and
-  `Scope` over manual cleanup. They wrap `Aff.bracket` and
-  inherit its guarantees; ad-hoc `try / finally` patterns in
-  FFI will not.
+  full ZIO / Effect feel on either runtime; those are
+  language-level features carried by PureScript's row types,
+  not runtime features.
+- For cancellation correctness on `rio-aff`, prefer
+  `acquireRelease` and `Scope` over manual cleanup. They wrap
+  `Aff.bracket` and inherit its guarantees. `rio-fiber`'s
+  cancellation model is structured: every interrupt is observed
+  at the next safe point and every finaliser runs in LIFO
+  order, with the failure cause visible to each finaliser via
+  `acquireReleaseCause`.
 
-In short: `rio` is `Aff` with a typed-services-and-errors front
-end and a structured-concurrency vocabulary. Treat the runtime
-ceiling above as the upper bound on what it can do, and the
-ZIO / Effect feature set as the eventual target. The gap is
-the work a future custom runtime would close.
+In short: `rio-aff` is `Aff` with a typed-services-and-errors
+front end and a structured-concurrency vocabulary; the runtime
+ceiling above is its upper bound. `rio-fiber` lifts that ceiling
+by owning the runtime. Pick `rio-fiber` for new work; pick
+`rio-aff` when staying on `Aff` is a hard requirement.
 
 ## Pointers
 

@@ -14,7 +14,7 @@ import Data.Variant as Variant
 import Effect.Aff (Milliseconds(..), delay, error, forkAff, killFiber)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
-import Effect.Exception (error) as Exception
+import Effect.Exception (error, message) as Exception
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -27,12 +27,19 @@ import RIO.Aff.Cause
   , bothPar
   , concatParallel
   , concatSequential
+  , firstDefect
+  , firstFailure
+  , flatten
   , fromOutcome
+  , mapFailures
   , parSequenceCause
   , parTraverseCause
   , prettyCause
   , prettyCauseWithStack
   , raceCause
+  , squash
+  , stripDefects
+  , stripFailures
   )
 import RIO.Aff.Core (RIO, die, fail, runRIO, runRIO')
 
@@ -631,6 +638,162 @@ spec = do
                   <> "  defect: close failed"
               )
           Left _ -> shouldEqual "" "expected Right"
+
+    describe "firstFailure" do
+      it "returns the leftmost typed failure in a parallel tree" do
+        let
+          v1 = Variant.inj (Proxy :: Proxy "boom") "a" :: Variant Errs
+          v2 = Variant.inj (Proxy :: Proxy "oops") 5 :: Variant Errs
+          tree = Parallel (Fail v1) (Fail v2)
+        case firstFailure tree of
+          Just _ -> pure unit
+          Nothing -> shouldEqual "" "expected Just"
+
+      it "skips defects and finds the failure on the right" do
+        let
+          v = Variant.inj (Proxy :: Proxy "oops") 5 :: Variant Errs
+          tree = Sequential (Die (Exception.error "x")) (Fail v)
+        case firstFailure tree of
+          Just _ -> pure unit
+          Nothing -> shouldEqual "" "expected Just"
+
+      it "returns Nothing for a defect-only tree" do
+        let
+          tree :: Cause Errs
+          tree = Parallel
+            (Die (Exception.error "a"))
+            (Die (Exception.error "b"))
+        firstFailure tree `shouldEqual` Nothing
+
+    describe "firstDefect" do
+      it "returns the leftmost defect in a sequential tree" do
+        let
+          tree :: Cause Errs
+          tree = Sequential (Die (Exception.error "first")) (Die (Exception.error "second"))
+        case firstDefect tree of
+          Just err -> (Exception.message err) `shouldEqual` "first"
+          Nothing -> shouldEqual "" "expected Just"
+
+      it "skips typed failures and finds the defect on the right" do
+        let
+          v = Variant.inj (Proxy :: Proxy "boom") "x" :: Variant Errs
+          tree :: Cause Errs
+          tree = Parallel (Fail v) (Die (Exception.error "boom!"))
+        case firstDefect tree of
+          Just err -> (Exception.message err) `shouldEqual` "boom!"
+          Nothing -> shouldEqual "" "expected Just"
+
+      it "returns Nothing for a failure-only tree" do
+        let
+          v1 = Variant.inj (Proxy :: Proxy "boom") "a" :: Variant Errs
+          v2 = Variant.inj (Proxy :: Proxy "oops") 1 :: Variant Errs
+          tree = Sequential (Fail v1) (Fail v2)
+        case firstDefect tree of
+          Nothing -> pure unit
+          Just _ -> shouldEqual "" "expected Nothing"
+
+    describe "mapFailures" do
+      it "transforms typed failures while preserving structure" do
+        let
+          v1 = Variant.inj (Proxy :: Proxy "boom") "a" :: Variant Errs
+          v2 = Variant.inj (Proxy :: Proxy "boom") "b" :: Variant Errs
+          tree = Parallel (Fail v1) (Sequential (Fail v2) (Die (Exception.error "d")))
+          mapped = mapFailures
+            ( Variant.over { boom: \s -> "[mapped]" <> s } )
+            tree
+        case mapped of
+          Parallel (Fail _) (Sequential (Fail _) (Die _)) -> pure unit
+          _ -> shouldEqual "" "expected the same shape"
+        (prettyCause renderErrs mapped) `shouldEqual`
+          ( "parallel failures:\n"
+              <> "  fail: boom: [mapped]a\n"
+              <> "  sequenced failures:\n"
+              <> "    fail: boom: [mapped]b\n"
+              <> "    defect: d"
+          )
+
+    describe "stripFailures" do
+      it "drops every typed failure, keeping only defects" do
+        let
+          v = Variant.inj (Proxy :: Proxy "boom") "x" :: Variant Errs
+          tree = Parallel (Fail v) (Die (Exception.error "d"))
+        case stripFailures tree of
+          Just (Die _) -> pure unit
+          _ -> shouldEqual "" "expected Just (Die _)"
+
+      it "returns Nothing when every leaf is a typed failure" do
+        let
+          v1 = Variant.inj (Proxy :: Proxy "boom") "a" :: Variant Errs
+          v2 = Variant.inj (Proxy :: Proxy "oops") 1 :: Variant Errs
+          tree = Sequential (Fail v1) (Fail v2)
+        case stripFailures tree of
+          Nothing -> pure unit
+          Just _ -> shouldEqual "" "expected Nothing"
+
+      it "preserves the surrounding tree shape when both branches keep defects" do
+        let
+          v = Variant.inj (Proxy :: Proxy "boom") "x" :: Variant Errs
+          tree = Sequential
+            (Parallel (Fail v) (Die (Exception.error "d1")))
+            (Die (Exception.error "d2"))
+        case stripFailures tree of
+          Just (Sequential (Die _) (Die _)) -> pure unit
+          _ -> shouldEqual "" "expected Sequential (Die _) (Die _)"
+
+    describe "stripDefects" do
+      it "drops every defect, keeping only typed failures" do
+        let
+          v = Variant.inj (Proxy :: Proxy "boom") "x" :: Variant Errs
+          tree :: Cause Errs
+          tree = Parallel (Die (Exception.error "d")) (Fail v)
+        case stripDefects tree of
+          Just (Fail _) -> pure unit
+          _ -> shouldEqual "" "expected Just (Fail _)"
+
+      it "returns Nothing when every leaf is a defect" do
+        let
+          tree :: Cause Errs
+          tree = Sequential
+            (Die (Exception.error "a"))
+            (Die (Exception.error "b"))
+        case stripDefects tree of
+          Nothing -> pure unit
+          Just _ -> shouldEqual "" "expected Nothing"
+
+    describe "flatten" do
+      it "collects every failure and defect, discarding the tree shape" do
+        let
+          v1 = Variant.inj (Proxy :: Proxy "boom") "a" :: Variant Errs
+          v2 = Variant.inj (Proxy :: Proxy "oops") 7 :: Variant Errs
+          tree = Sequential
+            (Parallel (Fail v1) (Die (Exception.error "d1")))
+            (Fail v2)
+          out = flatten tree
+        (Array.length out.failures) `shouldEqual` 2
+        (Array.length out.defects) `shouldEqual` 1
+
+      it "yields empty arrays for the complementary leaf kind" do
+        let
+          v = Variant.inj (Proxy :: Proxy "boom") "x" :: Variant Errs
+          out = flatten (Fail v :: Cause Errs)
+        (Array.length out.failures) `shouldEqual` 1
+        (Array.length out.defects) `shouldEqual` 0
+
+    describe "squash" do
+      it "prefers the first defect over any typed failure" do
+        let
+          v = Variant.inj (Proxy :: Proxy "boom") "x" :: Variant Errs
+          tree :: Cause Errs
+          tree = Parallel (Fail v) (Die (Exception.error "the-defect"))
+          err = squash (\_ -> Exception.error "RENDERED") tree
+        (Exception.message err) `shouldEqual` "the-defect"
+
+      it "falls back to rendering the first typed failure when there are no defects" do
+        let
+          v = Variant.inj (Proxy :: Proxy "boom") "leaf" :: Variant Errs
+          err = squash (\v' -> Exception.error (renderErrs v'))
+            (Fail v :: Cause Errs)
+        (Exception.message err) `shouldEqual` "boom: leaf"
 
 -- | Strip the leading `defect: kaboom` head, optionally followed
 -- | by a newline, from a `prettyCauseWithStack` rendering. Returns

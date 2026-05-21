@@ -13,6 +13,7 @@
 module RIO.Fiber.Logger
   ( Logger(..)
   , LogLevel(..)
+  , annotateLogs
   , defaultLogger
   , log
   , logAt
@@ -27,12 +28,15 @@ module RIO.Fiber.Logger
 
 import Prelude
 
+import Data.Array as Array
+import Data.String (joinWith) as String
+import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Console (log) as Console
 import Effect.Unsafe (unsafePerformEffect)
-import RIO.Fiber.Core (RIO, ensuring, liftEffect)
+import RIO.Fiber.Core (RIO, liftEffect)
 import RIO.Fiber.Internal (FiberRef)
-import RIO.Fiber.Ref (getFiberRef, newFiberRef, setFiberRef)
+import RIO.Fiber.Ref (getFiberRef, locally, newFiberRef, setFiberRef)
 
 -- | Standard log levels, ordered from least to most severe.
 data LogLevel = Debug | Info | Warn | Error
@@ -96,7 +100,37 @@ setLogger = setFiberRef loggerRef
 -- | Run `body` with `logger` as the active logger, restoring the
 -- | previous implementation on exit.
 withLogger :: forall r e a. Logger -> RIO r e a -> RIO r e a
-withLogger logger body = do
-  prev <- getLogger
-  setLogger logger
-  ensuring (setLogger prev) body
+withLogger logger body = locally loggerRef logger body
+
+-- | Tag every log message emitted by `body` with the given
+-- | annotations. The annotations are rendered as
+-- | `key=value key=value ` and prepended to the message string the
+-- | active logger receives.
+-- |
+-- | Annotations nest: an inner `annotateLogs` extends (rather than
+-- | replaces) the surrounding annotation set, and the outer
+-- | annotations are restored when the inner block exits.
+-- |
+-- | The decoration happens by swapping the active logger via
+-- | `withLogger`, so the body's nested `withLogger` calls win:
+-- | replacing the logger inside an `annotateLogs` block drops the
+-- | annotations for the duration of that inner block. Pass the
+-- | annotations to your replacement logger explicitly if you need
+-- | both.
+annotateLogs
+  :: forall r e a
+   . Array (Tuple String String)
+  -> RIO r e a
+  -> RIO r e a
+annotateLogs annotations body
+  | Array.null annotations = body
+  | otherwise = do
+      Logger l <- getLogger
+      let
+        rendered =
+          String.joinWith " "
+            (map (\(Tuple k v) -> k <> "=" <> v) annotations)
+        wrapped = Logger
+          { emit: \level msg -> l.emit level (rendered <> " " <> msg)
+          }
+      withLogger wrapped body

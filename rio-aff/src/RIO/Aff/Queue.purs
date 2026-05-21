@@ -18,15 +18,21 @@
 -- | a waiting taker or appends to the body.
 module RIO.Aff.Queue
   ( Queue
+  , Strategy(..)
   , bounded
+  , dropping
   , offer
   , offerAll
   , poll
   , shutdown
   , size
+  , sliding
+  , strategy
   , take
   , takeAll
   , takeUpTo
+  , tryOffer
+  , tryTake
   , unbounded
   ) where
 
@@ -42,6 +48,25 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
 import RIO.Aff.Internal (RIO(..), mkEffectRIO, mkRIO)
+
+-- | How the queue behaves when an `offer` arrives at a full
+-- | bounded queue.
+-- |
+-- |   * `BackPressure`: offer suspends until a slot frees up.
+-- |   * `Dropping`: the offered element is dropped; offer returns
+-- |     immediately. `tryOffer` returns `false` to signal the drop.
+-- |   * `Sliding`: the oldest stored element is evicted to make
+-- |     room for the new one; offer always succeeds.
+-- |
+-- | Unbounded queues never reach a full state, so the strategy is
+-- | not consulted; reading `strategy` on an unbounded queue still
+-- | returns the value the constructor recorded (`BackPressure`).
+data Strategy
+  = BackPressure
+  | Dropping
+  | Sliding
+
+derive instance eqStrategy :: Eq Strategy
 
 -- | A blocked taker.
 type Taker a =
@@ -61,6 +86,7 @@ type State a =
   , takers :: Array (Taker a)
   , offerers :: Array (Offerer a)
   , capacity :: Maybe Int
+  , strategy :: Strategy
   , isShutdown :: Boolean
   , nextTag :: Int
   }
@@ -77,6 +103,7 @@ unbounded = do
     , takers: []
     , offerers: []
     , capacity: Nothing
+    , strategy: BackPressure
     , isShutdown: false
     , nextTag: 0
     }
@@ -92,10 +119,48 @@ bounded n = do
     , takers: []
     , offerers: []
     , capacity: Just (max 0 n)
+    , strategy: BackPressure
     , isShutdown: false
     , nextTag: 0
     }
   pure (Queue ref)
+
+-- | Allocate a bounded queue that drops new offers when full.
+-- | `offer` always returns immediately; use `tryOffer` to learn
+-- | whether the element was accepted or dropped.
+dropping :: forall a. Int -> Effect (Queue a)
+dropping n = do
+  ref <- Ref.new
+    { items: []
+    , takers: []
+    , offerers: []
+    , capacity: Just (max 0 n)
+    , strategy: Dropping
+    , isShutdown: false
+    , nextTag: 0
+    }
+  pure (Queue ref)
+
+-- | Allocate a bounded queue that evicts the oldest stored
+-- | element to make room when full. `offer` always returns
+-- | immediately and is always accepted.
+sliding :: forall a. Int -> Effect (Queue a)
+sliding n = do
+  ref <- Ref.new
+    { items: []
+    , takers: []
+    , offerers: []
+    , capacity: Just (max 0 n)
+    , strategy: Sliding
+    , isShutdown: false
+    , nextTag: 0
+    }
+  pure (Queue ref)
+
+-- | Read the offer strategy. Returned in `RIO` for symmetry with
+-- | the other inspectors; advisory (does not block).
+strategy :: forall r e a. Queue a -> RIO r e Strategy
+strategy (Queue ref) = mkEffectRIO \_ -> _.strategy <$> Ref.read ref
 
 -- | Current size. Advisory: producers and consumers may change it
 -- | between the read and any subsequent action.
@@ -153,10 +218,18 @@ takeAff ref = makeAff \resume -> do
                 ref
           )
 
--- | Enqueue a value. On unbounded queues this is non-blocking and
--- | always returns `true`. On bounded queues it blocks while the
--- | queue is at capacity, returning `false` only if the queue is
--- | shut down before the offer is accepted.
+-- | Enqueue a value. Return shape depends on the queue's strategy:
+-- |
+-- |   * Unbounded: non-blocking, always returns `true`.
+-- |   * `BackPressure` (the default for `bounded`): blocks while
+-- |     the queue is full, returns `true` once accepted, returns
+-- |     `false` if the queue is shut down before the offer
+-- |     completes.
+-- |   * `Dropping`: never blocks; returns `true` if the element
+-- |     made it into the queue, `false` if it was dropped because
+-- |     the queue was full.
+-- |   * `Sliding`: never blocks; always returns `true`. The
+-- |     oldest stored element is evicted when full.
 offer :: forall r e a. Queue a -> a -> RIO r e Boolean
 offer (Queue ref) a = mkRIO \_ -> offerAff ref a
 
@@ -174,36 +247,92 @@ offerAff ref a = makeAff \resume -> do
       pure nonCanceler
     Nothing ->
       case state.capacity of
-        Just cap | Array.length state.items >= cap -> do
-          let tag = state.nextTag
-          let
-            offerer =
-              { tag
-              , value: a
-              , resume: \ok -> resume (Right ok)
-              }
-          Ref.write
-            ( state
-                { nextTag = state.nextTag + 1
-                , offerers = Array.snoc state.offerers offerer
-                }
-            )
-            ref
-          pure
-            ( Canceler \_ -> liftEffect do
-                s' <- Ref.read ref
-                Ref.write
-                  ( s'
-                      { offerers = Array.filter (\o -> o.tag /= tag)
-                          s'.offerers
-                      }
-                  )
-                  ref
-            )
+        Just cap | Array.length state.items >= cap ->
+          case state.strategy of
+            BackPressure -> do
+              let tag = state.nextTag
+              let
+                offerer =
+                  { tag
+                  , value: a
+                  , resume: \ok -> resume (Right ok)
+                  }
+              Ref.write
+                ( state
+                    { nextTag = state.nextTag + 1
+                    , offerers = Array.snoc state.offerers offerer
+                    }
+                )
+                ref
+              pure
+                ( Canceler \_ -> liftEffect do
+                    s' <- Ref.read ref
+                    Ref.write
+                      ( s'
+                          { offerers = Array.filter (\o -> o.tag /= tag)
+                              s'.offerers
+                          }
+                      )
+                      ref
+                )
+            Dropping -> do
+              resume (Right false)
+              pure nonCanceler
+            Sliding -> do
+              let
+                newItems = case Array.uncons state.items of
+                  Just { tail } -> Array.snoc tail a
+                  Nothing -> Array.snoc state.items a
+              Ref.write (state { items = newItems }) ref
+              resume (Right true)
+              pure nonCanceler
         _ -> do
           Ref.write (state { items = Array.snoc state.items a }) ref
           resume (Right true)
           pure nonCanceler
+
+-- | Non-blocking enqueue. Returns `true` if the element was
+-- | accepted (handed directly to a waiting taker, appended, or
+-- | made room for via `Sliding`), `false` otherwise:
+-- |
+-- |   * Unbounded: always returns `true`.
+-- |   * `BackPressure` at capacity: returns `false` without
+-- |     enqueueing (since a real `offer` would block).
+-- |   * `Dropping` at capacity: returns `false` (the value is
+-- |     silently dropped).
+-- |   * `Sliding` at capacity: evicts the oldest element, appends
+-- |     the new one, returns `true`.
+-- |   * Shutdown queues: returns `false`.
+tryOffer :: forall r e a. Queue a -> a -> RIO r e Boolean
+tryOffer (Queue ref) a = mkEffectRIO \_ -> do
+  state <- Ref.read ref
+  if state.isShutdown then pure false
+  else case Array.uncons state.takers of
+    Just { head, tail } -> do
+      Ref.write (state { takers = tail }) ref
+      head.resume (Just a)
+      pure true
+    Nothing ->
+      case state.capacity of
+        Just cap | Array.length state.items >= cap ->
+          case state.strategy of
+            BackPressure -> pure false
+            Dropping -> pure false
+            Sliding -> do
+              let
+                newItems = case Array.uncons state.items of
+                  Just { tail } -> Array.snoc tail a
+                  Nothing -> Array.snoc state.items a
+              Ref.write (state { items = newItems }) ref
+              pure true
+        _ -> do
+          Ref.write (state { items = Array.snoc state.items a }) ref
+          pure true
+
+-- | Non-blocking dequeue. An alias for `poll`, named to match the
+-- | rio-fiber spelling. Returns `Nothing` if the queue is empty.
+tryTake :: forall r e a. Queue a -> RIO r e (Maybe a)
+tryTake = poll
 
 -- | Offer every element of an array in order. On unbounded queues
 -- | this is always non-blocking; on bounded queues it blocks behind

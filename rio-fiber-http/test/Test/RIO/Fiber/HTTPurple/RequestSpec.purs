@@ -3,7 +3,6 @@ module Test.RIO.Fiber.HTTPurple.RequestSpec (spec) where
 import Prelude
 
 import Data.Tuple (Tuple(..))
-import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Test.Spec (Spec, describe, it)
@@ -95,7 +94,7 @@ spec = describe "RIO.Fiber.HTTPurple.Request" do
       ctx <- liftEffect
         (mkRequestContext { headerName: defaultRequestIdHeader, counter } absent)
       ctx.requestId `shouldEqual` "req-1"
-      finalCount <- liftAff (liftEffect (Ref.read counter))
+      finalCount <- liftEffect (Ref.read counter)
       finalCount `shouldEqual` 1
 
     it "captures the method and url from the request" do

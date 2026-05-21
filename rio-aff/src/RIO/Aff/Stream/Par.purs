@@ -17,6 +17,19 @@
 -- | element goes to exactly one bucket selected by a key function,
 -- | so the N consumers see disjoint slices of the input.
 -- |
+-- | `mapPar` is the bounded-concurrency `map`: each upstream
+-- | element is handed to one of `n` worker fibers that all run
+-- | the same effectful function, but the output stream still
+-- | yields elements in upstream order. Round-robin dispatch plus
+-- | round-robin collection is what preserves the order.
+-- |
+-- | `zipPar` pulls one element from each of two upstreams in
+-- | parallel and pairs them; the output ends as soon as either
+-- | upstream ends. `zipLatest` and `zipLatestWith` are the
+-- | "latest value from each side" variants: each new element from
+-- | either side emits a pair with the most recent value from the
+-- | other side, after both sides have produced at least once.
+-- |
 -- | All combinators here share the same failure model: the *first*
 -- | typed failure or defect observed in any producer shuts the
 -- | shared queue down. Sibling producers are still running at that
@@ -40,10 +53,16 @@
 -- | ```
 module RIO.Aff.Stream.Par
   ( broadcast
+  , mapPar
+  , mapRIOPar
   , merge
   , mergeAll
   , mergeMap
   , partition
+  , partitionEither
+  , zipLatest
+  , zipLatestWith
+  , zipPar
   ) where
 
 import Prelude
@@ -51,17 +70,21 @@ import Prelude
 import Control.Monad.Error.Class (throwError)
 import Data.Array as Array
 import Data.Either (Either(..))
+import Data.Foldable (for_)
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse, traverse_)
+import Data.Tuple (Tuple(..))
 import Effect.Aff (error) as Aff
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 
 import RIO.Aff.Cause (Cause(..), attemptCause)
 import RIO.Aff.Concurrency (fork)
+import RIO.Aff.Concurrency (zipPar) as Concurrency
 import RIO.Aff.Internal (RIO(..), mkRIO, rioFail)
 import RIO.Aff.Queue (Queue)
 import RIO.Aff.Queue as Queue
+import RIO.Aff.STM (TVar, atomically, newTVar, readTVar, writeTVar)
 import RIO.Aff.Stream (Step(..), Stream(..), unStream)
 
 -- | The bounded-queue capacity used by `mergeAll`. Small enough to
@@ -192,6 +215,275 @@ partition n bufferSize toBucket upstream
       _ <- fork
         (partitionProducer n queues failureRef toBucket upstream)
       pure (map (\q -> consumer q failureRef) queues)
+
+-- | Split a stream of `Either l x` into two streams: `lefts`
+-- | carries every `Left l`, `rights` carries every `Right x`. The
+-- | source is consumed once by a forked pump that routes each
+-- | element into the appropriate output queue and propagates
+-- | end-of-stream to both sides on completion.
+-- |
+-- | Each output queue is bounded (capacity `defaultBuffer`). A slow
+-- | consumer on one side backpressures the pump, which in turn
+-- | pauses the other; consume both streams in parallel to keep
+-- | things flowing.
+-- |
+-- | Failure model matches `mergeAll`: the first observed
+-- | producer-side typed failure or defect shuts both queues down,
+-- | and either consumer surfaces the same captured cause on its
+-- | next pull.
+partitionEither
+  :: forall r e l x
+   . Stream r e (Either l x)
+  -> RIO r e { lefts :: Stream r e l, rights :: Stream r e x }
+partitionEither upstream = do
+  leftQ <- liftEffect (Queue.bounded defaultBuffer)
+  rightQ <- liftEffect (Queue.bounded defaultBuffer)
+  failureRef <- liftEffect (Ref.new (Nothing :: Maybe (Cause e)))
+  _ <- fork (partitionEitherProducer leftQ rightQ failureRef upstream)
+  pure
+    { lefts: consumer leftQ failureRef
+    , rights: consumer rightQ failureRef
+    }
+
+-- | Bounded-concurrency `map`: apply `f` to each upstream element
+-- | with at most `n` invocations running concurrently. Output order
+-- | matches upstream order.
+-- |
+-- | Each upstream element is dispatched round-robin to one of `n`
+-- | worker fibers; the collector reads results back in the same
+-- | round-robin sequence so the ordering is preserved even when
+-- | workers finish in a different order. `n` is clamped to at
+-- | least 1.
+-- |
+-- | Failure model: the first typed failure or defect from any
+-- | worker (or from the upstream pull itself) shuts the pipeline
+-- | down and is propagated downstream on the next pull. Siblings
+-- | that are already running finish into a closed queue; their
+-- | results are dropped.
+mapPar
+  :: forall r e a b
+   . Int
+  -> (a -> RIO r e b)
+  -> Stream r e a
+  -> Stream r e b
+mapPar n f upstream = Stream do
+  let k = max 1 n
+  reqs <- liftEffect
+    (traverse (\_ -> Queue.bounded 1) (Array.range 1 k))
+  resps <- liftEffect
+    (traverse (\_ -> Queue.bounded 1) (Array.range 1 k))
+  failureRef <- liftEffect (Ref.new (Nothing :: Maybe (Cause e)))
+  _ <- fork (mapParDispatch reqs upstream failureRef)
+  for_ (Array.zip reqs resps) \(Tuple req resp) ->
+    fork (mapParWorker f req resp failureRef)
+  unStream (mapParCollect resps 0 k failureRef)
+
+-- | Parallel `mapM` that does NOT preserve input order. Each worker
+-- | shoves its completed result onto a shared bounded output queue
+-- | as soon as it's ready, so a fast element can overtake a slow one
+-- | ahead of it. Use this when the downstream consumer is order-
+-- | insensitive (folding into a `Set`, sending to a sink keyed by the
+-- | element).
+-- |
+-- | `concurrency` is clamped to at least 1; passing 1 collapses to
+-- | sequential mapping (no reordering happens because there is no
+-- | parallelism).
+-- |
+-- | Failure model matches `mapPar`: the first typed failure or defect
+-- | from any worker (or from the upstream pull) shuts the pipeline
+-- | down and is propagated downstream on the next pull. Siblings
+-- | already in flight finish into a closed queue and their results
+-- | are dropped.
+mapRIOPar
+  :: forall r e a b
+   . Int
+  -> (a -> RIO r e b)
+  -> Stream r e a
+  -> Stream r e b
+mapRIOPar concurrency f upstream = Stream do
+  let k = max 1 concurrency
+  inQ <- liftEffect (Queue.bounded k)
+  outQ <- liftEffect (Queue.bounded defaultBuffer)
+  remainingRef <- liftEffect (Ref.new k)
+  failureRef <- liftEffect (Ref.new (Nothing :: Maybe (Cause e)))
+  traverse_ (\_ -> fork (mapRIOParWorker f inQ outQ remainingRef failureRef))
+    (Array.range 1 k)
+  _ <- fork (mapRIOParDispatch inQ upstream failureRef)
+  unStream (consumer outQ failureRef)
+
+-- | The dispatcher side of `mapRIOPar`: drains upstream under
+-- | `attemptCause` and offers each value onto the shared input queue.
+-- | On completion or failure, shuts the input queue down so every
+-- | worker observes end-of-input and exits.
+mapRIOParDispatch
+  :: forall r e a
+   . Queue a
+  -> Stream r e a
+  -> Ref.Ref (Maybe (Cause e))
+  -> RIO r () Unit
+mapRIOParDispatch inQ upstream failureRef = do
+  outcome <- attemptCause (drain upstream)
+  case outcome of
+    Right _ -> Queue.shutdown inQ
+    Left cause -> do
+      liftEffect
+        ( Ref.modify_
+            ( case _ of
+                Nothing -> Just cause
+                existing -> existing
+            )
+            failureRef
+        )
+      Queue.shutdown inQ
+  where
+  drain :: Stream r e a -> RIO r e Unit
+  drain s = do
+    step <- unStream s
+    case step of
+      Done -> pure unit
+      Yield a rest -> do
+        _ <- Queue.offer inQ a
+        drain rest
+
+-- | One `mapRIOPar` worker: pulls from the shared input queue, runs
+-- | `f` under `attemptCause`, and offers each result onto the shared
+-- | output queue. On `f` failure, records the cause and shuts the
+-- | output queue down so the consumer wakes up; on input-queue
+-- | shutdown, decrements the remaining-workers counter and (when
+-- | last) shuts the output queue down for end-of-stream.
+mapRIOParWorker
+  :: forall r e a b
+   . (a -> RIO r e b)
+  -> Queue a
+  -> Queue b
+  -> Ref.Ref Int
+  -> Ref.Ref (Maybe (Cause e))
+  -> RIO r () Unit
+mapRIOParWorker f inQ outQ remainingRef failureRef = go
+  where
+  go = do
+    ma <- Queue.take inQ
+    case ma of
+      Nothing -> do
+        decremented <- liftEffect (Ref.modify (_ - 1) remainingRef)
+        when (decremented <= 0) (Queue.shutdown outQ)
+      Just a -> do
+        outcome <- attemptCause (f a)
+        case outcome of
+          Right b -> do
+            _ <- Queue.offer outQ b
+            go
+          Left cause -> do
+            liftEffect
+              ( Ref.modify_
+                  ( case _ of
+                      Nothing -> Just cause
+                      existing -> existing
+                  )
+                  failureRef
+              )
+            Queue.shutdown outQ
+
+-- | Pull one element from each of two upstreams in parallel and
+-- | pair them with `Tuple`. The output stream ends as soon as
+-- | either upstream ends; any element already pulled from the
+-- | longer side is discarded.
+-- |
+-- | The two pulls run under `Concurrency.zipPar`, so a typed
+-- | failure on either side cancels the sibling and surfaces on the
+-- | parent's row.
+zipPar
+  :: forall r e a b
+   . Stream r e a
+  -> Stream r e b
+  -> Stream r e (Tuple a b)
+zipPar sa sb = Stream do
+  Tuple stepA stepB <- Concurrency.zipPar (unStream sa) (unStream sb)
+  case stepA, stepB of
+    Yield a restA, Yield b restB ->
+      pure (Yield (Tuple a b) (zipPar restA restB))
+    _, _ -> pure Done
+
+-- | Pair every new element from either upstream with the most
+-- | recent value from the other side. The output starts producing
+-- | once both sides have yielded at least once and continues until
+-- | both sides have ended.
+-- |
+-- | Both upstreams are drained on their own fibers; the latest
+-- | value from each side lives in a `TVar`, and each new yield
+-- | atomically updates its own `TVar` and reads the other's. When
+-- | both are populated the combined value lands on a shared
+-- | bounded output queue.
+-- |
+-- | Failure model matches `mergeAll`: the first observed typed
+-- | failure or defect on either side shuts the output queue down
+-- | and is propagated on the next pull.
+zipLatest
+  :: forall r e a b
+   . Stream r e a
+  -> Stream r e b
+  -> Stream r e (Tuple a b)
+zipLatest = zipLatestWith Tuple
+
+-- | `zipLatest` with a user-supplied combiner.
+zipLatestWith
+  :: forall r e a b c
+   . (a -> b -> c)
+  -> Stream r e a
+  -> Stream r e b
+  -> Stream r e c
+zipLatestWith f sa sb = Stream do
+  output <- liftEffect (Queue.bounded defaultBuffer)
+  latestA <- atomically (newTVar (Nothing :: Maybe a))
+  latestB <- atomically (newTVar (Nothing :: Maybe b))
+  remaining <- liftEffect (Ref.new 2)
+  failureRef <- liftEffect (Ref.new (Nothing :: Maybe (Cause e)))
+  _ <- fork
+    (zipLatestSide sa latestA latestB f output remaining failureRef)
+  _ <- fork
+    ( zipLatestSide sb latestB latestA (flip f) output remaining
+        failureRef
+    )
+  unStream (consumer output failureRef)
+
+-- | The producer side of `partitionEither`: drains upstream under
+-- | `attemptCause`, routes each element to one of the two queues,
+-- | and shuts both queues down on completion or failure.
+partitionEitherProducer
+  :: forall r e l x
+   . Queue l
+  -> Queue x
+  -> Ref.Ref (Maybe (Cause e))
+  -> Stream r e (Either l x)
+  -> RIO r () Unit
+partitionEitherProducer leftQ rightQ failureRef upstream = do
+  outcome <- attemptCause (drainTo upstream)
+  case outcome of
+    Right _ -> do
+      Queue.shutdown leftQ
+      Queue.shutdown rightQ
+    Left cause -> do
+      liftEffect
+        ( Ref.modify_
+            ( case _ of
+                Nothing -> Just cause
+                existing -> existing
+            )
+            failureRef
+        )
+      Queue.shutdown leftQ
+      Queue.shutdown rightQ
+  where
+  drainTo :: Stream r e (Either l x) -> RIO r e Unit
+  drainTo s = do
+    step <- unStream s
+    case step of
+      Done -> pure unit
+      Yield e rest -> do
+        case e of
+          Left l -> void (Queue.offer leftQ l)
+          Right x -> void (Queue.offer rightQ x)
+        drainTo rest
 
 -- | The producer side of `partition`: drains upstream under
 -- | `attemptCause`, routes each element to a single bucket, and
@@ -346,3 +638,154 @@ propagateCause = case _ of
       ( Aff.error
           "RIO.Aff.Stream.Par: unexpected Sequential cause from a single producer"
       )
+
+-- | The dispatcher side of `mapPar`: pulls each upstream value and
+-- | offers it to the worker queue at the current round-robin index.
+-- | On upstream completion or failure, shuts every worker queue
+-- | down so workers exit cleanly.
+mapParDispatch
+  :: forall r e a
+   . Array (Queue a)
+  -> Stream r e a
+  -> Ref.Ref (Maybe (Cause e))
+  -> RIO r () Unit
+mapParDispatch reqs upstream failureRef = do
+  outcome <- attemptCause (drain upstream 0)
+  case outcome of
+    Right _ -> traverse_ Queue.shutdown reqs
+    Left cause -> do
+      liftEffect
+        ( Ref.modify_
+            ( case _ of
+                Nothing -> Just cause
+                existing -> existing
+            )
+            failureRef
+        )
+      traverse_ Queue.shutdown reqs
+  where
+  k = Array.length reqs
+  drain s i = do
+    step <- unStream s
+    case step of
+      Done -> pure unit
+      Yield a rest -> do
+        case Array.index reqs (i `mod` k) of
+          Just q -> void (Queue.offer q a)
+          Nothing -> pure unit
+        drain rest (i + 1)
+
+-- | One `mapPar` worker fiber: pulls from its request queue, runs
+-- | `f` under `attemptCause`, and offers the result on its response
+-- | queue. On dispatcher shutdown (`Nothing` from the request
+-- | queue), or on failure of `f`, shuts the response queue down so
+-- | the collector sees end-of-slot.
+mapParWorker
+  :: forall r e a b
+   . (a -> RIO r e b)
+  -> Queue a
+  -> Queue b
+  -> Ref.Ref (Maybe (Cause e))
+  -> RIO r () Unit
+mapParWorker f req resp failureRef = go
+  where
+  go = do
+    ma <- Queue.take req
+    case ma of
+      Nothing -> Queue.shutdown resp
+      Just a -> do
+        outcome <- attemptCause (f a)
+        case outcome of
+          Right b -> do
+            _ <- Queue.offer resp b
+            go
+          Left cause -> do
+            liftEffect
+              ( Ref.modify_
+                  ( case _ of
+                      Nothing -> Just cause
+                      existing -> existing
+                  )
+                  failureRef
+              )
+            Queue.shutdown resp
+
+-- | The collector side of `mapPar`: reads worker response queues
+-- | round-robin in the same order the dispatcher used, so the
+-- | output preserves upstream order. A `Nothing` from the current
+-- | slot ends the stream; if a captured cause is present, it is
+-- | re-raised on the downstream channel.
+mapParCollect
+  :: forall r e b
+   . Array (Queue b)
+  -> Int
+  -> Int
+  -> Ref.Ref (Maybe (Cause e))
+  -> Stream r e b
+mapParCollect resps i k failureRef = Stream do
+  case Array.index resps (i `mod` k) of
+    Nothing -> pure Done
+    Just q -> do
+      mb <- Queue.take q
+      case mb of
+        Just b ->
+          pure
+            ( Yield b (mapParCollect resps (i + 1) k failureRef)
+            )
+        Nothing -> do
+          mCause <- liftEffect (Ref.read failureRef)
+          case mCause of
+            Nothing -> pure Done
+            Just cause -> propagateCause cause
+
+-- | One producer fiber for `zipLatestWith`. Drains its own
+-- | upstream, writes each value into `self` and atomically reads
+-- | `other` to see whether a pair can be emitted. The `combine`
+-- | argument is the application's combiner for the "this side"
+-- | element first; the right-hand fiber passes `flip f` so both
+-- | fibers can share the same body.
+-- |
+-- | When the upstream ends naturally, decrements the `remaining`
+-- | counter and shuts the output queue down once both sides have
+-- | ended. On failure, records the cause and shuts the output
+-- | queue down immediately so the consumer surfaces it.
+zipLatestSide
+  :: forall r e a b c
+   . Stream r e a
+  -> TVar (Maybe a)
+  -> TVar (Maybe b)
+  -> (a -> b -> c)
+  -> Queue c
+  -> Ref.Ref Int
+  -> Ref.Ref (Maybe (Cause e))
+  -> RIO r () Unit
+zipLatestSide source self other combine output remaining failureRef =
+  do
+    outcome <- attemptCause (drain source)
+    case outcome of
+      Right _ -> do
+        r <- liftEffect (Ref.modify (_ - 1) remaining)
+        when (r <= 0) (Queue.shutdown output)
+      Left cause -> do
+        liftEffect
+          ( Ref.modify_
+              ( case _ of
+                  Nothing -> Just cause
+                  existing -> existing
+              )
+              failureRef
+          )
+        Queue.shutdown output
+  where
+  drain stream = do
+    step <- unStream stream
+    case step of
+      Done -> pure unit
+      Yield a rest -> do
+        mb <- atomically do
+          writeTVar self (Just a)
+          readTVar other
+        case mb of
+          Just b -> void (Queue.offer output (combine a b))
+          Nothing -> pure unit
+        drain rest

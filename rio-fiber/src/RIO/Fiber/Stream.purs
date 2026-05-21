@@ -7,23 +7,43 @@
 -- | unbounded producers, backpressure (each pull is explicit), and
 -- | failure (the pull RIO can raise typed errors or defects).
 -- |
--- | The MVP ships construction helpers (`empty`, `emit`, `fromArray`,
--- | `repeatRIO`, `fromQueue`), the obvious transforms (`map`,
--- | `filter`, `take`), and three terminations (`run`, `runCollect`,
--- | `fold`). Concurrency-shaped operators (merge, zipPar, channel)
--- | are left to later phases.
+-- | The surface covers construction (`empty`, `emit`, `fromArray`,
+-- | `repeatRIO`, `fromQueue`, `fromTQueue`), the usual transforms
+-- | (`map`, `filter`, `take`, `mapRIO`, `mapPar`, `throttle`,
+-- | `timeoutPerPull`), concurrency operators (`merge`, `zipPar`,
+-- | `broadcast`, `share`), and terminations (`run`, `runCollect`,
+-- | `fold`, `forEach`).
 module RIO.Fiber.Stream
   ( Stream(..)
   , Step(..)
+  , Emit(..)
+  , async
   , empty
   , emit
   , fromArray
+  , fromRIO
   , repeatRIO
   , fromQueue
   , fromTQueue
+  , fromHub
+  , tick
+  , range
+  , iterate
+  , unfold
+  , unfoldRIO
+  , paginate
+  , paginateRIO
+  , haltWhen
   , map
+  , mapRIO
   , filter
   , take
+  , takeUntil
+  , drop
+  , dropWhile
+  , dropUntil
+  , tap
+  , tapError
   , fold
   , forEach
   , run
@@ -31,8 +51,15 @@ module RIO.Fiber.Stream
   , runSink
   , via
   , buffer
+  , bufferDropping
+  , bufferSliding
+  , concat
+  , concatAll
   , merge
+  , mergeAll
+  , sliding
   , mapPar
+  , mapRIOPar
   , scan
   , mapAccum
   , intersperse
@@ -41,20 +68,35 @@ module RIO.Fiber.Stream
   , unchunked
   , mapChunks
   , groupBy
+  , zip
+  , zipWith
   , zipPar
+  , zipLatest
+  , zipLatestWith
+  , interleave
+  , partitionEither
+  , toQueue
+  , toHub
   , throttle
   , debounce
   , catchAll
   , retry
   , broadcast
   , share
+  , partitioned
+  , distinctBy
   , timeoutPerPull
   , acquireReleaseStream
+  , peel
+  , transduce
+  , aggregate
+  , aggregateWithin
+  , changes
   ) where
 
 import Prelude hiding (map)
 
-import Data.Array (index, range, snoc, uncons, zipWith)
+import Data.Array (index, snoc, uncons)
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
@@ -62,6 +104,8 @@ import Data.Traversable (traverse, traverse_)
 import Data.Tuple (Tuple(..))
 import Data.Either (Either(..))
 import Data.Variant (Variant)
+import Effect (Effect)
+import Effect.Exception (Error)
 import Effect.Ref as Ref
 import RIO.Fiber.Cause (Cause)
 import RIO.Fiber.Cause as Cause
@@ -70,6 +114,8 @@ import RIO.Fiber.Core (RIO)
 import RIO.Fiber.Core as F
 import RIO.Fiber.Hub (Hub)
 import RIO.Fiber.Hub as Hub
+import RIO.Fiber.Mailbox (Mailbox)
+import RIO.Fiber.Mailbox as Mailbox
 import RIO.Fiber.Queue (Queue)
 import RIO.Fiber.Queue as Q
 import RIO.Fiber.Schedule (Schedule)
@@ -77,8 +123,10 @@ import RIO.Fiber.Schedule as Sch
 import RIO.Fiber.Scope (Scope)
 import RIO.Fiber.Scope as Scope
 import RIO.Fiber.Pipe (Pipe(..))
-import RIO.Fiber.Sink (Sink(..))
+import RIO.Fiber.Sink (Sink(..), SinkLoop)
 import RIO.Fiber.STM as STM
+import RIO.Fiber.STM.TDeferred (TDeferred)
+import RIO.Fiber.STM.TDeferred as TDeferred
 import RIO.Fiber.STM.TQueue (TQueue)
 import RIO.Fiber.STM.TQueue as TQ
 import Unsafe.Coerce (unsafeCoerce)
@@ -91,6 +139,135 @@ newtype Stream r e a = Stream (RIO r e (Step r e a))
 data Step r e a
   = Done
   | Yield a (Stream r e a)
+
+-- | A push-side event delivered to the emit callback handed out by
+-- | `async`. Each call delivers exactly one of:
+-- |
+-- |   * `EmitValue a`     - emit a single element
+-- |   * `EmitEnd`         - end the stream cleanly (subsequent pulls return `Done`)
+-- |   * `EmitFailure v`   - terminate the stream with a typed failure
+-- |   * `EmitDefect e`    - terminate the stream with a defect
+-- |
+-- | Once any terminal event is delivered (`EmitEnd`, `EmitFailure`,
+-- | `EmitDefect`), later emits are ignored: the stream has already
+-- | committed to a single outcome.
+data Emit e a
+  = EmitValue a
+  | EmitEnd
+  | EmitFailure (Variant e)
+  | EmitDefect Error
+
+-- | Build a stream from an external push-style producer.
+-- |
+-- | `register` runs once (in `Effect`) at the first pull and receives
+-- | an emit callback that the producer uses to push `Emit` events. It
+-- | returns a best-effort cleanup `Effect` that is registered as a
+-- | finalizer on the supplied scope; the cleanup fires when the scope
+-- | closes, regardless of how the stream terminated (`EmitEnd`,
+-- | failure, defect, or downstream halt).
+-- |
+-- | The internal buffer is unbounded: emits never block and never drop
+-- | elements. If you need to bound memory under a slow consumer, layer
+-- | a bounded `Queue` between the producer and the stream or apply
+-- | `throttle` / `debounce` downstream.
+-- |
+-- | Typical use: bridge a callback-style source like a WebSocket or
+-- | DOM event handler into a `Stream`:
+-- |
+-- | ```purescript
+-- | Scope.scoped \scope -> do
+-- |   let
+-- |     events :: Stream r e Message
+-- |     events = S.async scope \emit -> do
+-- |       socket <- openSocket "..."
+-- |       onMessage socket (\msg -> emit (EmitValue msg))
+-- |       onClose socket (\_ -> emit EmitEnd)
+-- |       pure (closeSocket socket)
+-- |   S.runCollect (S.take 100 events)
+-- | ```
+async
+  :: forall r e a
+   . Scope
+  -> ((Emit e a -> Effect Unit) -> Effect (Effect Unit))
+  -> Stream r e a
+async scope register = Stream do
+  state <- F.liftEffect (Ref.new (initialAsyncState :: AsyncState e a))
+  cleanup <- F.liftEffect (register (asyncEmit state))
+  Scope.addFinalizer scope cleanup
+  case asyncLoop state of
+    Stream pull -> pull
+
+type AsyncState e a =
+  { buffer :: Array (Emit e a)
+  , waiter :: Maybe (Emit e a -> Effect Unit)
+  , halted :: Boolean
+  , terminal :: Maybe (Emit e a)
+  }
+
+initialAsyncState :: forall e a. AsyncState e a
+initialAsyncState =
+  { buffer: []
+  , waiter: Nothing
+  , halted: false
+  , terminal: Nothing
+  }
+
+asyncEmit
+  :: forall e a
+   . Ref.Ref (AsyncState e a)
+  -> Emit e a
+  -> Effect Unit
+asyncEmit ref event = do
+  st <- Ref.read ref
+  if st.halted then pure unit
+  else case st.waiter of
+    Just k -> do
+      Ref.write
+        (st { waiter = Nothing, halted = isTerminal event })
+        ref
+      k event
+    Nothing -> case event of
+      EmitValue _ ->
+        Ref.write (st { buffer = snoc st.buffer event }) ref
+      _ ->
+        -- Terminal event with no current waiter: stash it as `terminal`
+        -- so the next pull drains the buffer first, then surfaces the
+        -- terminal cause without admitting later emits.
+        Ref.write
+          (st { halted = true, terminal = Just event }) ref
+
+isTerminal :: forall e a. Emit e a -> Boolean
+isTerminal = case _ of
+  EmitValue _ -> false
+  _ -> true
+
+asyncLoop :: forall r e a. Ref.Ref (AsyncState e a) -> Stream r e a
+asyncLoop ref = Stream do
+  event <- F.async \cb -> do
+    st <- Ref.read ref
+    case uncons st.buffer of
+      Just { head, tail } -> do
+        Ref.write (st { buffer = tail }) ref
+        cb (Right head)
+        pure (pure unit)
+      Nothing -> case st.terminal of
+        Just term -> do
+          -- Consume the latched terminal; subsequent pulls return Done.
+          Ref.write (st { terminal = Nothing }) ref
+          cb (Right term)
+          pure (pure unit)
+        Nothing
+          | st.halted -> do
+              cb (Right EmitEnd)
+              pure (pure unit)
+          | otherwise -> do
+              Ref.write (st { waiter = Just (\e -> cb (Right e)) }) ref
+              pure (Ref.modify_ (_ { waiter = Nothing }) ref)
+  case event of
+    EmitValue a -> pure (Yield a (asyncLoop ref))
+    EmitEnd -> pure Done
+    EmitFailure v -> F.fail v
+    EmitDefect e -> F.die e
 
 -- | The empty stream. The first pull immediately signals `Done`.
 empty :: forall r e a. Stream r e a
@@ -107,6 +284,14 @@ fromArray xs = Stream
       Nothing -> Done
       Just { head, tail } -> Yield head (fromArray tail)
   )
+
+-- | A stream that runs `action` once on the first pull, yields the
+-- | result, then halts. The lifted action's failure / defect /
+-- | interrupt surfaces as the stream's pull outcome.
+fromRIO :: forall r e a. RIO r e a -> Stream r e a
+fromRIO action = Stream do
+  a <- action
+  pure (Yield a empty)
 
 -- | A stream that yields the result of running `action` on every
 -- | pull. Infinite: bound it with `take` or short-circuit via
@@ -132,6 +317,149 @@ fromTQueue q = Stream do
   a <- STM.atomically (TQ.readTQueue q)
   pure (Yield a (fromTQueue q))
 
+-- | A stream that subscribes to `hub` for the lifetime of `scope`
+-- | and pulls every message published from that point on. The
+-- | subscription is unregistered automatically when the scope
+-- | closes, even if the stream is dropped without exhausting it
+-- | (e.g. via an upstream `take`).
+-- |
+-- | Cold subscription: messages published before the first pull
+-- | are missed.
+fromHub :: forall r e a. Scope -> Hub a -> Stream r e a
+fromHub scope hub = acquireReleaseStream scope
+  (Hub.subscribe hub)
+  Hub.unsubscribe
+  drain
+  where
+  drain :: Hub.Subscription a -> Stream r e a
+  drain sub = Stream do
+    a <- Hub.take sub
+    pure (Yield a (drain sub))
+
+-- | A stream that yields `unit` once every `dur`, sleeping through
+-- | the gap. Infinite: bound with `take` or interrupt the consumer.
+-- | The first element is emitted after the first sleep, not at time
+-- | zero, matching the effect-ts convention.
+tick :: forall r e. Milliseconds -> Stream r e Unit
+tick dur = Stream do
+  Clock.sleep dur
+  pure (Yield unit (tick dur))
+
+-- | A stream of ascending integers from `start` (inclusive) to `end`
+-- | (exclusive). When `end <= start` the stream is empty.
+range :: forall r e. Int -> Int -> Stream r e Int
+range start end
+  | start >= end = empty
+  | otherwise = Stream do
+      s <- pure start
+      pure (Yield s (range (s + 1) end))
+
+-- | Iterate a pure function starting from `seed`, yielding every
+-- | intermediate value (including `seed`). Infinite: bound with
+-- | `take` or `haltWhen`.
+iterate :: forall r e a. a -> (a -> a) -> Stream r e a
+iterate seed step = Stream do
+  s <- pure seed
+  pure (Yield s (iterate (step s) step))
+
+-- | Build a stream by unfolding a seed with a pure step. The
+-- | generator returns `Nothing` to halt, or `Just (Tuple a s')` to
+-- | yield `a` and continue from `s'`.
+unfold
+  :: forall r e s a
+   . s
+  -> (s -> Maybe (Tuple a s))
+  -> Stream r e a
+unfold seed step = Stream do
+  pure (go (step seed))
+  where
+  go = case _ of
+    Nothing -> Done
+    Just (Tuple a s') -> Yield a (unfold s' step)
+
+-- | Build a stream by unfolding a seed with an effectful step. The
+-- | generator runs in `RIO`, so it may observe services or fail. Use
+-- | `unfold` when the step is pure.
+unfoldRIO
+  :: forall r e s a
+   . s
+  -> (s -> RIO r e (Maybe (Tuple a s)))
+  -> Stream r e a
+unfoldRIO seed step = Stream do
+  m <- step seed
+  case m of
+    Nothing -> pure Done
+    Just (Tuple a s') -> pure (Yield a (unfoldRIO s' step))
+
+-- | Page through a resource. Starting from `seed`, each call to the
+-- | step function returns a value to emit plus the next seed (or
+-- | `Nothing` to stop). Equivalent to `unfold` for a step that always
+-- | emits, then optionally terminates.
+-- |
+-- | Common shape for paginated APIs: the step performs the request
+-- | for the current page, emits the page (or its contents flattened
+-- | downstream), and returns the cursor for the next page or
+-- | `Nothing` when there are no more.
+paginate
+  :: forall r e s a
+   . s
+  -> (s -> Tuple a (Maybe s))
+  -> Stream r e a
+paginate seed step = Stream do
+  let Tuple a next = step seed
+  pure
+    ( Yield a case next of
+        Nothing -> empty
+        Just s' -> paginate s' step
+    )
+
+-- | Effectful variant of `paginate`. The step runs in `RIO` so it can
+-- | perform requests, observe services, or fail.
+paginateRIO
+  :: forall r e s a
+   . s
+  -> (s -> RIO r e (Tuple a (Maybe s)))
+  -> Stream r e a
+paginateRIO seed step = Stream do
+  Tuple a next <- step seed
+  pure
+    ( Yield a case next of
+        Nothing -> empty
+        Just s' -> paginateRIO s' step
+    )
+
+-- | Halt the upstream as soon as `signal` completes (with any
+-- | outcome). The signal is started once in a forked fiber; each
+-- | subsequent pull races the upstream against the shared completion
+-- | flag. The first upstream element after subscription is forwarded;
+-- | the moment `signal` resolves the stream emits `Done` without
+-- | pulling further.
+-- |
+-- | Typical use: `haltWhen (Deferred.await stopSignal) stream` lets
+-- | external code request graceful shutdown of an infinite stream.
+haltWhen :: forall r e a x. RIO r e x -> Stream r e a -> Stream r e a
+haltWhen signal source = Stream do
+  done <- F.liftEffect (TDeferred.make :: _ (TDeferred Unit))
+  _ <- F.fork do
+    _ <- signal
+    _ <- STM.atomically (TDeferred.complete done unit)
+    pure unit
+  case go done source of
+    Stream pull -> pull
+  where
+  go done (Stream pull) = Stream do
+    already <- STM.atomically (TDeferred.poll done)
+    case already of
+      Just _ -> pure Done
+      Nothing -> do
+        res <- F.race
+          (Right <$> pull)
+          (Left <$> STM.atomically (TDeferred.await done))
+        case res of
+          Left _ -> pure Done
+          Right Done -> pure Done
+          Right (Yield a rest) -> pure (Yield a (go done rest))
+
 -- | Transform every element with `f`. Lazy: the function runs as
 -- | elements are pulled.
 map :: forall r e a b. (a -> b) -> Stream r e a -> Stream r e b
@@ -140,6 +468,19 @@ map f (Stream pull) = Stream do
   pure case s of
     Done -> Done
     Yield a rest -> Yield (f a) (map f rest)
+
+-- | Transform every element with an effectful action. Sequential:
+-- | each element is awaited before the next is pulled. For
+-- | concurrent mapping, use `mapPar` (order-preserving) or
+-- | `mapRIOPar` (unordered).
+mapRIO :: forall r e a b. (a -> RIO r e b) -> Stream r e a -> Stream r e b
+mapRIO f (Stream pull) = Stream do
+  s <- pull
+  case s of
+    Done -> pure Done
+    Yield a rest -> do
+      b <- f a
+      pure (Yield b (mapRIO f rest))
 
 -- | Keep only elements satisfying `p`. Pulls the upstream stream
 -- | until a matching element appears or it ends.
@@ -165,6 +506,89 @@ take n s
         pure case step of
           Done -> Done
           Yield a rest -> Yield a (take (n - 1) rest)
+
+-- | Yield elements until `p` matches an element, then stop. The
+-- | matching element IS included in the output. If the stream ends
+-- | before any element matches, every element is forwarded.
+takeUntil :: forall r e a. (a -> Boolean) -> Stream r e a -> Stream r e a
+takeUntil p = go
+  where
+  go (Stream pull) = Stream do
+    step <- pull
+    case step of
+      Done -> pure Done
+      Yield a rest
+        | p a -> pure (Yield a empty)
+        | otherwise -> pure (Yield a (go rest))
+
+-- | Drop the first `n` elements, then yield the rest unchanged.
+-- | Non-positive `n` is a no-op.
+drop :: forall r e a. Int -> Stream r e a -> Stream r e a
+drop n s
+  | n <= 0 = s
+  | otherwise = case s of
+      Stream pull -> Stream do
+        step <- pull
+        case step of
+          Done -> pure Done
+          Yield _ rest -> case drop (n - 1) rest of
+            Stream pull' -> pull'
+
+-- | Drop elements until `p` matches an element, then yield the rest
+-- | INCLUDING that matching element. If no element ever matches, the
+-- | resulting stream is empty.
+dropUntil :: forall r e a. (a -> Boolean) -> Stream r e a -> Stream r e a
+dropUntil p = go
+  where
+  go (Stream pull) = Stream do
+    step <- pull
+    case step of
+      Done -> pure Done
+      Yield a rest
+        | p a -> pure (Yield a rest)
+        | otherwise -> case go rest of
+            Stream pull' -> pull'
+
+-- | Drop elements while `p` holds, then yield the rest unchanged
+-- | (including the first element for which `p` returns `false`).
+dropWhile :: forall r e a. (a -> Boolean) -> Stream r e a -> Stream r e a
+dropWhile p = go
+  where
+  go (Stream pull) = Stream do
+    step <- pull
+    case step of
+      Done -> pure Done
+      Yield a rest
+        | p a -> case go rest of
+            Stream pull' -> pull'
+        | otherwise -> pure (Yield a rest)
+
+-- | Run a side-effect for every element, threading the value
+-- | unchanged downstream. If the tap fails (typed or defect), the
+-- | failure propagates to the consumer.
+tap :: forall r e a. (a -> RIO r e Unit) -> Stream r e a -> Stream r e a
+tap f = mapRIO \a -> do
+  f a
+  pure a
+
+-- | Run a side-effect on every typed failure raised while pulling
+-- | the stream, then re-raise it. The stream's error row is
+-- | unchanged.
+tapError
+  :: forall r e a
+   . (Variant e -> RIO r e Unit)
+  -> Stream r e a
+  -> Stream r e a
+tapError onErr = go
+  where
+  go (Stream pull) = Stream
+    ( F.catchAll (\v -> onErr v *> F.fail v)
+        do
+          step <- pull
+          pure case step of
+            Done -> Done
+            Yield a rest -> Yield a (go rest)
+    )
 
 -- | Reduce the stream with `step`, starting from `seed`. Pulls
 -- | until the stream signals `Done`.
@@ -291,31 +715,160 @@ buffer n source = Stream do
       Nothing -> pure Done
       Just a -> pure (Yield a (fromQueueWithSentinel q))
 
+-- | Like `buffer`, but the buffer drops *new* elements when full
+-- | rather than back-pressuring the producer. Use when the consumer
+-- | is the bottleneck and dropping is preferable to stalling the
+-- | producer (telemetry pipelines, UI event streams).
+bufferDropping :: forall r e a. Int -> Stream r e a -> Stream r e a
+bufferDropping n source = Stream do
+  q <- F.liftEffect (Q.dropping (max 1 n) :: _ (Q.Queue (Maybe a)))
+  _ <- F.fork do
+    forEach (\a -> void (Q.tryOffer q (Just a))) source
+    Q.offer q Nothing
+  case fromQueueWithSentinel q of
+    Stream pull -> pull
+  where
+  fromQueueWithSentinel :: Queue (Maybe a) -> Stream r e a
+  fromQueueWithSentinel q = Stream do
+    m <- Q.take q
+    case m of
+      Nothing -> pure Done
+      Just a -> pure (Yield a (fromQueueWithSentinel q))
+
+-- | Like `buffer`, but the buffer evicts the *oldest* element to
+-- | make room for a new one when full. Use when the freshest values
+-- | matter most and an old backlog should be discarded under
+-- | pressure (live dashboards, sensor readouts).
+bufferSliding :: forall r e a. Int -> Stream r e a -> Stream r e a
+bufferSliding n source = Stream do
+  q <- F.liftEffect (Q.sliding (max 1 n) :: _ (Q.Queue (Maybe a)))
+  _ <- F.fork do
+    forEach (\a -> Q.offer q (Just a)) source
+    Q.offer q Nothing
+  case fromQueueWithSentinel q of
+    Stream pull -> pull
+  where
+  fromQueueWithSentinel :: Queue (Maybe a) -> Stream r e a
+  fromQueueWithSentinel q = Stream do
+    m <- Q.take q
+    case m of
+      Nothing -> pure Done
+      Just a -> pure (Yield a (fromQueueWithSentinel q))
+
+-- | Sequential concatenation: emit every element of `sl`, then
+-- | every element of `sr`. The right-hand stream is not touched
+-- | until the left exhausts. Contrast with `merge`, which interleaves.
+concat :: forall r e a. Stream r e a -> Stream r e a -> Stream r e a
+concat (Stream pull) sr = Stream do
+  step <- pull
+  case step of
+    Done -> case sr of Stream p -> p
+    Yield a rest -> pure (Yield a (concat rest sr))
+
+-- | Concatenate an array of streams sequentially: yield every
+-- | element of the first stream, then the second, and so on. An
+-- | empty input array yields the empty stream.
+concatAll :: forall r e a. Array (Stream r e a) -> Stream r e a
+concatAll sources = case uncons sources of
+  Nothing -> empty
+  Just { head, tail } -> concat head (concatAll tail)
+
+-- | Deterministically interleave two streams: left, right, left,
+-- | right, alternating. When one side ends, the rest of the other
+-- | side is forwarded unchanged. Pulls are sequential, so this
+-- | composes well with backpressure-sensitive sources.
+interleave :: forall r e a. Stream r e a -> Stream r e a -> Stream r e a
+interleave sa sb = Stream do
+  case sa of
+    Stream pullA -> do
+      step <- pullA
+      case step of
+        Done -> case sb of Stream pullB -> pullB
+        Yield a restA -> pure (Yield a (interleave sb restA))
+
 -- | Non-deterministically interleave two streams. Both producers
 -- | run concurrently into a shared buffer; the consumer sees an
 -- | arbitrary interleaving. The result terminates when both
 -- | upstreams have ended.
 merge :: forall r e a. Stream r e a -> Stream r e a -> Stream r e a
 merge sl sr = Stream do
-  q <- F.liftEffect (Q.make 16 :: _ (Q.Queue (Maybe a)))
+  mb <- F.liftEffect (Mailbox.make 16 2 :: _ (Mailbox a))
   let
     pump source = do
-      forEach (\a -> Q.offer q (Just a)) source
-      Q.offer q Nothing
+      forEach (Mailbox.offer mb) source
+      Mailbox.done mb
   _ <- F.fork (pump sl)
   _ <- F.fork (pump sr)
-  case drainQueueN q 2 of
+  case drainMailbox mb of
     Stream pull -> pull
   where
-  drainQueueN :: Queue (Maybe a) -> Int -> Stream r e a
-  drainQueueN q remaining = Stream do
-    m <- Q.take q
+  drainMailbox :: Mailbox a -> Stream r e a
+  drainMailbox mb = Stream do
+    m <- Mailbox.take mb
     case m of
-      Nothing ->
-        if remaining <= 1 then pure Done
-        else case drainQueueN q (remaining - 1) of
-          Stream pull -> pull
-      Just a -> pure (Yield a (drainQueueN q remaining))
+      Nothing -> pure Done
+      Just a -> pure (Yield a (drainMailbox mb))
+
+-- | Non-deterministically interleave an arbitrary number of
+-- | streams. All sources run concurrently into a shared buffer; the
+-- | consumer sees an arbitrary interleaving. The result terminates
+-- | when every source has ended.
+-- |
+-- | An empty `sources` array produces the empty stream.
+mergeAll :: forall r e a. Array (Stream r e a) -> Stream r e a
+mergeAll sources = Stream do
+  let n = Array.length sources
+  if n == 0 then pure Done
+  else do
+    mb <- F.liftEffect (Mailbox.make 16 n :: _ (Mailbox a))
+    let
+      pump source = do
+        forEach (Mailbox.offer mb) source
+        Mailbox.done mb
+    traverse_ (\s -> F.fork (pump s)) sources
+    case drainMailbox mb of
+      Stream pull -> pull
+  where
+  drainMailbox :: Mailbox a -> Stream r e a
+  drainMailbox mb = Stream do
+    m <- Mailbox.take mb
+    case m of
+      Nothing -> pure Done
+      Just a -> pure (Yield a (drainMailbox mb))
+
+-- | Emit overlapping (or strided) windows of the upstream as
+-- | arrays. `chunkSize` is the size of each emitted window;
+-- | `step` is the distance the window advances between emissions
+-- | (so `step = 1` yields fully-overlapping windows, `step =
+-- | chunkSize` yields disjoint chunks).
+-- |
+-- | Both are clamped to at least 1. When upstream ends with a
+-- | partially-filled buffer the residual window is emitted once
+-- | (it may be shorter than `chunkSize`).
+sliding
+  :: forall r e a
+   . { chunkSize :: Int, step :: Int }
+  -> Stream r e a
+  -> Stream r e (Array a)
+sliding { chunkSize, step } source =
+  let
+    cs = max 1 chunkSize
+    st = max 1 step
+  in
+    loop cs st [] source
+  where
+  loop cs st buf (Stream pull) = Stream do
+    if Array.length buf >= cs then
+      pure (Yield buf (loop cs st (Array.drop st buf) (Stream pull)))
+    else do
+      r <- pull
+      case r of
+        Done ->
+          if Array.null buf then pure Done
+          else pure (Yield buf empty)
+        Yield a rest ->
+          case loop cs st (snoc buf a) rest of
+            Stream pull' -> pull'
 
 -- | Map elements with up to `concurrency` workers running in
 -- | parallel. Workers are pre-spawned and fed by a round-robin
@@ -331,9 +884,9 @@ mapPar
   -> Stream r e b
 mapPar concurrency f source = Stream do
   let n = max 1 concurrency
-  reqs <- F.liftEffect (traverse (\_ -> Q.make 1) (range 0 (n - 1)) :: _ (Array (Q.Queue (Maybe a))))
-  resps <- F.liftEffect (traverse (\_ -> Q.make 1) (range 0 (n - 1)) :: _ (Array (Q.Queue (Maybe b))))
-  let pairs = zipWith Tuple reqs resps
+  reqs <- F.liftEffect (traverse (\_ -> Q.make 1) (Array.range 0 (n - 1)) :: _ (Array (Q.Queue (Maybe a))))
+  resps <- F.liftEffect (traverse (\_ -> Q.make 1) (Array.range 0 (n - 1)) :: _ (Array (Q.Queue (Maybe b))))
+  let pairs = Array.zipWith Tuple reqs resps
   traverse_ (\(Tuple req resp) -> F.fork (worker req resp)) pairs
   _ <- F.fork (dispatcher 0 source reqs)
   case readResponses 0 resps of
@@ -366,6 +919,48 @@ mapPar concurrency f source = Stream do
         case m of
           Nothing -> pure Done
           Just b -> pure (Yield b (readResponses (cursor + 1) resps))
+
+-- | Parallel `mapRIO` that does NOT preserve input order. Each
+-- | worker shoves its completed result onto a shared output queue
+-- | as soon as it's ready, so a fast element can overtake a slow one
+-- | ahead of it. Use this when the downstream consumer is order-
+-- | insensitive (folding into a `Set`, sending to a sink keyed by
+-- | the element, etc.).
+-- |
+-- | A `concurrency` of 0 or 1 collapses to sequential mapping (no
+-- | reordering happens because there's no parallelism).
+mapRIOPar
+  :: forall r e a b
+   . Int
+  -> (a -> RIO r e b)
+  -> Stream r e a
+  -> Stream r e b
+mapRIOPar concurrency f source = Stream do
+  let n = max 1 concurrency
+  inQ <- F.liftEffect (Q.make n :: _ (Q.Queue (Maybe a)))
+  outMb <- F.liftEffect (Mailbox.make n n :: _ (Mailbox b))
+  let
+    worker = do
+      m <- Q.take inQ
+      case m of
+        Nothing -> Mailbox.done outMb
+        Just a -> do
+          b <- f a
+          Mailbox.offer outMb b
+          worker
+  _ <- F.forkAll (Array.replicate n worker)
+  _ <- F.fork do
+    forEach (\a -> Q.offer inQ (Just a)) source
+    _ <- F.forEach (\_ -> Q.offer inQ Nothing) (Array.replicate n unit)
+    pure unit
+  case drainUnordered outMb of
+    Stream pull -> pull
+  where
+  drainUnordered mb = Stream do
+    m <- Mailbox.take mb
+    case m of
+      Nothing -> pure Done
+      Just b -> pure (Yield b (drainUnordered mb))
 
 -- | Yield the array in order, then continue with `after`.
 fromArrayThen :: forall r e a. Array a -> Stream r e a -> Stream r e a
@@ -502,6 +1097,32 @@ groupBy key (Stream pull) = Stream do
         | otherwise ->
             pure (Yield acc (Stream (collect (key a) [ a ] rest)))
 
+-- | Pair elements from two streams positionally, pulling each side
+-- | sequentially: pull the left, then pull the right, emit `(a, b)`.
+-- | The output ends as soon as either side ends. Unlike `zipPar`,
+-- | the pulls do not race, so a slow left blocks a fast right and
+-- | vice versa.
+zip :: forall r e a b. Stream r e a -> Stream r e b -> Stream r e (Tuple a b)
+zip = zipWith Tuple
+
+-- | Like `zip`, but combine paired elements with `f` rather than
+-- | tupling them.
+zipWith
+  :: forall r e a b c
+   . (a -> b -> c)
+  -> Stream r e a
+  -> Stream r e b
+  -> Stream r e c
+zipWith f (Stream pullA) (Stream pullB) = Stream do
+  sa <- pullA
+  case sa of
+    Done -> pure Done
+    Yield a restA -> do
+      sb <- pullB
+      case sb of
+        Done -> pure Done
+        Yield b restB -> pure (Yield (f a b) (zipWith f restA restB))
+
 -- | Run two streams in parallel, pairing elements positionally. The
 -- | output ends as soon as either side ends.
 zipPar :: forall r e a b. Stream r e a -> Stream r e b -> Stream r e (Tuple a b)
@@ -512,6 +1133,82 @@ zipPar (Stream pullA) (Stream pullB) = Stream do
     _, Done -> pure Done
     Yield a restA, Yield b restB ->
       pure (Yield (Tuple a b) (zipPar restA restB))
+
+-- | Emit a new tuple whenever either source emits, pairing the new
+-- | value with the most recently seen value from the other side.
+-- |
+-- | No tuple is emitted until both sides have emitted at least once.
+-- | When only one side has ever emitted and the other ends without
+-- | emitting, the output ends without yielding. Otherwise the output
+-- | ends when both sides have ended.
+-- |
+-- | This is useful for combining independently-updating signals
+-- | (e.g. "always show the latest of A and B side by side") and is
+-- | the analogue of effect-ts's `Stream.zipLatest`.
+zipLatest
+  :: forall r e a b
+   . Stream r e a
+  -> Stream r e b
+  -> Stream r e (Tuple a b)
+zipLatest = zipLatestWith Tuple
+
+-- | Like `zipLatest`, but combine the latest values with `f` instead
+-- | of pairing them.
+zipLatestWith
+  :: forall r e a b c
+   . (a -> b -> c)
+  -> Stream r e a
+  -> Stream r e b
+  -> Stream r e c
+zipLatestWith f sa sb = Stream do
+  latestA <- F.liftEffect (STM.newTVar (Nothing :: Maybe a))
+  latestB <- F.liftEffect (STM.newTVar (Nothing :: Maybe b))
+  genVar <- F.liftEffect (STM.newTVar 0)
+  doneA <- F.liftEffect (STM.newTVar false)
+  doneB <- F.liftEffect (STM.newTVar false)
+  let
+    pumpA = do
+      forEach
+        ( \a -> STM.atomically do
+            STM.writeTVar latestA (Just a)
+            STM.modifyTVar genVar (_ + 1)
+        )
+        sa
+      STM.atomically (STM.writeTVar doneA true)
+    pumpB = do
+      forEach
+        ( \b -> STM.atomically do
+            STM.writeTVar latestB (Just b)
+            STM.modifyTVar genVar (_ + 1)
+        )
+        sb
+      STM.atomically (STM.writeTVar doneB true)
+  _ <- F.fork pumpA
+  _ <- F.fork pumpB
+  case loop latestA latestB genVar doneA doneB 0 of
+    Stream pull -> pull
+  where
+  loop la lb gv da db lastSeen = Stream do
+    res <- STM.atomically do
+      g <- STM.readTVar gv
+      aDone <- STM.readTVar da
+      bDone <- STM.readTVar db
+      if g /= lastSeen then do
+        ma <- STM.readTVar la
+        mb <- STM.readTVar lb
+        case ma, mb of
+          Just a, Just b -> pure (Just { gen: g, value: f a b })
+          Nothing, _ ->
+            if aDone then pure Nothing
+            else STM.retry
+          _, Nothing ->
+            if bDone then pure Nothing
+            else STM.retry
+      else if aDone && bDone then pure Nothing
+      else STM.retry
+    case res of
+      Nothing -> pure Done
+      Just s -> pure (Yield s.value (loop la lb gv da db s.gen))
 
 -- | Rate-limit emissions to at most one per `duration`. Bursts on
 -- | the upstream are paced out; an upstream slower than `duration`
@@ -677,7 +1374,7 @@ broadcast
   -> RIO r e (Array (Stream r e a))
 broadcast n capacity source = do
   hub <- F.liftEffect (Hub.make capacity :: _ (Hub (Maybe a)))
-  subs <- traverse (\_ -> Hub.subscribe hub) (range 1 (max 1 n))
+  subs <- traverse (\_ -> Hub.subscribe hub) (Array.range 1 (max 1 n))
   _ <- F.fork do
     forEach (\a -> Hub.publish hub (Just a)) source
     Hub.publish hub Nothing
@@ -717,6 +1414,75 @@ share capacity source = do
     case m of
       Nothing -> pure Done
       Just a -> pure (Yield a (loop sub))
+
+-- | Split the source stream into two sub-streams by a predicate.
+-- | Elements matching `p` flow to `yes`; the rest flow to `no`. The
+-- | source is consumed once by a forked pump that routes each element
+-- | into the appropriate output queue and propagates end-of-stream to
+-- | both sides on completion.
+-- |
+-- | Each output queue is bounded (capacity 16). A slow consumer on
+-- | one side backpressures the pump, which in turn pauses the other
+-- | side; consume both streams in parallel to keep things flowing.
+partitioned
+  :: forall r e a
+   . (a -> Boolean)
+  -> Stream r e a
+  -> RIO r e { yes :: Stream r e a, no :: Stream r e a }
+partitioned p source = do
+  yesQ <- F.liftEffect (Q.make 16 :: _ (Q.Queue (Maybe a)))
+  noQ <- F.liftEffect (Q.make 16 :: _ (Q.Queue (Maybe a)))
+  _ <- F.fork do
+    forEach
+      ( \a ->
+          if p a then Q.offer yesQ (Just a)
+          else Q.offer noQ (Just a)
+      )
+      source
+    Q.offer yesQ Nothing
+    Q.offer noQ Nothing
+  pure { yes: drainQ yesQ, no: drainQ noQ }
+  where
+  drainQ :: Queue (Maybe a) -> Stream r e a
+  drainQ q = Stream do
+    m <- Q.take q
+    case m of
+      Nothing -> pure Done
+      Just a -> pure (Yield a (drainQ q))
+
+-- | Split a stream of `Either l r` into two streams: `lefts` carries
+-- | every `Left l`, `rights` carries every `Right r`. The source is
+-- | consumed once by a forked pump that routes each element into the
+-- | appropriate output queue and propagates end-of-stream to both
+-- | sides on completion.
+-- |
+-- | Each output queue is bounded (capacity 16). A slow consumer on
+-- | one side backpressures the pump, which in turn pauses the other;
+-- | consume both streams in parallel to keep things flowing.
+partitionEither
+  :: forall r e l x
+   . Stream r e (Either l x)
+  -> RIO r e { lefts :: Stream r e l, rights :: Stream r e x }
+partitionEither source = do
+  leftQ <- F.liftEffect (Q.make 16 :: _ (Q.Queue (Maybe l)))
+  rightQ <- F.liftEffect (Q.make 16 :: _ (Q.Queue (Maybe x)))
+  _ <- F.fork do
+    forEach
+      ( case _ of
+          Left l -> Q.offer leftQ (Just l)
+          Right x -> Q.offer rightQ (Just x)
+      )
+      source
+    Q.offer leftQ Nothing
+    Q.offer rightQ Nothing
+  pure { lefts: drainQ leftQ, rights: drainQ rightQ }
+  where
+  drainQ :: forall a. Queue (Maybe a) -> Stream r e a
+  drainQ q = Stream do
+    m <- Q.take q
+    case m of
+      Nothing -> pure Done
+      Just a -> pure (Yield a (drainQ q))
 
 -- | Wrap every pull from the source in a per-pull timeout. If the
 -- | pull does not produce a step within `duration`, the consumer
@@ -759,3 +1525,231 @@ acquireReleaseStream scope acquire release use = Stream do
   resource <- Scope.acquireRelease scope acquire release
   case use resource of
     Stream pull -> pull
+
+-- | Run a `Sink` over a prefix of the stream and hand back the
+-- | sink's result paired with the remaining stream. The sink decides
+-- | the prefix length: it stops as soon as its `step` returns
+-- | `Just o`, leaving the unread tail of the upstream as the
+-- | continuation. If the stream ends before the sink terminates, the
+-- | sink's `done` synthesises the result and the returned stream is
+-- | empty.
+-- |
+-- | The complement to `runSink`: where `runSink` drains the stream
+-- | for one final answer, `peel` extracts a prefix and lets the
+-- | caller keep going with the rest. Compose with `transduce` for
+-- | "apply this sink over and over, emit each result".
+peel
+  :: forall r e a b
+   . Sink r e a b
+  -> Stream r e a
+  -> RIO r e (Tuple b (Stream r e a))
+peel (Sink mkLoop) stream0 = do
+  loop <- mkLoop
+  go stream0 loop
+  where
+  go (Stream pull) loop = do
+    s <- pull
+    case s of
+      Done -> do
+        b <- loop.done
+        pure (Tuple b empty)
+      Yield a rest -> do
+        mOut <- loop.step a
+        case mOut of
+          Just b -> pure (Tuple b rest)
+          Nothing -> go rest loop
+
+-- | Apply a `Sink` as a stateful transducer: run the sink over the
+-- | stream and emit each sink result, then start a fresh sink from
+-- | the next element. When the upstream signals end-of-stream while
+-- | a sink is mid-run, the sink's `done` synthesises a final flush
+-- | emission. When upstream ends before any element has been seen,
+-- | no flush is emitted.
+-- |
+-- | Pairs well with `takeN`-style sinks ("emit every 100 elements
+-- | as a batch") and `foldUntil` ("emit when a predicate triggers").
+transduce
+  :: forall r e a b
+   . Sink r e a b
+  -> Stream r e a
+  -> Stream r e b
+transduce (Sink mkLoop) source = Stream do
+  loopRef <- F.liftEffect (Ref.new (Nothing :: Maybe (SinkLoop r e a b)))
+  upRef <- F.liftEffect (Ref.new (Just source))
+  let
+    getLoop = do
+      mLoop <- F.liftEffect (Ref.read loopRef)
+      case mLoop of
+        Just l -> pure l
+        Nothing -> do
+          l <- mkLoop
+          F.liftEffect (Ref.write (Just l) loopRef)
+          pure l
+
+    pull = do
+      mUp <- F.liftEffect (Ref.read upRef)
+      case mUp of
+        Nothing -> pure Done
+        Just (Stream up) -> do
+          s <- up
+          case s of
+            Done -> do
+              F.liftEffect (Ref.write Nothing upRef)
+              mLoop <- F.liftEffect (Ref.read loopRef)
+              case mLoop of
+                Just l -> do
+                  b <- l.done
+                  F.liftEffect (Ref.write Nothing loopRef)
+                  pure (Yield b (Stream (pure Done)))
+                Nothing -> pure Done
+            Yield a rest -> do
+              F.liftEffect (Ref.write (Just rest) upRef)
+              loop <- getLoop
+              mOut <- loop.step a
+              case mOut of
+                Just b -> do
+                  F.liftEffect (Ref.write Nothing loopRef)
+                  pure (Yield b (Stream pull))
+                Nothing -> pull
+  pull
+
+-- | Sink-based aggregation: synonym for `transduce` provided for
+-- | effect-ts familiarity. Run the sink across the stream, emitting
+-- | a `b` each time the sink completes and starting a fresh sink
+-- | from the next element. When upstream ends mid-aggregation, the
+-- | sink's `done` synthesises a final flush.
+aggregate
+  :: forall r e a b
+   . Sink r e a b
+  -> Stream r e a
+  -> Stream r e b
+aggregate = transduce
+
+-- | Aggregate elements with a `Sink`, but emit at least every
+-- | `duration` even when the sink has not yet completed. Useful for
+-- | "batch up to N elements or every T milliseconds, whichever comes
+-- | first" patterns: pair `aggregateWithin` with `Sink.takeN n` and
+-- | downstream sees batches of at most `n`, with no element waiting
+-- | longer than `duration`.
+-- |
+-- | A forced flush calls the sink's `done` to synthesise an `o` from
+-- | whatever has accumulated, then starts a fresh sink for the next
+-- | window. Empty windows (no elements arrived before timeout) do
+-- | not produce an emission; the window simply restarts.
+-- |
+-- | The producer pulls upstream into a small buffer concurrently;
+-- | the consumer races each buffered take against a timer derived
+-- | from `Clock.currentEpoch`, so virtual-clock tests can drive the
+-- | flush deterministically.
+aggregateWithin
+  :: forall r e a b
+   . Milliseconds
+  -> Sink r e a b
+  -> Stream r e a
+  -> Stream r e b
+aggregateWithin (Milliseconds dur) (Sink mkLoop) source = Stream do
+  q <- F.liftEffect (Q.make 16 :: _ (Q.Queue (Maybe a)))
+  _ <- F.fork do
+    forEach (\a -> Q.offer q (Just a)) source
+    Q.offer q Nothing
+  case freshWindow q of
+    Stream pull -> pull
+  where
+  freshWindow :: Queue (Maybe a) -> Stream r e b
+  freshWindow q = Stream do
+    loop <- mkLoop
+    Milliseconds now <- Clock.currentEpoch
+    runWindow q loop now false
+
+  runWindow
+    :: Queue (Maybe a)
+    -> SinkLoop r e a b
+    -> Number
+    -> Boolean
+    -> RIO r e (Step r e b)
+  runWindow q loop windowStart hasData = do
+    Milliseconds now <- Clock.currentEpoch
+    let remaining = max 0.0 (dur - (now - windowStart))
+    m <- F.race
+      (Just <$> Q.take q)
+      (F.sleep (Milliseconds remaining) *> pure Nothing)
+    case m of
+      Nothing ->
+        if hasData then do
+          b <- loop.done
+          pure (Yield b (freshWindow q))
+        else
+          runWindow q loop now false
+      Just Nothing ->
+        if hasData then do
+          b <- loop.done
+          pure (Yield b empty)
+        else pure Done
+      Just (Just a) -> do
+        mOut <- loop.step a
+        case mOut of
+          Just b -> pure (Yield b (freshWindow q))
+          Nothing -> runWindow q loop windowStart true
+
+-- | Filter out consecutive duplicate elements. The first element of
+-- | each run is kept; subsequent equal neighbours are dropped. Useful
+-- | for collapsing repeated states (sensor readings, UI events).
+changes :: forall r e a. Eq a => Stream r e a -> Stream r e a
+changes source = Stream (start source)
+  where
+  start (Stream pull) = do
+    s <- pull
+    case s of
+      Done -> pure Done
+      Yield a rest -> pure (Yield a (go a rest))
+
+  go prev (Stream pull) = Stream (loop prev pull)
+
+  loop prev pull = do
+    s <- pull
+    case s of
+      Done -> pure Done
+      Yield a (Stream rest)
+        | a == prev -> loop prev rest
+        | otherwise -> pure (Yield a (go a (Stream rest)))
+
+-- | Filter out consecutive elements whose extracted key is equal to
+-- | the previous one. A keyed variant of `changes`: useful when the
+-- | element itself lacks `Eq`, or when "duplicate" means "same id"
+-- | rather than "same payload".
+distinctBy
+  :: forall r e a k
+   . Eq k
+  => (a -> k)
+  -> Stream r e a
+  -> Stream r e a
+distinctBy key source = Stream (start source)
+  where
+  start (Stream pull) = do
+    s <- pull
+    case s of
+      Done -> pure Done
+      Yield a rest -> pure (Yield a (go (key a) rest))
+
+  go prevKey (Stream pull) = Stream (loop prevKey pull)
+
+  loop prevKey pull = do
+    s <- pull
+    case s of
+      Done -> pure Done
+      Yield a (Stream rest)
+        | key a == prevKey -> loop prevKey rest
+        | otherwise -> pure (Yield a (go (key a) (Stream rest)))
+
+-- | Drain every element of the source stream into the given queue.
+-- | Returns when the stream ends; the caller decides what (if
+-- | anything) to write to mark end-of-stream. Useful for bridging a
+-- | stream into a backpressure-aware consumer of `Queue`.
+toQueue :: forall r e a. Queue a -> Stream r e a -> RIO r e Unit
+toQueue q = forEach (Q.offer q)
+
+-- | Drain every element of the source stream into the given hub.
+-- | Returns when the stream ends. Each element is broadcast to every
+-- | current subscriber.
+toHub :: forall r e a. Hub a -> Stream r e a -> RIO r e Unit
+toHub h = forEach (Hub.publish h)

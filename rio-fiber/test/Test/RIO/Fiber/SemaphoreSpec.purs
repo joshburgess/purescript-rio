@@ -192,6 +192,87 @@ spec = describe "rio-fiber: Semaphore" do
         fail ("too many workers completed before fail-fast kicked in: " <> show ran)
       else pure unit
 
+  describe "validateParN" do
+    it "preserves order on all-success" do
+      let
+        items = Array.range 1 6
+
+        prog :: F.RIO () () (Array Int)
+        prog = Sem.validateParN 2 (\n -> pure (n + 100)) items
+      out <- runAff prog {}
+      case out of
+        Success ys ->
+          ys `shouldEqual` [ 101, 102, 103, 104, 105, 106 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "accumulates failures across branches (does not fail-fast)" do
+      ranRef <- liftEffect (Ref.new 0)
+      let
+        items = Array.range 1 6
+
+        work :: Int -> F.RIO () (boom :: Int) Int
+        work n
+          | n == 2 || n == 5 =
+              F.fail (Variant.inj (Proxy :: _ "boom") n)
+          | otherwise = do
+              F.liftEffect (Ref.modify_ (_ + 1) ranRef)
+              pure n
+
+        prog :: F.RIO () (boom :: Int) (Array Int)
+        prog = Sem.validateParN 2 work items
+      out <- runAff prog {}
+      case out of
+        Fail _ -> pure unit
+        other -> fail ("expected Fail, got " <> describeOutcome other)
+      ran <- liftEffect (Ref.read ranRef)
+      -- The four non-failing items must all have completed despite
+      -- the two failures (no fail-fast).
+      ran `shouldEqual` 4
+
+    it "respects the concurrency cap during accumulation" do
+      activeRef <- liftEffect (Ref.new 0)
+      peakRef <- liftEffect (Ref.new 0)
+      let
+        items = Array.range 1 12
+        cap = 3
+
+        work :: Int -> F.RIO () () Int
+        work n = do
+          F.liftEffect do
+            current <- Ref.modify (_ + 1) activeRef
+            Ref.modify_ (max current) peakRef
+          F.sleep (Milliseconds 5.0)
+          F.liftEffect (Ref.modify_ (_ - 1) activeRef)
+          pure n
+
+        prog :: F.RIO () () (Array Int)
+        prog = Sem.validateParN cap work items
+      out <- runAff prog {}
+      case out of
+        Success _ -> pure unit
+        other -> fail ("expected Success, got " <> describeOutcome other)
+      peak <- liftEffect (Ref.read peakRef)
+      if peak > cap then fail ("peak exceeded cap: " <> show peak)
+      else pure unit
+
+    it "empty input is a no-op" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = Sem.validateParN 0 (\n -> pure n) []
+      out <- runAff prog {}
+      case out of
+        Success ys -> ys `shouldEqual` []
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "n <= 0 on non-empty input is a defect" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = Sem.validateParN 0 (\n -> pure n) [ 1, 2, 3 ]
+      out <- runAff prog {}
+      case out of
+        Die _ -> pure unit
+        other -> fail ("expected Die, got " <> describeOutcome other)
+
   it "queue is FIFO" do
     s <- liftEffect (Sem.make 0)
     log <- liftEffect (Ref.new ([] :: Array String))

@@ -30,6 +30,7 @@ module RIO.Aff.Concurrency
   , join
   , joinAll
   , joinAllPar
+  , loop
   , mkFiber
   , never
   , parSequence
@@ -46,7 +47,9 @@ module RIO.Aff.Concurrency
   , uninterruptible
   , validate
   , validatePar
+  , zipFiber
   , zipPar
+  , zipWithFiber
   , zipWithPar
   ) where
 
@@ -1122,3 +1125,59 @@ timeoutFail sym a ms action = do
         v = Variant.inj sym a
       in
         mkRIO \_ -> rioFail v
+
+-- | Stateful sequential loop that collects each iteration's
+-- | result. While `cont s` holds, run `body s`, append the result,
+-- | and advance the state with `step s`. Returns every collected
+-- | value in input order; an immediately-false predicate yields
+-- | the empty array.
+-- |
+-- | This is the explicit-state counterpart of `forever`: the loop
+-- | terminates when `cont` says so, rather than running until
+-- | externally interrupted.
+-- |
+-- | ```purescript
+-- | -- pull pages until the cursor runs out
+-- | pages <- loop initialCursor (_ /= EndOfStream) advanceCursor fetchPage
+-- | ```
+loop
+  :: forall r e s a
+   . s
+  -> (s -> Boolean)
+  -> (s -> s)
+  -> (s -> RIO r e a)
+  -> RIO r e (Array a)
+loop seed cont step body = go seed []
+  where
+  go s acc =
+    if cont s then do
+      a <- body s
+      go (step s) (acc <> [ a ])
+    else pure acc
+
+-- | Derive a fiber whose result is the pair of two source fibers'
+-- | results. Returns immediately with the derived fiber. The
+-- | derived fiber awaits both source fibers concurrently; it
+-- | succeeds with `Tuple a b` when both succeed, fails fast on the
+-- | first failure, and is independently interruptible.
+-- |
+-- | Interrupting the derived fiber does *not* propagate to the
+-- | source fibers; they keep running. If you want their lifecycles
+-- | tied, bind them to a `Scope` via `forkScoped` instead.
+zipFiber
+  :: forall r e e' a b
+   . Fiber e a
+  -> Fiber e b
+  -> RIO r e' (Fiber e (Tuple a b))
+zipFiber = zipWithFiber Tuple
+
+-- | Like `zipFiber` but combine the two results with the given
+-- | function. Both source fibers are awaited concurrently in the
+-- | derived fiber.
+zipWithFiber
+  :: forall r e e' a b c
+   . (a -> b -> c)
+  -> Fiber e a
+  -> Fiber e b
+  -> RIO r e' (Fiber e c)
+zipWithFiber f fa fb = fork (zipWithPar f (join fa) (join fb))

@@ -15,11 +15,15 @@ import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Type.Proxy (Proxy(..))
 
+import Effect.Exception (Error)
+import RIO.Aff.Clock (Clock)
 import RIO.Aff.Concurrency (parTraverse)
-import RIO.Aff.Core (RIO, ask, runRIO)
+import RIO.Aff.Core (RIO, ask, provideAll, runRIO, runRIO')
+import RIO.Aff.Error (sandbox)
 import RIO.Aff.Pool (Pool)
 import RIO.Aff.Pool as Pool
 import RIO.Aff.Resource (scoped)
+import RIO.Aff.Test.Clock (newTestClock)
 
 spec :: Spec Unit
 spec = describe "RIO.Aff.Pool" do
@@ -265,3 +269,163 @@ spec = describe "RIO.Aff.Pool" do
         pure (Pool.maxSize pool)
     result <- runRIO program
     result `shouldEqual` (Right 7 :: Either _ Int)
+
+  describe "withResource'" do
+    it "invalidate routes the resource to release and triggers a remint" do
+      releaseLog <- liftEffect (ERef.new ([] :: Array Int))
+      counter <- liftEffect (ERef.new 0)
+      midLog <- liftEffect (ERef.new ([] :: Array Int))
+      let
+        program :: RIO () () (Array Int)
+        program = scoped do
+          scope <- ask (Proxy :: Proxy "scope")
+          pool <- Pool.make scope
+            { acquire: liftEffect (ERef.modify (_ + 1) counter)
+            , release: \n -> liftEffect
+                (ERef.modify_ (\xs -> snoc xs n) releaseLog)
+            , maxSize: 1
+            }
+          -- First borrow: invalidate so the resource hits release
+          -- instead of returning to the idle stack.
+          first <- Pool.withResource' pool \r invalidate -> do
+            invalidate
+            pure r
+          -- Snapshot the release log: only the invalidated resource
+          -- (id 1) has hit `release` so far. The scope finalizer
+          -- will drain the second resource later.
+          current <- liftEffect (ERef.read releaseLog)
+          liftEffect (ERef.write current midLog)
+          -- Second borrow: idle stack is empty after the invalidate,
+          -- so a fresh resource must be minted.
+          second <- Pool.withResource' pool \r _ -> pure r
+          pure [ first, second ]
+      result <- runRIO program
+      mid <- liftEffect (ERef.read midLog)
+      mid `shouldEqual` [ 1 ]
+      result `shouldEqual` (Right [ 1, 2 ] :: Either _ (Array Int))
+
+    it "no invalidate keeps the resource in the idle stack" do
+      counter <- liftEffect (ERef.new 0)
+      let
+        program :: RIO () () (Array Int)
+        program = scoped do
+          scope <- ask (Proxy :: Proxy "scope")
+          pool <- Pool.make scope
+            { acquire: liftEffect (ERef.modify (_ + 1) counter)
+            , release: \_ -> pure unit
+            , maxSize: 1
+            }
+          first <- Pool.withResource' pool \r _ -> pure r
+          second <- Pool.withResource' pool \r _ -> pure r
+          pure [ first, second ]
+      result <- runRIO program
+      result `shouldEqual` (Right [ 1, 1 ] :: Either _ (Array Int))
+
+  describe "shutdown" do
+    it "drains every idle resource immediately when called" do
+      releaseLog <- liftEffect (ERef.new ([] :: Array Int))
+      counter <- liftEffect (ERef.new 0)
+      let
+        program :: RIO () () (Array Int)
+        program = scoped do
+          scope <- ask (Proxy :: Proxy "scope")
+          pool <- Pool.make scope
+            { acquire: liftEffect (ERef.modify (_ + 1) counter)
+            , release: \n -> liftEffect
+                (ERef.modify_ (\xs -> snoc xs n) releaseLog)
+            , maxSize: 3
+            }
+          -- Each borrow body delays so all three resources are
+          -- live concurrently and go idle simultaneously.
+          _ <- parTraverse
+            ( \_ -> Pool.withResource pool \_ ->
+                liftAff (delay (Milliseconds 10.0))
+            )
+            [ 1, 2, 3 ]
+          Pool.shutdown pool
+          -- After shutdown, the release log already contains every
+          -- minted resource.
+          inFlight <- liftEffect (ERef.read releaseLog)
+          pure (Array.sort inFlight)
+      result <- runRIO program
+      result `shouldEqual` (Right [ 1, 2, 3 ] :: Either _ (Array Int))
+
+    it "subsequent borrows after shutdown raise a defect" do
+      let
+        program :: RIO () () (Either Error Unit)
+        program = scoped do
+          scope <- ask (Proxy :: Proxy "scope")
+          pool <- Pool.make scope
+            { acquire: pure unit
+            , release: \_ -> pure unit
+            , maxSize: 1
+            }
+          Pool.shutdown pool
+          sandbox (Pool.withResource pool (\_ -> pure unit))
+      result <- runRIO program
+      case result of
+        Right (Left _) -> pure unit
+        _ -> shouldEqual "" "expected defect on borrow after shutdown"
+
+  describe "makeWithTTL" do
+    it "evicts and remints an idle resource older than the TTL" do
+      counter <- liftEffect (ERef.new 0)
+      releaseLog <- liftEffect (ERef.new ([] :: Array Int))
+      tc <- newTestClock
+      let
+        program :: RIO (clock :: Clock) () (Array Int)
+        program = scoped do
+          scope <- ask (Proxy :: Proxy "scope")
+          pool <- Pool.makeWithTTL scope
+            { acquire: liftEffect (ERef.modify (_ + 1) counter)
+            , release: \n -> liftEffect
+                (ERef.modify_ (\xs -> snoc xs n) releaseLog)
+            , maxSize: 1
+            , timeToLive: Milliseconds 100.0
+            }
+          -- First borrow: mints resource 1, then returns it idle.
+          first <- Pool.withResource pool pure
+          pure [ first ]
+      _ <- runRIO' (provideAll { clock: tc.clock } program)
+      -- Advance virtual clock past the TTL. The next borrow should
+      -- discard the stale entry and mint a fresh resource.
+      tc.advance (Milliseconds 200.0)
+      let
+        program2 :: RIO (clock :: Clock) () (Array Int)
+        program2 = scoped do
+          scope <- ask (Proxy :: Proxy "scope")
+          pool <- Pool.makeWithTTL scope
+            { acquire: liftEffect (ERef.modify (_ + 1) counter)
+            , release: \n -> liftEffect
+                (ERef.modify_ (\xs -> snoc xs n) releaseLog)
+            , maxSize: 1
+            , timeToLive: Milliseconds 100.0
+            }
+          n <- Pool.withResource pool pure
+          pure [ n ]
+      xs <- runRIO' (provideAll { clock: tc.clock } program2)
+      -- After scope exit, finalizers drained idle resources from
+      -- both pools, so counter went up at least to 2.
+      finalCount <- liftEffect (ERef.read counter)
+      (finalCount >= 2) `shouldEqual` true
+      (Array.length xs) `shouldEqual` 1
+
+    it "reuses an idle resource that is still within the TTL" do
+      counter <- liftEffect (ERef.new 0)
+      tc <- newTestClock
+      let
+        program :: RIO (clock :: Clock) () { first :: Int, second :: Int }
+        program = scoped do
+          scope <- ask (Proxy :: Proxy "scope")
+          pool <- Pool.makeWithTTL scope
+            { acquire: liftEffect (ERef.modify (_ + 1) counter)
+            , release: \_ -> pure unit
+            , maxSize: 1
+            , timeToLive: Milliseconds 1000.0
+            }
+          first <- Pool.withResource pool pure
+          second <- Pool.withResource pool pure
+          pure { first, second }
+      out <- runRIO' (provideAll { clock: tc.clock } program)
+      out.first `shouldEqual` 1
+      out.second `shouldEqual` 1

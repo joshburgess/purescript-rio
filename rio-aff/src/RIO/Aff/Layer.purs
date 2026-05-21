@@ -15,6 +15,7 @@ module RIO.Aff.Layer
   , combine
   , fromRecord
   , fromRIO
+  , mergeLayers
   , passthrough
   , provideLayer
   , unLayer
@@ -151,6 +152,17 @@ combine (Layer l1) (Layer l2) = Layer $ mkRIO \env -> do
   pure (Record.union r1Rec r2Rec)
 
 infixr 7 combine as <+>
+
+-- | Alias for `combine` matching rio-fiber's naming. Provided so
+-- | code ported from rio-fiber snippets reads the same; reach for
+-- | `combine` (or its `<+>` operator) in new code.
+mergeLayers
+  :: forall rIn e r1Out r2Out rOut
+   . Row.Union r1Out r2Out rOut
+  => Layer rIn e r1Out
+  -> Layer rIn e r2Out
+  -> Layer rIn e rOut
+mergeLayers = combine
 
 -- | Extend a layer's output row with the labels it already required
 -- | as input, so downstream consumers see both the produced services

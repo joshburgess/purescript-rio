@@ -3,6 +3,7 @@ module Test.RIO.Aff.Stream.TimedSpec (spec) where
 import Prelude
 
 import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Effect.Aff (Milliseconds(..))
 import Effect.Aff (delay, forkAff) as Aff
 import Effect.Aff.Class (liftAff)
@@ -15,7 +16,7 @@ import RIO.Aff.Clock (Clock)
 import RIO.Aff.Core (RIO, provideAll, runRIO')
 import RIO.Aff.Stream (Stream)
 import RIO.Aff.Stream as Stream
-import RIO.Aff.Stream.Timed (debounce, groupedWithin, throttle)
+import RIO.Aff.Stream.Timed (debounce, groupedWithin, throttle, timeoutPerPull)
 import RIO.Aff.Test.Clock (newTestClock)
 
 spec :: Spec Unit
@@ -116,3 +117,34 @@ spec = describe "RIO.Aff.Stream.Timed" do
           (groupedWithin 5 (Milliseconds 100.0) Stream.empty)
       r <- runRIO' (provideAll { clock: tc.clock } program)
       r `shouldEqual` []
+
+  describe "timeoutPerPull" do
+    it "wraps every successful pull as Just" do
+      let
+        program :: RIO () () (Array (Maybe Int))
+        program = Stream.runCollect
+          (timeoutPerPull (Milliseconds 50.0) (Stream.fromArray [ 1, 2, 3 ]))
+      r <- runRIO' program
+      r `shouldEqual` [ Just 1, Just 2, Just 3 ]
+
+    it "emits Nothing then keeps pulling when a pull exceeds the deadline" do
+      pulled <- liftEffect (Ref.new (0 :: Int))
+      let
+        -- A source that delays the first pull past the deadline,
+        -- then yields one element on the second pull and stops.
+        slowFirst :: Stream () () Int
+        slowFirst = Stream.Stream do
+          n <- liftEffect (Ref.modify (_ + 1) pulled)
+          if n == 1 then do
+            liftAff (Aff.delay (Milliseconds 50.0))
+            pure (Stream.Yield 99 Stream.empty)
+          else pure Stream.Done
+
+        program :: RIO () () (Array (Maybe Int))
+        program = Stream.runCollect
+          (timeoutPerPull (Milliseconds 10.0) slowFirst)
+      r <- runRIO' program
+      -- The first pull stalls, races out, and the consumer sees a
+      -- `Nothing`. The retry hits the same source's `n=2` arm, which
+      -- terminates. So the visible output is [Nothing].
+      r `shouldEqual` [ Nothing ]

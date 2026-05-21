@@ -9,9 +9,11 @@ import Data.Variant as Variant
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import RIO.Fiber.Cause (Cause)
+import RIO.Fiber.Clock as Clock
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
 import RIO.Fiber.Pool as Pool
+import RIO.Fiber.TestClock as TestClock
 import Test.RIO.Fiber.Helpers (runAff)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
@@ -201,6 +203,100 @@ spec = describe "rio-fiber: Pool" do
       other -> fail ("expected Success, got " <> describeOutcome other)
     a <- liftEffect (Ref.read attempts)
     a `shouldEqual` 2
+
+  describe "makeWithTTL" do
+    it "evicts and recreates a resource whose idle age exceeds the TTL" do
+      tc <- liftEffect (TestClock.make (Milliseconds 0.0))
+      created <- liftEffect (Ref.new 0)
+      destroyed <- liftEffect (Ref.new 0)
+      let
+        acquire :: F.RIO () () Int
+        acquire = F.liftEffect (Ref.modify (_ + 1) created)
+
+        release :: Int -> F.RIO () () Unit
+        release _ = F.liftEffect (Ref.modify_ (_ + 1) destroyed)
+
+        prog :: F.RIO () () Unit
+        prog = Clock.withClock (TestClock.clock tc) do
+          pool <- Pool.makeWithTTL
+            { capacity: 1
+            , create: acquire
+            , destroy: release
+            , timeToLive: Milliseconds 100.0
+            }
+          _ <- Pool.withResource pool pure
+          TestClock.advance tc (Milliseconds 250.0)
+          _ <- Pool.withResource pool pure
+          pure unit
+      _ <- runAff prog {}
+      c <- liftEffect (Ref.read created)
+      d <- liftEffect (Ref.read destroyed)
+      c `shouldEqual` 2
+      d `shouldEqual` 1
+
+    it "reuses a resource that is still within the TTL" do
+      tc <- liftEffect (TestClock.make (Milliseconds 0.0))
+      created <- liftEffect (Ref.new 0)
+      let
+        acquire :: F.RIO () () Int
+        acquire = F.liftEffect (Ref.modify (_ + 1) created)
+
+        prog :: F.RIO () () Unit
+        prog = Clock.withClock (TestClock.clock tc) do
+          pool <- Pool.makeWithTTL
+            { capacity: 1
+            , create: acquire
+            , destroy: \_ -> pure unit
+            , timeToLive: Milliseconds 100.0
+            }
+          _ <- Pool.withResource pool pure
+          TestClock.advance tc (Milliseconds 50.0)
+          _ <- Pool.withResource pool pure
+          pure unit
+      _ <- runAff prog {}
+      c <- liftEffect (Ref.read created)
+      c `shouldEqual` 1
+
+  describe "withResource'" do
+    it "invalidate causes the resource to be destroyed and not recycled" do
+      created <- liftEffect (Ref.new 0)
+      destroyed <- liftEffect (Ref.new ([] :: Array Int))
+      let
+        acquire :: F.RIO () () Int
+        acquire = F.liftEffect (Ref.modify (_ + 1) created)
+
+        release :: Int -> F.RIO () () Unit
+        release r = F.liftEffect (Ref.modify_ (\xs -> xs <> [ r ]) destroyed)
+
+        prog :: F.RIO () () Unit
+        prog = do
+          pool <- Pool.make 1 acquire release
+          Pool.withResource' pool \_ invalidate -> invalidate
+          -- The first resource was invalidated. The next borrow must
+          -- create a brand new one.
+          _ <- Pool.withResource pool pure
+          pure unit
+      _ <- runAff prog {}
+      c <- liftEffect (Ref.read created)
+      d <- liftEffect (Ref.read destroyed)
+      c `shouldEqual` 2
+      d `shouldEqual` [ 1 ]
+
+    it "without invalidate the resource returns to the pool" do
+      created <- liftEffect (Ref.new 0)
+      let
+        acquire :: F.RIO () () Int
+        acquire = F.liftEffect (Ref.modify (_ + 1) created)
+
+        prog :: F.RIO () () Unit
+        prog = do
+          pool <- Pool.make 1 acquire (\_ -> pure unit)
+          Pool.withResource' pool \_ _ -> pure unit
+          _ <- Pool.withResource pool pure
+          pure unit
+      _ <- runAff prog {}
+      c <- liftEffect (Ref.read created)
+      c `shouldEqual` 1
 
   it "shutdown is idempotent" do
     destroyed <- liftEffect (Ref.new 0)

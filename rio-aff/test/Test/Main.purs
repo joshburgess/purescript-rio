@@ -21,6 +21,8 @@ import Test.RIO.Aff.ConfigSpec as ConfigSpec
 import Test.RIO.Aff.ConsoleSpec as ConsoleSpec
 import Test.RIO.Aff.Config.RotatingSpec as RotatingSpec
 import Test.RIO.Aff.CacheSpec as CacheSpec
+import Test.RIO.Aff.AbortSignalSpec as AbortSignalSpec
+import Test.RIO.Aff.AddedCombinatorsSpec as AddedCombinatorsSpec
 import Test.RIO.Aff.BrandSpec as BrandSpec
 import Test.RIO.Aff.CauseSpec as CauseSpec
 import Test.RIO.Aff.ChunkSpec as ChunkSpec
@@ -31,6 +33,7 @@ import Test.RIO.Aff.Cause.CatchSomeSpec as CauseCatchSomeSpec
 import Test.RIO.Aff.Cause.FoldLinearizeSpec as CauseFoldLinearizeSpec
 import Test.RIO.Aff.Cause.InspectionSpec as CauseInspectionSpec
 import Test.RIO.Aff.CoreSpec as CoreSpec
+import Test.RIO.Aff.DataLoaderSpec as DataLoaderSpec
 import Test.RIO.Aff.DeferredSpec as DeferredSpec
 import Test.RIO.Aff.EffectAndFailSpec as EffectAndFailSpec
 import Test.RIO.Aff.EnvSpec as EnvSpec
@@ -42,6 +45,9 @@ import Test.RIO.Aff.Error.RefineSpec as ErrorRefineSpec
 import Test.RIO.Aff.Error.TapSpec as ErrorTapSpec
 import Test.RIO.Aff.ErrorHandlingSpec as ErrorHandlingSpec
 import Test.RIO.Aff.FailSpec as FailSpec
+import Test.RIO.Aff.FiberHandleSpec as FiberHandleSpec
+import Test.RIO.Aff.FiberSetSpec as FiberSetSpec
+import Test.RIO.Aff.LatchSpec as LatchSpec
 import Test.RIO.Aff.FoldForeverSpec as FoldForeverSpec
 import Test.RIO.Aff.HttpClientSpec as HttpClientSpec
 import Test.RIO.Aff.HttpServerSpec as HttpServerSpec
@@ -51,6 +57,7 @@ import Test.RIO.Aff.Test.WebSocketSpec as TestWebSocketSpec
 import Test.RIO.Aff.HttpStreamSpec as HttpStreamSpec
 import Test.RIO.Aff.HubSpec as HubSpec
 import Test.RIO.Aff.IterateReplicateSpec as IterateReplicateSpec
+import Test.RIO.Aff.KeyedPoolSpec as KeyedPoolSpec
 import Test.RIO.Aff.Hub.PropertiesSpec as HubPropertiesSpec
 import Test.RIO.Aff.LayerSpec as LayerSpec
 import Test.RIO.Aff.FiberRefSpec as FiberRefSpec
@@ -59,23 +66,29 @@ import Test.RIO.Aff.RuntimeSpec as RuntimeSpec
 import Test.RIO.Aff.WorkerPoolSpec as WorkerPoolSpec
 import Test.RIO.Aff.LoggerSpec as LoggerSpec
 import Test.RIO.Aff.Logger.CompositionSpec as LoggerCompositionSpec
+import Test.RIO.Aff.MailboxSpec as MailboxSpec
 import Test.RIO.Aff.MemoSpec as MemoSpec
 import Test.RIO.Aff.MetricSpec as MetricSpec
 import Test.RIO.Aff.MetricsSpec as MetricsSpec
 import Test.RIO.Aff.Metrics.OTelSpec as MetricsOTelSpec
+import Test.RIO.Aff.PipeSpec as PipeSpec
 import Test.RIO.Aff.PoolSpec as PoolSpec
 import Test.RIO.Aff.PredicateSpec as PredicateSpec
+import Test.RIO.Aff.PromiseSpec as PromiseSpec
 import Test.RIO.Aff.QueueSpec as QueueSpec
 import Test.RIO.Aff.Queue.BulkSpec as QueueBulkSpec
 import Test.RIO.Aff.Queue.PropertiesSpec as QueuePropertiesSpec
 import Test.RIO.Aff.QuerySpec as QuerySpec
 import Test.RIO.Aff.RandomSpec as RandomSpec
+import Test.RIO.Aff.RcRefSpec as RcRefSpec
 import Test.RIO.Aff.RateLimiterSpec as RateLimiterSpec
+import Test.RIO.Aff.ReloadableSpec as ReloadableSpec
 import Test.RIO.Aff.RefSpec as RefSpec
 import Test.RIO.Aff.OpenApiSpec as OpenApiSpec
 import Test.RIO.Aff.SchemaSpec as SchemaSpec
 import Test.RIO.Aff.SqlSpec as SqlSpec
 import Test.RIO.Aff.SystemSpec as SystemSpec
+import Test.RIO.Aff.Ref.SubscriptionSpec as SubscriptionRefSpec
 import Test.RIO.Aff.Ref.SynchronizedSpec as SynchronizedRefSpec
 import Test.RIO.Aff.Random.PropertiesSpec as RandomPropertiesSpec
 import Test.RIO.Aff.Random.ShufflePickSpec as RandomShufflePickSpec
@@ -104,6 +117,7 @@ import Test.RIO.Aff.Stream.FilterMapCollectSpec as StreamFilterMapCollectSpec
 import Test.RIO.Aff.Stream.HaltInterruptSpec as StreamHaltInterruptSpec
 import Test.RIO.Aff.Stream.HeadLastFindSpec as StreamHeadLastFindSpec
 import Test.RIO.Aff.Stream.IntoSpec as StreamIntoSpec
+import Test.RIO.Aff.Stream.AsyncIterableSpec as StreamAsyncIterableSpec
 import Test.RIO.Aff.Stream.ConcurrentSpec as StreamConcurrentSpec
 import Test.RIO.Aff.Stream.ParSpec as StreamParSpec
 import Test.RIO.Aff.Stream.PropertiesSpec as StreamPropertiesSpec
@@ -116,7 +130,10 @@ import Test.RIO.Aff.Stream.TimedSpec as StreamTimedSpec
 import Test.RIO.Aff.STMSpec as STMSpec
 import Test.RIO.Aff.STM.PropertiesSpec as STMPropertiesSpec
 import Test.RIO.Aff.STM.TArraySpec as TArraySpec
+import Test.RIO.Aff.STM.TChanSpec as TChanSpec
 import Test.RIO.Aff.STM.TMapSpec as TMapSpec
+import Test.RIO.Aff.STM.TMVarSpec as TMVarSpec
+import Test.RIO.Aff.STM.TSetSpec as TSetSpec
 import Test.RIO.Aff.STM.TMap.PropertiesSpec as TMapPropertiesSpec
 import Test.RIO.Aff.STM.TMap.QuerySpec as TMapQuerySpec
 import Test.RIO.Aff.STM.TDeferredSpec as TDeferredSpec
@@ -165,6 +182,8 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   NeverFilterSpec.spec
   TimeoutRaceValidateSpec.spec
   ZipWithParSpec.spec
+  AbortSignalSpec.spec
+  AddedCombinatorsSpec.spec
   BrandSpec.spec
   ChunkSpec.spec
   CircuitBreakerSpec.spec
@@ -174,16 +193,20 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   CauseCatchSomeSpec.spec
   CauseFoldLinearizeSpec.spec
   CauseInspectionSpec.spec
+  DataLoaderSpec.spec
   DeferredSpec.spec
   ClockSpec.spec
   ClockPartsSpec.spec
   RandomSpec.spec
   RateLimiterSpec.spec
+  RcRefSpec.spec
+  ReloadableSpec.spec
   RandomPropertiesSpec.spec
   RandomShufflePickSpec.spec
   RandomWeightedSpec.spec
   RefSpec.spec
   SynchronizedRefSpec.spec
+  SubscriptionRefSpec.spec
   ConfigSpec.spec
   RotatingSpec.spec
   ScheduleSpec.spec
@@ -203,7 +226,10 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   QueuePropertiesSpec.spec
   QuerySpec.spec
   PoolSpec.spec
+  KeyedPoolSpec.spec
+  PipeSpec.spec
   PredicateSpec.spec
+  PromiseSpec.spec
   CacheSpec.spec
   HubSpec.spec
   HubPropertiesSpec.spec
@@ -220,6 +246,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   StreamHaltInterruptSpec.spec
   StreamHeadLastFindSpec.spec
   StreamIntoSpec.spec
+  StreamAsyncIterableSpec.spec
   StreamConcurrentSpec.spec
   StreamParSpec.spec
   StreamPropertiesSpec.spec
@@ -241,6 +268,9 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   TMapPropertiesSpec.spec
   TMapQuerySpec.spec
   TArraySpec.spec
+  TChanSpec.spec
+  TMVarSpec.spec
+  TSetSpec.spec
   TSemaphoreSpec.spec
   TSemaphorePropertiesSpec.spec
   THubSpec.spec
@@ -264,6 +294,10 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   LocalSpec.spec
   LoggerSpec.spec
   LoggerCompositionSpec.spec
+  FiberHandleSpec.spec
+  FiberSetSpec.spec
+  LatchSpec.spec
+  MailboxSpec.spec
   MemoSpec.spec
   TestHelpersSpec.spec
   TestPropertySpec.spec

@@ -158,6 +158,57 @@ spec = describe "rio-fiber: Logger" do
       show Warn `shouldEqual` "WARN"
       show Error `shouldEqual` "ERROR"
 
+  describe "annotateLogs" do
+    it "prepends key=value annotations to each emitted message" do
+      Tuple capture readBack <- liftEffect mkCaptureLogger
+      let
+        prog :: F.RIO () () Unit
+        prog = Logger.withLogger capture do
+          Logger.annotateLogs
+            [ Tuple "request" "abc", Tuple "user" "42" ]
+            (Logger.info "hello")
+      out <- runAff prog {}
+      case out of
+        Success _ -> do
+          msgs <- liftEffect readBack
+          msgs `shouldEqual`
+            [ Tuple Info "request=abc user=42 hello" ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "nests by appending inner annotations to the outer set" do
+      Tuple capture readBack <- liftEffect mkCaptureLogger
+      let
+        prog :: F.RIO () () Unit
+        prog = Logger.withLogger capture do
+          Logger.annotateLogs [ Tuple "outer" "1" ] do
+            Logger.info "outer-only"
+            Logger.annotateLogs [ Tuple "inner" "2" ] do
+              Logger.info "both"
+            Logger.info "outer-only-again"
+      out <- runAff prog {}
+      case out of
+        Success _ -> do
+          msgs <- liftEffect readBack
+          msgs `shouldEqual`
+            [ Tuple Info "outer=1 outer-only"
+            , Tuple Info "outer=1 inner=2 both"
+            , Tuple Info "outer=1 outer-only-again"
+            ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "empty annotations array is the identity" do
+      Tuple capture readBack <- liftEffect mkCaptureLogger
+      let
+        prog :: F.RIO () () Unit
+        prog = Logger.withLogger capture
+          (Logger.annotateLogs [] (Logger.info "plain"))
+      out <- runAff prog {}
+      case out of
+        Success _ -> do
+          msgs <- liftEffect readBack
+          msgs `shouldEqual` [ Tuple Info "plain" ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"
 describeOutcome (Fail _) = "Fail"

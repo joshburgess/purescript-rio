@@ -24,6 +24,7 @@ module RIO.Aff.STM.TArray
   , modifyTArray
   , newTArray
   , readTArray
+  , replicateTArray
   , swapTArray
   , toArrayTArray
   , writeTArray
@@ -33,6 +34,7 @@ import Prelude
 
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
+import Data.Traversable (traverse)
 
 import RIO.Aff.STM (STM, TRef, modifyTRef, newTRef, readTRef)
 
@@ -52,6 +54,20 @@ newTArray n value = TArray <$> newTRef (Array.replicate n value)
 -- | the transaction do not affect the `TArray`.
 fromArrayTArray :: forall e a. Array a -> STM e (TArray a)
 fromArrayTArray xs = TArray <$> newTRef xs
+
+-- | Allocate a fresh `TArray` of length `n` whose cells are filled
+-- | by running `action` `n` times in sequence (within the same
+-- | transaction). Distinct from `newTArray`, which fills every
+-- | cell with one pre-computed value; reach for `replicateTArray`
+-- | when each cell needs its own freshly-allocated `TRef` or other
+-- | per-cell transactional state. A non-positive `n` produces an
+-- | empty array.
+replicateTArray :: forall e a. Int -> STM e a -> STM e (TArray a)
+replicateTArray n action
+  | n <= 0 = fromArrayTArray []
+  | otherwise = do
+      xs <- traverse (\_ -> action) (Array.range 1 n)
+      fromArrayTArray xs
 
 -- | Number of cells.
 lengthTArray :: forall e a. TArray a -> STM e Int

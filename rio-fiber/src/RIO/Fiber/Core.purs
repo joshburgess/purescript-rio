@@ -1,59 +1,84 @@
 -- | User-facing entry point for `rio-fiber`.
 -- |
--- | This is the MVP surface for the fiber-backed `RIO`. The
--- | combinators here are a deliberately small slice of what
--- | `rio`'s `RIO.Core` exposes: pure / liftEffect, ask / asks,
--- | fail / catchAll, plus async, fork / join / interrupt, and
--- | runners (synchronous and callback-style). Layers, resources,
--- | and the rest land in later phases.
+-- | The fiber-backed `RIO r e a` lives here, along with the
+-- | combinators that programs typically reach for: `pure` /
+-- | `liftEffect`, `ask` / `asks`, `fail` / `failCause` /
+-- | `catchAll`, structured concurrency (`fork` / `join` /
+-- | `interrupt` / `race*` / `parTraverse` / `validatePar`),
+-- | resources (`bracket` / `ensuring` / `acquireRelease`), and
+-- | runners (`runRIO'`, callback-style `runAsync`, and Aff bridges
+-- | exposed via `RIO.Fiber.Aff`).
 module RIO.Fiber.Core
   ( module Exports
   , ask
   , asks
   , async
+  , awaitOutcome
+  , awaitAllOutcomes
   , bracket
   , catchAll
   , causeOf
+  , checkInterruptible
   , die
   , ensuring
+  , ensuringWith
   , fail
   , failCause
+  , filterOrDie
+  , filterOrFail
+  , firstSuccessOf
   , forEach
+  , forever
   , fork
   , forkAll
   , forkAllInline
   , forkInline
+  , ignore
   , interrupt
+  , iterate
   , join
   , joinAll
   , liftEffect
+  , loop
+  , never
+  , onExit
   , parTraverse
+  , partition
+  , poll
   , race
   , raceAll
   , runRIO
   , runRIO'
   , runRIOCallback
+  , timed
   , timeout
   , uninterruptible
+  , uninterruptibleMask
+  , unlessRIO
   , validatePar
+  , whenRIO
+  , yieldNow
+  , zipFiber
   , zipPar
+  , zipWithFiber
   , zipWithPar
   ) where
 
 import Prelude
 
-import Data.Array (uncons)
+import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
-import Data.Time.Duration (Milliseconds)
+import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
+import Data.Variant as Variant
 import Effect (Effect)
 import Effect.Exception (Error, throwException, error)
 import RIO.Fiber.Cause (Cause)
 import RIO.Fiber.Cause as Cause
-import RIO.Fiber.Clock (sleep)
+import RIO.Fiber.Clock (currentEpoch, sleep)
 import RIO.Fiber.Clock (sleep) as Exports
 import RIO.Fiber.Internal (Fiber, Outcome, RIO(..))
 import RIO.Fiber.Internal (Fiber, Outcome(..), RIO, observeFiber, runFiber, startFiber) as Exports
@@ -114,6 +139,94 @@ async register = RIO
         Right a -> onOk a
         Left v -> onFail v
   )
+
+-- | A fiber that never completes on its own. Useful as the "do
+-- | nothing" branch of a `race` or as a parked fiber waiting to be
+-- | interrupted externally. The fiber stays suspended until it is
+-- | interrupted; the interrupt fires the registered no-op canceller
+-- | and propagates through the normal unwind path.
+never :: forall r e a. RIO r e a
+never = async \_ -> pure (pure unit)
+
+-- | Repeat `action` indefinitely. The result type is fully
+-- | polymorphic because the loop never terminates on its own: it
+-- | runs until interrupted, until a typed failure is raised, or
+-- | until a defect aborts the fiber.
+-- |
+-- | Useful for daemon-style workers that consume from a queue or
+-- | tick from a schedule:
+-- |
+-- |     forkScoped (forever (Q.take queue >>= handle))
+forever :: forall r e a b. RIO r e a -> RIO r e b
+forever action = action >>= \_ -> forever action
+
+-- | Record how long `action` took, alongside its result. The
+-- | duration is measured against the active `Clock`, so a virtual
+-- | clock makes the measurement deterministic in tests.
+-- |
+-- | The duration covers only the success path. A typed failure,
+-- | defect, or interrupt short-circuits before the second clock
+-- | read, so callers see the original outcome unchanged. Use
+-- | `Metrics.withTimer` if you need duration on every outcome.
+timed :: forall r e a. RIO r e a -> RIO r e (Tuple Milliseconds a)
+timed action = do
+  Milliseconds startMs <- currentEpoch
+  a <- action
+  Milliseconds endMs <- currentEpoch
+  pure (Tuple (Milliseconds (endMs - startMs)) a)
+
+-- | Run `action`; if its success value fails `predicate`, raise the
+-- | typed failure produced by `onFalse`. The check happens at the
+-- | success boundary and behaves like a guarded `fail`: defects
+-- | and interrupts inside `action` are untouched.
+filterOrFail
+  :: forall r e a
+   . (a -> Boolean)
+  -> (a -> Variant e)
+  -> RIO r e a
+  -> RIO r e a
+filterOrFail predicate onFalse action = do
+  a <- action
+  if predicate a then pure a else fail (onFalse a)
+
+-- | Like `filterOrFail`, but turn a predicate violation into a
+-- | defect via `onFalse`. The error row is preserved unchanged
+-- | because the failure surfaces as `Die` rather than a typed
+-- | error.
+filterOrDie
+  :: forall r e a
+   . (a -> Boolean)
+  -> (a -> Error)
+  -> RIO r e a
+  -> RIO r e a
+filterOrDie predicate onFalse action = do
+  a <- action
+  if predicate a then pure a else die (onFalse a)
+
+-- | Cooperative yield. The fiber records `unit` as its current
+-- | success value, re-enqueues itself on the scheduler, and breaks
+-- | out of the inner step loop. The next fiber in the run queue
+-- | gets to make progress before this one resumes.
+-- |
+-- | Equivalent to the natural break that fires when the per-fiber
+-- | tick budget runs out, but caller-driven: long pure loops that
+-- | never hit a real suspension can sprinkle `yieldNow` between
+-- | passes to keep the scheduler responsive without changing the
+-- | program's structure.
+yieldNow :: forall r e. RIO r e Unit
+yieldNow = RIO Internal.opYieldNow
+
+-- | Reflect the current fiber's interrupt-mask state into the
+-- | success channel. Returns `true` when the fiber is in the normal
+-- | (interruptible) state; returns `false` while the fiber is
+-- | inside an `uninterruptible` region.
+-- |
+-- | This is a window into the runtime, not a setter: it does not
+-- | change the mask. Use it to decide, inside a finalizer or a
+-- | long-running loop, whether a pending interrupt would actually
+-- | take effect at this point.
+checkInterruptible :: forall r e. RIO r e Boolean
+checkInterruptible = RIO Internal.opCheckInterruptible
 
 -- | # Fork family
 -- |
@@ -247,6 +360,58 @@ forkAllInline xs = RIO (Internal.opForkAllInline (coerceOps xs))
 joinAll :: forall r e a. Array (Fiber e a) -> RIO r e (Array a)
 joinAll fs = RIO (Internal.opJoinAll fs)
 
+-- | Wait on a fiber and reflect its full outcome into the success
+-- | channel. Unlike `join`, this never propagates the fiber's
+-- | failure: success, typed failure, defect, and interrupt each
+-- | surface as the corresponding `Outcome` constructor on the caller.
+-- |
+-- | Useful when you need to react to each branch's individual fate
+-- | (logging both succeeded-and-failed children, partitioning a
+-- | fan-out by exit reason) rather than fail-fast on the first one
+-- | that didn't succeed.
+awaitOutcome
+  :: forall r e e' a. Fiber e a -> RIO r e' (Outcome e a)
+awaitOutcome fib = async \resume -> do
+  Internal.observeFiber fib (\o -> resume (Right o))
+  pure (pure unit)
+
+-- | Wait on a batch of fibers and collect each one's `Outcome` in
+-- | order. Like `joinAll` but every fiber's individual fate is
+-- | reported instead of failing fast on the first non-success.
+-- |
+-- | Backed by `parTraverse awaitOutcome`, so each await happens
+-- | concurrently; the call returns once every fiber has settled.
+awaitAllOutcomes
+  :: forall r e e' a. Array (Fiber e a) -> RIO r e' (Array (Outcome e a))
+awaitAllOutcomes = parTraverse awaitOutcome
+
+-- | Combine two fiber handles into a new fiber whose result is the
+-- | tuple of the two source results. The new fiber awaits both
+-- | source fibers concurrently; it succeeds with `Tuple a b` when
+-- | both succeed, fails fast on the first failure, and is
+-- | independently interruptible.
+-- |
+-- | Interrupting the combined fiber does *not* propagate to the
+-- | source fibers; they keep running. If you want their lifecycles
+-- | tied, bind them to a `Scope` via `forkScoped` instead.
+zipFiber
+  :: forall r e a b
+   . Fiber e a
+  -> Fiber e b
+  -> RIO r e (Fiber e (Tuple a b))
+zipFiber = zipWithFiber Tuple
+
+-- | Like `zipFiber` but combine the two results with the given
+-- | function. Both source fibers are awaited concurrently in the
+-- | derived fiber.
+zipWithFiber
+  :: forall r e a b c
+   . (a -> b -> c)
+  -> Fiber e a
+  -> Fiber e b
+  -> RIO r e (Fiber e c)
+zipWithFiber f fa fb = fork (zipWithPar f (join fa) (join fb))
+
 -- | Sequential traverse over an array. Runs `f item` for each item
 -- | in order and collects the results. The first non-success outcome
 -- | propagates and discards any partial results.
@@ -313,16 +478,82 @@ timeout dur action = race (Just <$> action) (sleep dur *> pure Nothing)
 -- | abandon it midway.
 -- |
 -- | If the finalizer itself raises a typed failure or defect, that
--- | replaces the action's outcome. (Composing both outcomes is what
--- | `Cause` is for; it lands in a later phase.)
+-- | replaces the action's outcome.
 ensuring :: forall r e a. RIO r e Unit -> RIO r e a -> RIO r e a
 ensuring (RIO fin) (RIO action) = RIO (Internal.opEnsuring fin action)
+
+-- | Run a finalizer that observes the action's outcome. The handler
+-- | receives `Right a` on success and `Left cause` on any non-success
+-- | exit (typed failure, defect, or interrupt). The handler runs
+-- | inside an uninterruptible region so a late interrupt cannot
+-- | abandon it midway; if it raises a typed failure or defect, that
+-- | replaces the action's outcome.
+-- |
+-- | This is the exit-aware variant of `ensuring`. Use it when the
+-- | finalizer needs to log success and failure differently, record
+-- | the cause to a metric, or skip cleanup work that's only needed
+-- | on one branch.
+ensuringWith
+  :: forall r e a
+   . RIO r e a
+  -> (Either (Cause e) a -> RIO r e Unit)
+  -> RIO r e a
+ensuringWith action k = do
+  result <- causeOf action
+  uninterruptible (k result)
+  case result of
+    Right a -> pure a
+    Left c -> failCause c
+
+-- | Run a finalizer only on non-success exit. The handler receives
+-- | the `Cause` describing why the action stopped (typed failure,
+-- | defect, or interrupt) and must have a discharged error row.
+-- | The handler runs inside an uninterruptible region.
+-- |
+-- | Equivalent to `ensuringWith` with the success branch discarded.
+-- | Useful for "log if and only if this failed" patterns where the
+-- | handler shouldn't be able to introduce a new failure mode.
+onExit
+  :: forall r e a
+   . RIO r e a
+  -> (Cause e -> RIO r () Unit)
+  -> RIO r e a
+onExit action k = ensuringWith action handler
+  where
+  handler (Right _) = pure unit
+  handler (Left c) = catchAll (\v -> Variant.case_ v) (k c)
 
 -- | Defer interruption for the duration of the wrapped action. The
 -- | interrupt flag is preserved; the action just doesn't observe it
 -- | until the mask is released.
 uninterruptible :: forall r e a. RIO r e a -> RIO r e a
 uninterruptible (RIO op) = RIO (Internal.opUninterruptible op)
+
+-- | Run `body` uninterruptibly, but give it a `restore` function that
+-- | temporarily lifts the mask back to its surrounding value for the
+-- | wrapped action. This is the building block for resource-safe
+-- | acquire / use / release patterns where the *use* phase should be
+-- | interruptible while the surrounding bookkeeping should not.
+-- |
+-- | If the surrounding context was already masked when
+-- | `uninterruptibleMask` was called, `restore` is the identity (there
+-- | is no outer interruptibility to restore to). Otherwise `restore x`
+-- | makes `x` interruptible for the duration of `x`'s execution; once
+-- | `x` finishes (success, failure, or interrupt), the mask snaps
+-- | back into place automatically.
+-- |
+-- | Multiple `restore` calls within the same `uninterruptibleMask`
+-- | block are independent: each opens and closes its own
+-- | interruptible window.
+uninterruptibleMask
+  :: forall r e a
+   . ((forall b. RIO r e b -> RIO r e b) -> RIO r e a)
+  -> RIO r e a
+uninterruptibleMask body = RIO
+  ( Internal.opMaskWithRestore \restoreOp ->
+      case body (unsafeCoerce restoreOp) of
+        RIO op -> op
+  )
 
 -- | Acquire / use / release with finalizer semantics. The release
 -- | runs whether `use` succeeds, fails, defects, or is interrupted.
@@ -347,13 +578,37 @@ bracket acquire release use = uninterruptible acquire >>=
 race :: forall r e a. RIO r e a -> RIO r e a -> RIO r e a
 race (RIO l) (RIO r) = RIO (Internal.opRace l r)
 
--- | Race a non-empty array of actions; resume with the first
--- | outcome and interrupt the rest. An empty array raises a defect:
--- | a race with nothing to race has no defined winner.
+-- | Race a non-empty array of actions; resume with the first success
+-- | and interrupt the rest. If every branch is interrupted the parent
+-- | inherits the interrupt; if every branch fails the failures are
+-- | composed with `Cause.both`. An empty array raises a defect: a race
+-- | with nothing to race has no defined winner.
+-- |
+-- | Backed by a native runtime op that fans out in one step rather than
+-- | building a `race` tree, so an N-way race spawns N children directly
+-- | without intermediate coordinating fibers.
 raceAll :: forall r e a. Array (RIO r e a) -> RIO r e a
-raceAll xs = case uncons xs of
-  Nothing -> die (error "rio-fiber: raceAll on an empty array")
-  Just { head, tail } -> foldl race head tail
+raceAll xs = RIO (Internal.opRaceAll (coerceOps xs))
+  where
+  coerceOps :: Array (RIO r e a) -> Array (Internal.Op r e a)
+  coerceOps = unsafeCoerce
+
+-- | Sequential fallback. Tries each action in order; the first one
+-- | to succeed wins and the rest are not started. If every action
+-- | fails with a typed error, the last failure propagates. An empty
+-- | array raises a defect: a chain with nothing to try has no
+-- | defined fallback.
+-- |
+-- | This is the sequential analogue of `raceAll`: same "first
+-- | success wins" semantics, but actions are tried one at a time
+-- | rather than running concurrently. Useful when each branch
+-- | itself does work (DNS lookups, retry strategies with different
+-- | backoffs) and you'd rather pay for the cheaper branches first.
+firstSuccessOf :: forall r e a. Array (RIO r e a) -> RIO r e a
+firstSuccessOf actions = case Array.uncons actions of
+  Nothing -> die (error "rio-fiber: firstSuccessOf with empty array")
+  Just { head, tail } ->
+    foldl (\acc next -> catchAll (\_ -> next) acc) head tail
 
 -- | Run the wrapped action and capture its leaf cause on failure.
 -- | A success becomes `Right a`; a typed failure / defect / interrupt
@@ -369,6 +624,17 @@ causeOf (RIO m) = RIO (Internal.opBind (Internal.opPeel m) goPure)
   where
   goPure r = Internal.opPure (Internal.peelToCauseEither r)
 
+-- | Run an action and discard both its result and any typed failure
+-- | or defect it raises. The returned action always succeeds with
+-- | `unit`. Interrupts are still respected and propagate.
+-- |
+-- | Useful for fire-and-forget effects whose outcome the caller
+-- | doesn't care about: log a metric, ping a webhook, etc.
+ignore :: forall r e e' a. RIO r e a -> RIO r e' Unit
+ignore rio = do
+  _ <- causeOf rio
+  pure unit
+
 -- | Run one fiber per element and collect the results in order.
 -- | Fail-fast: the first non-success outcome interrupts the
 -- | siblings and propagates to the caller.
@@ -376,6 +642,29 @@ parTraverse
   :: forall r e a b. (a -> RIO r e b) -> Array a -> RIO r e (Array b)
 parTraverse f xs = RIO
   (Internal.opParTraverse (\a -> case f a of RIO m -> m) xs)
+
+-- | Run `f` on every element concurrently and partition the
+-- | outcomes into typed failures and successes. Every branch runs to
+-- | completion; sibling branches are not interrupted on a typed
+-- | failure. The outer error row is discharged because failures are
+-- | reflected into the success channel as the `failures` array.
+-- |
+-- | Defects and interrupts are *not* caught by this combinator: they
+-- | escape just like they would from any other concurrent walk. Use
+-- | this when each element's failure is independently meaningful and
+-- | you need both halves of the result (e.g., to report a per-item
+-- | status to the caller).
+partition
+  :: forall r e e' a b
+   . (a -> RIO r e b)
+  -> Array a
+  -> RIO r e' { failures :: Array (Variant e), successes :: Array b }
+partition f xs = do
+  results <- parTraverse (\a -> catchAll (\v -> pure (Left v)) (Right <$> f a)) xs
+  pure (foldl step { failures: [], successes: [] } results)
+  where
+  step acc (Left v) = acc { failures = acc.failures <> [ v ] }
+  step acc (Right b) = acc { successes = acc.successes <> [ b ] }
 
 -- | Run every branch to completion (not fail-fast). On all-success,
 -- | yields the array of results. If any branch failed, the resulting
@@ -388,11 +677,11 @@ validatePar
   :: forall r e a b. (a -> RIO r e b) -> Array a -> RIO r e (Array b)
 validatePar f xs = do
   results <- parTraverse (\a -> causeOf (f a)) xs
-  case partition results of
+  case splitResults results of
     { failures: [], successes } -> pure successes
     { failures } -> failCause (foldl Cause.both Cause.empty failures)
   where
-  partition rs = foldl step { failures: [], successes: [] } rs
+  splitResults rs = foldl step { failures: [], successes: [] } rs
 
   step acc (Left c) = acc { failures = acc.failures <> [ c ] }
   step acc (Right b) = acc { successes = acc.successes <> [ b ] }
@@ -418,4 +707,58 @@ zipWithPar f ra rb = do
       ( Internal.opLiftEffect
           (throwException (error "rio-fiber: zipWithPar invariant violated"))
       )
+
+-- | Non-blocking outcome check. Returns `Just outcome` if the fiber
+-- | has completed (with any of success, typed failure, defect, or
+-- | interrupt), `Nothing` while it is still running.
+poll :: forall r e a. Fiber e a -> RIO r e (Maybe (Outcome e a))
+poll fib = liftEffect $ pure
+  if Internal.fiberIsDone fib then Just (Internal.fiberOutcome fib)
+  else Nothing
+
+-- | Run `body` only when the condition action returns `true`.
+whenRIO :: forall r e. RIO r e Boolean -> RIO r e Unit -> RIO r e Unit
+whenRIO cond body = do
+  c <- cond
+  when c body
+
+-- | Run `body` only when the condition action returns `false`.
+unlessRIO :: forall r e. RIO r e Boolean -> RIO r e Unit -> RIO r e Unit
+unlessRIO cond body = do
+  c <- cond
+  unless c body
+
+-- | Iterate `f` starting at `seed` until the predicate `cont` is
+-- | `false`. Returns the final value (the first one for which `cont`
+-- | returned `false`). `iterate seed cont f` is equivalent to a
+-- | while-style loop in imperative code.
+iterate
+  :: forall r e a
+   . a
+  -> (a -> Boolean)
+  -> (a -> RIO r e a)
+  -> RIO r e a
+iterate seed cont f =
+  if cont seed then do
+    next <- f seed
+    iterate next cont f
+  else pure seed
+
+-- | Loop with explicit state advancement and collection. While
+-- | `cont s` holds, run `body s` and collect the result, then
+-- | advance state with `step s`.
+loop
+  :: forall r e s a
+   . s
+  -> (s -> Boolean)
+  -> (s -> s)
+  -> (s -> RIO r e a)
+  -> RIO r e (Array a)
+loop seed cont step body = go seed []
+  where
+  go s acc =
+    if cont s then do
+      a <- body s
+      go (step s) (acc <> [ a ])
+    else pure acc
 

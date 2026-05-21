@@ -11,11 +11,19 @@ module Test.RIO.Fiber.Tracer.OTel.AdapterSpec (spec) where
 
 import Prelude
 
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), isNothing)
 import Effect.Class (liftEffect)
 import Test.Spec (Spec, describe, it)
+import Test.Spec.Assertions (shouldEqual)
 
-import RIO.Fiber.Tracer (Span(..), Tracer(..))
+import RIO.Fiber.Aff (runAffThrow)
+import RIO.Fiber.Tracer
+  ( Span(..)
+  , SpanKind(..)
+  , Tracer(..)
+  , currentSpan
+  , withTracer
+  )
 import RIO.Fiber.Tracer.OTel.Adapter (makeOTelTracer)
 
 spec :: Spec Unit
@@ -24,7 +32,7 @@ spec = describe "RIO.Fiber.Tracer.OTel.Adapter.makeOTelTracer" do
     Tracer t <- liftEffect (makeOTelTracer "rio-fiber-otel-test")
     liftEffect do
       Span s <- t.startSpan
-        { name: "root", attributes: [], parent: Nothing }
+        { name: "root", attributes: [], parent: Nothing, kind: Internal }
       s.addAttribute "k" "v"
       s.finish
 
@@ -32,9 +40,9 @@ spec = describe "RIO.Fiber.Tracer.OTel.Adapter.makeOTelTracer" do
     Tracer t <- liftEffect (makeOTelTracer "rio-fiber-otel-test")
     liftEffect do
       outer <- t.startSpan
-        { name: "outer", attributes: [], parent: Nothing }
+        { name: "outer", attributes: [], parent: Nothing, kind: Internal }
       Span inner <- t.startSpan
-        { name: "inner", attributes: [], parent: Just outer }
+        { name: "inner", attributes: [], parent: Just outer, kind: Internal }
       inner.finish
       let (Span o) = outer
       o.finish
@@ -43,20 +51,20 @@ spec = describe "RIO.Fiber.Tracer.OTel.Adapter.makeOTelTracer" do
     Tracer t <- liftEffect (makeOTelTracer "rio-fiber-otel-test")
     liftEffect do
       outer <- t.startSpan
-        { name: "outer", attributes: [], parent: Nothing }
+        { name: "outer", attributes: [], parent: Nothing, kind: Internal }
       let (Span o) = outer
       o.finish
       -- outer is finished, so its handle has been removed.
       -- startSpan with this stale parent falls back to a root.
       Span inner <- t.startSpan
-        { name: "inner", attributes: [], parent: Just outer }
+        { name: "inner", attributes: [], parent: Just outer, kind: Internal }
       inner.finish
 
   it "is safe to finish the same span twice" do
     Tracer t <- liftEffect (makeOTelTracer "rio-fiber-otel-test")
     liftEffect do
       Span s <- t.startSpan
-        { name: "twice", attributes: [], parent: Nothing }
+        { name: "twice", attributes: [], parent: Nothing, kind: Internal }
       s.finish
       s.finish
 
@@ -70,5 +78,34 @@ spec = describe "RIO.Fiber.Tracer.OTel.Adapter.makeOTelTracer" do
             , { key: "kind", value: "internal" }
             ]
         , parent: Nothing
+        , kind: Internal
         }
       s.finish
+
+  it "addAttribute after finish is safe (no crash)" do
+    Tracer t <- liftEffect (makeOTelTracer "rio-fiber-otel-test")
+    liftEffect do
+      Span s <- t.startSpan
+        { name: "finished-first", attributes: [], parent: Nothing, kind: Internal }
+      s.finish
+      s.addAttribute "after.finish" "ignored"
+
+  it "two tracer instances do not share parent-lookup state" do
+    Tracer a <- liftEffect (makeOTelTracer "rio-fiber-otel-test-a")
+    Tracer b <- liftEffect (makeOTelTracer "rio-fiber-otel-test-b")
+    liftEffect do
+      aParent <- a.startSpan
+        { name: "a-parent", attributes: [], parent: Nothing, kind: Internal }
+      -- Passing tracer A's parent to tracer B should fall back to a
+      -- root span rather than crash; tracer B has never seen this
+      -- handle.
+      Span bChild <- b.startSpan
+        { name: "b-child", attributes: [], parent: Just aParent, kind: Internal }
+      bChild.finish
+      let (Span aRec) = aParent
+      aRec.finish
+
+  it "currentSpan in RIO is Nothing outside withSpan even with the OTel tracer installed" do
+    tracer <- liftEffect (makeOTelTracer "rio-fiber-otel-test")
+    seen <- runAffThrow (withTracer tracer currentSpan)
+    isNothing seen `shouldEqual` true

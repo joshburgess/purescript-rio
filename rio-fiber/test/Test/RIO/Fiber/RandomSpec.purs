@@ -3,7 +3,9 @@ module Test.RIO.Fiber.RandomSpec (spec) where
 import Prelude
 
 import Data.Array (index, length, replicate)
+import Data.Array as Data.Array
 import Data.Maybe (Maybe(..))
+import Data.String as String
 import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Class (liftEffect)
@@ -174,6 +176,115 @@ spec = describe "rio-fiber: Random" do
         Success r -> do
           r.x `shouldEqual` 0.5
           r.y `shouldEqual` 7
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+  describe "shuffle" do
+    it "preserves length and elements" do
+      let
+        xs = [ 1, 2, 3, 4, 5, 6, 7, 8 ]
+        prog :: F.RIO () () (Array Int)
+        prog = Random.shuffle xs
+      out <- runAff prog {}
+      case out of
+        Success ys -> do
+          length ys `shouldEqual` length xs
+          Data.Array.sort ys `shouldEqual` Data.Array.sort xs
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "on an empty array yields an empty array" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = Random.shuffle []
+      out <- runAff prog {}
+      case out of
+        Success ys -> ys `shouldEqual` []
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "is deterministic under a canned Random override" do
+      -- Fisher-Yates picks j in [0, i] for i = n-1, n-2, ..., 1.
+      -- For [10, 20, 30] (n = 3): i=2 picks j=0 → [30, 20, 10];
+      -- i=1 picks j=1 → no swap → [30, 20, 10].
+      fake <- liftEffect (mkCannedRandom [] [ 0, 1 ] [])
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = Random.withRandom fake (Random.shuffle [ 10, 20, 30 ])
+      out <- runAff prog {}
+      case out of
+        Success ys -> ys `shouldEqual` [ 30, 20, 10 ]
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+  describe "choice" do
+    it "returns Nothing on the empty array" do
+      let
+        prog :: F.RIO () () (Maybe Int)
+        prog = Random.choice []
+      out <- runAff prog {}
+      case out of
+        Success m -> m `shouldEqual` Nothing
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "returns Just on a non-empty array (chosen index from active Random)" do
+      fake <- liftEffect (mkCannedRandom [] [ 2 ] [])
+      let
+        prog :: F.RIO () () (Maybe Int)
+        prog = Random.withRandom fake (Random.choice [ 10, 20, 30, 40 ])
+      out <- runAff prog {}
+      case out of
+        Success m -> m `shouldEqual` Just 30
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+  describe "uuid" do
+    it "returns a non-empty string of the expected v4 shape" do
+      let
+        prog :: F.RIO () () String
+        prog = Random.uuid
+      out <- runAff prog {}
+      case out of
+        Success s -> do
+          -- 8-4-4-4-12 hex digits separated by hyphens = 36 chars total.
+          String.length s `shouldEqual` 36
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "successive uuids differ" do
+      let
+        prog :: F.RIO () () { a :: String, b :: String }
+        prog = do
+          a <- Random.uuid
+          b <- Random.uuid
+          pure { a, b }
+      out <- runAff prog {}
+      case out of
+        Success r -> (r.a == r.b) `shouldEqual` false
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+  describe "bytes" do
+    it "returns an array of the requested length" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = Random.bytes 16
+      out <- runAff prog {}
+      case out of
+        Success xs -> length xs `shouldEqual` 16
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "every byte is in [0, 255]" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = Random.bytes 64
+      out <- runAff prog {}
+      case out of
+        Success xs -> case findOutOfRange xs 0 255 of
+          Nothing -> pure unit
+          Just bad -> fail ("byte out of range: " <> show bad)
+        other -> fail ("expected Success, got " <> describeOutcome other)
+
+    it "n <= 0 yields the empty array" do
+      let
+        prog :: F.RIO () () (Array Int)
+        prog = Random.bytes 0
+      out <- runAff prog {}
+      case out of
+        Success xs -> xs `shouldEqual` []
         other -> fail ("expected Success, got " <> describeOutcome other)
 
 findOutOfRange :: Array Int -> Int -> Int -> Maybe Int

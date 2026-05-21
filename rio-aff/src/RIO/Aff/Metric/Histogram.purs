@@ -32,16 +32,20 @@ module RIO.Aff.Metric.Histogram
   , make
   , observe
   , snapshot
+  , withTimer
   ) where
 
 import Prelude
 
 import Data.Array (findIndex, length, mapWithIndex, replicate)
 import Data.Maybe (fromMaybe)
+import Data.Time.Duration (Milliseconds(..))
 import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 
+import RIO.Aff.Cause (ensuringWith)
+import RIO.Aff.Clock (Clock, now)
 import RIO.Aff.Core (RIO)
 
 newtype Histogram = Histogram
@@ -89,3 +93,22 @@ snapshot (Histogram h) = liftEffect do
   count <- Ref.read h.count
   sum <- Ref.read h.sumRef
   pure { boundaries: h.boundaries, buckets, count, sum }
+
+-- | Record the wall-clock duration of `action` into `histogram`
+-- | regardless of outcome (success, typed failure, or defect). The
+-- | recorded value is in milliseconds, sampled from the `Clock`
+-- | service, so a virtual test clock makes the timing deterministic.
+-- |
+-- | The action's value and failure semantics pass through unchanged;
+-- | the observation runs inside the uninterruptible finalizer that
+-- | `ensuringWith` installs, so a late cancellation cannot skip it.
+withTimer
+  :: forall r e a
+   . Histogram
+  -> RIO (clock :: Clock | r) e a
+  -> RIO (clock :: Clock | r) e a
+withTimer histogram action = do
+  Milliseconds startMs <- now
+  ensuringWith action \_ -> do
+    Milliseconds endMs <- now
+    observe (endMs - startMs) histogram

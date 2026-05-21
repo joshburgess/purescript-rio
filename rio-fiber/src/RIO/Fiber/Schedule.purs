@@ -23,7 +23,12 @@ module RIO.Fiber.Schedule
   , once
   , bothS
   , andThen
+  , compose
+  , mapInput
   , mapOutput
+  , passthrough
+  , elapsed
+  , delays
   , whileInput
   , whileOutput
   , untilInput
@@ -34,14 +39,17 @@ module RIO.Fiber.Schedule
   , retryN
   ) where
 
-import Prelude
+import Prelude hiding (compose)
 
+import Data.DateTime.Instant (unInstant)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Data.Newtype (unwrap)
 import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Effect (Effect)
+import Effect.Now (now) as Now
 import Effect.Random (random)
 import RIO.Fiber.Core (RIO, catchAll, fail, liftEffect, sleep)
 
@@ -159,6 +167,79 @@ mapOutput f (Schedule step) = Schedule \input -> do
     Halt b -> Halt (f b)
     Step b delay next -> Step (f b) delay (mapOutput f next)
 
+-- | Pre-process the input before feeding it to the inner schedule.
+-- | Mirror of `mapOutput`. Useful for adapting a schedule that wants
+-- | one input shape (e.g. a typed failure variant) to a callsite
+-- | that has another (e.g. a wrapped error).
+mapInput :: forall a a' b. (a' -> a) -> Schedule a b -> Schedule a' b
+mapInput f (Schedule step) = Schedule \input -> do
+  d <- step (f input)
+  pure case d of
+    Halt b -> Halt b
+    Step b delay next -> Step b delay (mapInput f next)
+
+-- | Sequential composition: thread the output of the first schedule
+-- | into the input of the second. Both schedules must continue for
+-- | the composition to continue; the combined delay is the maximum
+-- | of the two so neither schedule's pacing is violated.
+compose
+  :: forall a b c
+   . Schedule a b
+  -> Schedule b c
+  -> Schedule a c
+compose (Schedule sa) (Schedule sb) = Schedule \input -> do
+  da <- sa input
+  case da of
+    Halt b -> do
+      db <- sb b
+      pure case db of
+        Halt c -> Halt c
+        Step c _ _ -> Halt c
+    Step b delA sa' -> do
+      db <- sb b
+      pure case db of
+        Halt c -> Halt c
+        Step c delB sb' -> Step c (maxDelay delA delB) (compose sa' sb')
+
+-- | The identity schedule: recurs forever, echoing the input as the
+-- | output with zero delay between recurrences. Useful as the left
+-- | argument to `compose` to inspect or tag inputs while delegating
+-- | pacing to another schedule.
+passthrough :: forall a. Schedule a a
+passthrough = Schedule \input ->
+  pure (Step input (Milliseconds 0.0) passthrough)
+
+-- | Recurs forever, outputting the wall-clock milliseconds elapsed
+-- | since the first step. The first emitted output is `0.0`; each
+-- | subsequent output is the delta from the schedule's start time
+-- | (captured on the first step). Emits no delay of its own; use
+-- | with `compose` against a paced schedule to expose elapsed
+-- | timing.
+elapsed :: forall a. Schedule a Milliseconds
+elapsed = Schedule \_ -> do
+  start <- nowMs
+  pure (Step (Milliseconds 0.0) (Milliseconds 0.0) (go start))
+  where
+  go startMs = Schedule \_ -> do
+    nowMs' <- nowMs
+    pure
+      ( Step
+          (Milliseconds (nowMs' - startMs))
+          (Milliseconds 0.0)
+          (go startMs)
+      )
+
+-- | Replace the inner schedule's output with the delay it emitted.
+-- | The inner schedule's pacing is preserved (each step still sleeps
+-- | for the same amount); only the output changes. Useful for
+-- | observing the timing sequence of a retry/backoff policy.
+delays :: forall a b. Schedule a b -> Schedule a Milliseconds
+delays (Schedule step) = Schedule \input -> do
+  d <- step input
+  pure case d of
+    Halt _ -> Halt (Milliseconds 0.0)
+    Step _ delay next -> Step delay delay (delays next)
+
 -- | Continue only while the input satisfies `p`. An input that
 -- | fails the predicate halts immediately; the schedule's last
 -- | step output is reused as the halt value.
@@ -245,3 +326,11 @@ retryN n = retry (recurs n)
 
 maxDelay :: Milliseconds -> Milliseconds -> Milliseconds
 maxDelay (Milliseconds a) (Milliseconds b) = Milliseconds (max a b)
+
+-- | Read wall-clock time as milliseconds since the Unix epoch.
+-- | Used by `elapsed` to track schedule start time without bringing
+-- | the `Clock` service into the Effect-level Schedule API.
+nowMs :: Effect Number
+nowMs = do
+  instant <- Now.now
+  pure (unwrap (unInstant instant))

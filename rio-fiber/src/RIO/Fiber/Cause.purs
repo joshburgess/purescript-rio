@@ -23,12 +23,14 @@ module RIO.Fiber.Cause
   , both
   , isEmpty
   , isInterrupted
+  , isInterruptedOnly
   , hasDefect
   , failures
   , defects
   , firstFailure
   , firstDefect
   , interruptCount
+  , interrupters
   , stripInterrupts
   , stripFailures
   , stripDefects
@@ -36,23 +38,33 @@ module RIO.Fiber.Cause
   , flatten
   , squash
   , fold
+  , linearize
   , prettyPrint
+  , find
+  , contains
   ) where
 
 import Prelude
 
 import Data.Array as Array
+import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.String (joinWith)
 import Data.Variant (Variant)
 import Effect.Exception (Error, error, message)
+import RIO.Fiber.FiberId (FiberId, unFiberId)
 
 -- | A structured description of how a fiber failed.
+-- |
+-- | `Interrupt` carries the `FiberId` of the fiber that issued the
+-- | interrupt. Interrupts that originate outside any running fiber
+-- | (e.g. an external `Fiber.interrupt` call) are tagged with the
+-- | sentinel `externalFiberId`.
 data Cause e
   = Empty
   | Fail (Variant e)
   | Die Error
-  | Interrupt
+  | Interrupt FiberId
   | Then (Cause e) (Cause e)
   | Both (Cause e) (Cause e)
 
@@ -68,8 +80,8 @@ fail = Fail
 die :: forall e. Error -> Cause e
 die = Die
 
--- | The interrupt cause.
-interrupt :: forall e. Cause e
+-- | Build an interrupt cause attributed to the given fiber.
+interrupt :: forall e. FiberId -> Cause e
 interrupt = Interrupt
 
 -- | Sequential composition; collapses `Empty` on either side.
@@ -93,10 +105,21 @@ isEmpty _ = false
 
 -- | Does this cause contain an interrupt anywhere?
 isInterrupted :: forall e. Cause e -> Boolean
-isInterrupted Interrupt = true
+isInterrupted (Interrupt _) = true
 isInterrupted (Then a b) = isInterrupted a || isInterrupted b
 isInterrupted (Both a b) = isInterrupted a || isInterrupted b
 isInterrupted _ = false
+
+-- | Is every non-`Empty` leaf in this cause an `Interrupt`? Returns
+-- | `false` when any `Fail` or `Die` leaf is present, and `false`
+-- | for a fully-empty cause (which has no observed outcome at all).
+-- |
+-- | Use this to distinguish "I was cancelled, nothing failed" from
+-- | "I was cancelled while a failure was already unwinding" — common
+-- | branch in shutdown logic where the latter is reportable but the
+-- | former is expected.
+isInterruptedOnly :: forall e. Cause e -> Boolean
+isInterruptedOnly c = isInterrupted c && not (hasDefect c) && Array.null (failures c)
 
 -- | Does this cause contain a defect anywhere?
 hasDefect :: forall e. Cause e -> Boolean
@@ -112,7 +135,7 @@ failures c = go c []
   go Empty acc = acc
   go (Fail v) acc = acc <> [ v ]
   go (Die _) acc = acc
-  go Interrupt acc = acc
+  go (Interrupt _) acc = acc
   go (Then a b) acc = go b (go a acc)
   go (Both a b) acc = go b (go a acc)
 
@@ -123,7 +146,7 @@ defects c = go c []
   go Empty acc = acc
   go (Fail _) acc = acc
   go (Die e) acc = acc <> [ e ]
-  go Interrupt acc = acc
+  go (Interrupt _) acc = acc
   go (Then a b) acc = go b (go a acc)
   go (Both a b) acc = go b (go a acc)
 
@@ -151,10 +174,24 @@ firstDefect _ = Nothing
 
 -- | Count of `Interrupt` leaves anywhere in the tree.
 interruptCount :: forall e. Cause e -> Int
-interruptCount Interrupt = 1
+interruptCount (Interrupt _) = 1
 interruptCount (Then a b) = interruptCount a + interruptCount b
 interruptCount (Both a b) = interruptCount a + interruptCount b
 interruptCount _ = 0
+
+-- | All interrupter ids in left-to-right order. An empty array means
+-- | the cause carries no interrupts. Useful for attribution: pick the
+-- | first id to blame the upstream interrupter, or fold the array to
+-- | spot races where multiple fibers interrupted concurrently.
+interrupters :: forall e. Cause e -> Array FiberId
+interrupters c = go c []
+  where
+  go Empty acc = acc
+  go (Fail _) acc = acc
+  go (Die _) acc = acc
+  go (Interrupt fid) acc = acc <> [ fid ]
+  go (Then a b) acc = go b (go a acc)
+  go (Both a b) acc = go b (go a acc)
 
 -- | Replace every `Interrupt` leaf with `Empty` and re-collapse, so
 -- | pure-interrupt subtrees disappear. Useful before logging when
@@ -163,7 +200,7 @@ stripInterrupts :: forall e. Cause e -> Cause e
 stripInterrupts Empty = Empty
 stripInterrupts (Fail v) = Fail v
 stripInterrupts (Die e) = Die e
-stripInterrupts Interrupt = Empty
+stripInterrupts (Interrupt _) = Empty
 stripInterrupts (Then a b) = then_ (stripInterrupts a) (stripInterrupts b)
 stripInterrupts (Both a b) = both (stripInterrupts a) (stripInterrupts b)
 
@@ -173,7 +210,7 @@ stripFailures :: forall e. Cause e -> Cause e
 stripFailures Empty = Empty
 stripFailures (Fail _) = Empty
 stripFailures (Die e) = Die e
-stripFailures Interrupt = Interrupt
+stripFailures (Interrupt fid) = Interrupt fid
 stripFailures (Then a b) = then_ (stripFailures a) (stripFailures b)
 stripFailures (Both a b) = both (stripFailures a) (stripFailures b)
 
@@ -183,7 +220,7 @@ stripDefects :: forall e. Cause e -> Cause e
 stripDefects Empty = Empty
 stripDefects (Fail v) = Fail v
 stripDefects (Die _) = Empty
-stripDefects Interrupt = Interrupt
+stripDefects (Interrupt fid) = Interrupt fid
 stripDefects (Then a b) = then_ (stripDefects a) (stripDefects b)
 stripDefects (Both a b) = both (stripDefects a) (stripDefects b)
 
@@ -193,7 +230,7 @@ mapFailures :: forall e e'. (Variant e -> Variant e') -> Cause e -> Cause e'
 mapFailures _ Empty = Empty
 mapFailures f (Fail v) = Fail (f v)
 mapFailures _ (Die e) = Die e
-mapFailures _ Interrupt = Interrupt
+mapFailures _ (Interrupt fid) = Interrupt fid
 mapFailures f (Then a b) = Then (mapFailures f a) (mapFailures f b)
 mapFailures f (Both a b) = Both (mapFailures f a) (mapFailures f b)
 
@@ -231,7 +268,7 @@ fold
    . { empty :: r
      , fail :: Variant e -> r
      , die :: Error -> r
-     , interrupt :: r
+     , interrupt :: FiberId -> r
      , then_ :: r -> r -> r
      , both :: r -> r -> r
      }
@@ -242,9 +279,27 @@ fold k = go
   go Empty = k.empty
   go (Fail v) = k.fail v
   go (Die e) = k.die e
-  go Interrupt = k.interrupt
+  go (Interrupt fid) = k.interrupt fid
   go (Then a b) = k.then_ (go a) (go b)
   go (Both a b) = k.both (go a) (go b)
+
+-- | Flatten the cause tree into a left-to-right array of leaves,
+-- | discarding the `Then` vs `Both` structure and the `Empty` /
+-- | `Interrupt` markers. `Right` carries a typed failure, `Left` a
+-- | defect.
+-- |
+-- | Pair with `prettyPrint` when you only need a flat list of
+-- | leaves and not the tree shape (e.g. for a one-line log or a
+-- | metric counter keyed by failure tag).
+linearize :: forall e. Cause e -> Array (Either Error (Variant e))
+linearize = fold
+  { empty: []
+  , fail: \v -> [ Right v ]
+  , die: \err -> [ Left err ]
+  , interrupt: \_ -> []
+  , then_: append
+  , both: append
+  }
 
 -- | Render a `Cause` as an indented multi-line tree. The caller
 -- | supplies a printer for the typed-failure payload (typically built
@@ -256,7 +311,7 @@ prettyPrint render = joinWith "\n" <<< go
   go Empty = [ "Empty" ]
   go (Fail v) = [ "Fail " <> render v ]
   go (Die e) = [ "Die " <> message e ]
-  go Interrupt = [ "Interrupt" ]
+  go (Interrupt fid) = [ "Interrupt by #" <> show (unFiberId fid) ]
   go (Then a b) = [ "Then" ] <> branch false (go a) <> branch true (go b)
   go (Both a b) = [ "Both" ] <> branch false (go a) <> branch true (go b)
 
@@ -269,3 +324,28 @@ prettyPrint render = joinWith "\n" <<< go
         contPrefix = if isLast then "    " else "|   "
       in
         [ firstPrefix <> head ] <> map (contPrefix <> _) tail
+
+-- | Find the first sub-cause that matches the predicate, walking
+-- | the tree left-to-right. Returns `Nothing` when no node matches.
+-- | The predicate sees each sub-tree node, not just leaves: so
+-- | `find isInterrupted (Then ...)` may return the composite if it
+-- | contains an interrupt anywhere.
+find :: forall e. (Cause e -> Boolean) -> Cause e -> Maybe (Cause e)
+find p = go
+  where
+  go c
+    | p c = Just c
+    | otherwise = case c of
+        Then a b -> case go a of
+          Just hit -> Just hit
+          Nothing -> go b
+        Both a b -> case go a of
+          Just hit -> Just hit
+          Nothing -> go b
+        _ -> Nothing
+
+-- | `true` iff some sub-cause matches the predicate.
+contains :: forall e. (Cause e -> Boolean) -> Cause e -> Boolean
+contains p c = case find p c of
+  Just _ -> true
+  Nothing -> false

@@ -5,10 +5,28 @@
 -- | capture spans in a `Ref` and assert on what was recorded.
 -- |
 -- | A `Tracer` exposes a single primitive: `startSpan` returns a
--- | `Span` handle whose `finish` is called when the span ends.
--- | `withSpan` is the bracketed form that always finishes the span,
--- | even on failure / interrupt. Attributes are simple string-to-
--- | string pairs; richer payloads belong in user-side adapters.
+-- | `Span` handle whose `finish` is called when the span ends. The
+-- | bracketed forms (`withSpan`, `withSpanWith`) always finish the
+-- | span, even on failure or interrupt.
+-- |
+-- | A `Span` carries five operations:
+-- |
+-- |   * `addAttribute` attaches a key/value tag at any time.
+-- |   * `addEvent` records a timestamped event with optional
+-- |     attributes (e.g. `"cache.miss"` with `{ key: "...key..." }`).
+-- |   * `addLink` adds a non-parent reference to another span,
+-- |     used for cross-trace correlation (e.g. a batch span that
+-- |     links to the spans of the records it consumed).
+-- |   * `setStatus` reports the span's outcome as `Ok`, `Error msg`,
+-- |     or leaves it `Unset` (the default).
+-- |   * `finish` ends the span. Idempotent at the adapter's
+-- |     discretion.
+-- |
+-- | Each span also has a `SpanKind` decided at start time:
+-- | `Internal` (the default), `Server`, `Client`, `Producer`, or
+-- | `Consumer`. The kind controls how OpenTelemetry visualizes the
+-- | span (server spans show up as inbound work, client spans as
+-- | outbound calls, etc.) and is read by the OTel adapter.
 -- |
 -- | Spans nest implicitly. `withSpan` pushes the new span onto a
 -- | per-fiber "current span" slot; the tracer is told the parent
@@ -22,12 +40,20 @@
 module RIO.Fiber.Tracer
   ( Tracer(..)
   , Span(..)
+  , Attr
+  , SpanKind(..)
+  , SpanStatus(..)
   , StartSpanRequest
   , defaultTracer
   , startSpan
+  , startSpanWith
   , finishSpan
   , addAttribute
+  , addEvent
+  , addLink
+  , setStatus
   , withSpan
+  , withSpanWith
   , currentSpan
   , getTracer
   , setTracer
@@ -40,24 +66,70 @@ import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Unsafe (unsafePerformEffect)
 import RIO.Fiber.Core (RIO, ensuring, liftEffect)
+import RIO.Fiber.Ref (locally) as Ref
 import RIO.Fiber.Internal (FiberRef)
 import RIO.Fiber.Ref (getFiberRef, newFiberRef, setFiberRef)
+
+-- | A key/value attribute on a span or event.
+type Attr = { key :: String, value :: String }
+
+-- | The role a span plays in the trace, used by OpenTelemetry-style
+-- | visualizers to distinguish inbound work (`Server`), outbound
+-- | calls (`Client`), and message-queue producers / consumers from
+-- | regular internal work.
+data SpanKind
+  = Internal
+  | Server
+  | Client
+  | Producer
+  | Consumer
+
+derive instance eqSpanKind :: Eq SpanKind
+
+instance showSpanKind :: Show SpanKind where
+  show Internal = "internal"
+  show Server = "server"
+  show Client = "client"
+  show Producer = "producer"
+  show Consumer = "consumer"
+
+-- | The outcome of a span. `StatusUnset` is the default and means
+-- | "no explicit decision"; `StatusOk` is "completed successfully";
+-- | `StatusError msg` carries a human-readable failure description.
+-- | OTel exporters surface the status on the span; callers that
+-- | want their own conventions can also `addAttribute "status" ...`
+-- | in addition to (or instead of) `setStatus`.
+data SpanStatus
+  = StatusUnset
+  | StatusOk
+  | StatusError String
+
+derive instance eqSpanStatus :: Eq SpanStatus
+
+instance showSpanStatus :: Show SpanStatus where
+  show StatusUnset = "unset"
+  show StatusOk = "ok"
+  show (StatusError msg) = "error: " <> msg
 
 -- | An opaque span handle. Implementations stash whatever state they
 -- | need to attribute / finish via the closures in the record.
 newtype Span = Span
   { addAttribute :: String -> String -> Effect Unit
+  , addEvent :: String -> Array Attr -> Effect Unit
+  , addLink :: Span -> Effect Unit
+  , setStatus :: SpanStatus -> Effect Unit
   , finish :: Effect Unit
   }
 
 -- | What `startSpan` is told about a new span: its name, initial
--- | attributes, and the parent if one is active. The tracer is the
--- | one who created the parent (if any), so it can correlate them
--- | via its own captured state.
+-- | attributes, parent (if a span is active on the current fiber),
+-- | and `SpanKind`. The tracer is the one who created the parent
+-- | (if any), so it can correlate them via its own captured state.
 type StartSpanRequest =
   { name :: String
-  , attributes :: Array { key :: String, value :: String }
+  , attributes :: Array Attr
   , parent :: Maybe Span
+  , kind :: SpanKind
   }
 
 -- | A tracer implementation. `startSpan` returns a fresh span; the
@@ -73,6 +145,9 @@ defaultTracer = Tracer
   { startSpan: \_ -> pure
       ( Span
           { addAttribute: \_ _ -> pure unit
+          , addEvent: \_ _ -> pure unit
+          , addLink: \_ -> pure unit
+          , setStatus: \_ -> pure unit
           , finish: pure unit
           }
       )
@@ -88,17 +163,36 @@ tracerRef = unsafePerformEffect (newFiberRef defaultTracer)
 currentSpanRef :: FiberRef (Maybe Span)
 currentSpanRef = unsafePerformEffect (newFiberRef Nothing)
 
--- | Start a span via the active tracer. The current span (if any)
--- | is passed as the parent so the tracer can stitch the trace tree.
+-- | Start a span via the active tracer with the default
+-- | `Internal` kind. The current span (if any) is passed as the
+-- | parent so the tracer can stitch the trace tree. For non-internal
+-- | kinds use `startSpanWith`.
 startSpan
   :: forall r e
    . String
-  -> Array { key :: String, value :: String }
+  -> Array Attr
   -> RIO r e Span
-startSpan name attrs = do
+startSpan name attrs = startSpanWith
+  { name, attributes: attrs, kind: Internal }
+
+-- | Start a span via the active tracer with an explicit kind. The
+-- | record form lets callers pick `Server` / `Client` / `Producer`
+-- | / `Consumer` for inbound / outbound / queue work.
+startSpanWith
+  :: forall r e
+   . { name :: String, attributes :: Array Attr, kind :: SpanKind }
+  -> RIO r e Span
+startSpanWith req = do
   Tracer t <- getFiberRef tracerRef
   parent <- getFiberRef currentSpanRef
-  liftEffect (t.startSpan { name, attributes: attrs, parent })
+  liftEffect
+    ( t.startSpan
+        { name: req.name
+        , attributes: req.attributes
+        , parent
+        , kind: req.kind
+        }
+    )
 
 -- | Finish the given span. Idempotent at the implementation's
 -- | discretion; the default no-op tracer handles repeat calls.
@@ -109,20 +203,54 @@ finishSpan (Span s) = liftEffect s.finish
 addAttribute :: forall r e. Span -> String -> String -> RIO r e Unit
 addAttribute (Span s) k v = liftEffect (s.addAttribute k v)
 
--- | Run `body` inside a span: starts the span before `body`, finishes
--- | it on exit (success, failure, interrupt, or defect). While
--- | `body` runs, the new span is the "current span" for this fiber;
--- | nested `withSpan` calls see it as their parent, and child fibers
--- | forked from inside the block inherit it at the point of fork.
+-- | Record a timestamped event on the span. Events sit on a span
+-- | like notes on a timeline: "cache miss happened here", "retry
+-- | 3 of 5", etc. The attributes parameter is for event-specific
+-- | metadata distinct from the span's own attributes.
+addEvent :: forall r e. Span -> String -> Array Attr -> RIO r e Unit
+addEvent (Span s) name attrs = liftEffect (s.addEvent name attrs)
+
+-- | Add a non-parent reference from this span to another. Links
+-- | are used for cross-trace correlation: a batch processor's span
+-- | might link to each of the spans that produced the records it
+-- | consumed, even though those spans live in different traces.
+addLink :: forall r e. Span -> Span -> RIO r e Unit
+addLink (Span s) target = liftEffect (s.addLink target)
+
+-- | Set the span's status. Most callers don't need this: `withSpan`
+-- | finishes the span normally on success. Use this to explicitly
+-- | mark a span as `Ok` (some backends require it) or as `Error msg`
+-- | when the work failed in a way the caller wants the trace to
+-- | reflect even though the surrounding RIO program continues.
+setStatus :: forall r e. Span -> SpanStatus -> RIO r e Unit
+setStatus (Span s) status = liftEffect (s.setStatus status)
+
+-- | Run `body` inside a span with the default `Internal` kind:
+-- | starts the span before `body`, finishes it on exit (success,
+-- | failure, interrupt, or defect). While `body` runs, the new
+-- | span is the "current span" for this fiber; nested `withSpan`
+-- | calls see it as their parent, and child fibers forked from
+-- | inside the block inherit it at the point of fork.
 withSpan
   :: forall r e a
    . String
-  -> Array { key :: String, value :: String }
+  -> Array Attr
   -> (Span -> RIO r e a)
   -> RIO r e a
-withSpan name attrs body = do
+withSpan name attrs = withSpanWith
+  { name, attributes: attrs, kind: Internal }
+
+-- | Like `withSpan` but with an explicit `SpanKind`. Use this for
+-- | inbound request handlers (`Server`), outbound HTTP / RPC calls
+-- | (`Client`), or message-queue work (`Producer` / `Consumer`).
+withSpanWith
+  :: forall r e a
+   . { name :: String, attributes :: Array Attr, kind :: SpanKind }
+  -> (Span -> RIO r e a)
+  -> RIO r e a
+withSpanWith req body = do
   prevSpan <- getFiberRef currentSpanRef
-  span <- startSpan name attrs
+  span <- startSpanWith req
   setFiberRef currentSpanRef (Just span)
   ensuring
     (setFiberRef currentSpanRef prevSpan *> finishSpan span)
@@ -145,7 +273,4 @@ setTracer = setFiberRef tracerRef
 -- | Run `body` with `tracer` as the active tracer, restoring the
 -- | previous implementation on exit.
 withTracer :: forall r e a. Tracer -> RIO r e a -> RIO r e a
-withTracer tracer body = do
-  prev <- getTracer
-  setTracer tracer
-  ensuring (setTracer prev) body
+withTracer tracer body = Ref.locally tracerRef tracer body

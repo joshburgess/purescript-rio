@@ -6,6 +6,7 @@ import Data.Array (filter, index, length, range, sort) as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
+import Data.Tuple (Tuple(..))
 import Data.Traversable (traverse)
 import Effect.Aff (attempt, delay, error)
 import Effect.Aff.Class (liftAff)
@@ -19,7 +20,14 @@ import Type.Proxy (Proxy(..))
 import RIO.Aff.Concurrency (fork, join)
 import RIO.Aff.Core (RIO, die, fail, runRIO, runRIO')
 import RIO.Aff.Stream (Stream, fromArray, mapM, runCollect)
-import RIO.Aff.Stream.Par (broadcast, merge, mergeAll, mergeMap, partition)
+import RIO.Aff.Stream.Par
+  ( broadcast
+  , merge
+  , mergeAll
+  , mergeMap
+  , partition
+  , partitionEither
+  )
 
 spec :: Spec Unit
 spec = do
@@ -492,6 +500,87 @@ spec = do
           Right outs ->
             outs `shouldEqual` [ [ 2, 4 ], [ 1, 3 ] ]
           Left _ -> Spec.fail "expected clamped-bufferSize partition to succeed"
+
+    describe "partitionEither" do
+      it "routes every Left to lefts and every Right to rights" do
+        let
+          input :: Stream () () (Either Int String)
+          input = fromArray
+            [ Left 1, Right "a", Left 2, Right "b", Left 3, Right "c" ]
+
+          program :: RIO () () (Tuple (Array Int) (Array String))
+          program = do
+            { lefts, rights } <- partitionEither input
+            lf <- fork (runCollect lefts)
+            rf <- fork (runCollect rights)
+            ls <- join lf
+            rs <- join rf
+            pure (Tuple ls rs)
+        r <- runRIO program
+        case r of
+          Right (Tuple ls rs) -> do
+            ls `shouldEqual` [ 1, 2, 3 ]
+            rs `shouldEqual` [ "a", "b", "c" ]
+          Left _ -> Spec.fail "expected partitionEither to succeed"
+
+      it "empty input closes both consumer streams" do
+        let
+          input :: Stream () () (Either Int String)
+          input = fromArray []
+
+          program :: RIO () () (Tuple (Array Int) (Array String))
+          program = do
+            { lefts, rights } <- partitionEither input
+            lf <- fork (runCollect lefts)
+            rf <- fork (runCollect rights)
+            ls <- join lf
+            rs <- join rf
+            pure (Tuple ls rs)
+        r <- runRIO program
+        case r of
+          Right (Tuple ls rs) -> do
+            ls `shouldEqual` ([] :: Array Int)
+            rs `shouldEqual` ([] :: Array String)
+          Left _ -> Spec.fail "expected empty partitionEither to succeed"
+
+      it "all-Left input drains lefts and closes rights" do
+        let
+          input :: Stream () () (Either Int String)
+          input = fromArray [ Left 7, Left 8, Left 9 ]
+
+          program :: RIO () () (Tuple (Array Int) (Array String))
+          program = do
+            { lefts, rights } <- partitionEither input
+            lf <- fork (runCollect lefts)
+            rf <- fork (runCollect rights)
+            ls <- join lf
+            rs <- join rf
+            pure (Tuple ls rs)
+        r <- runRIO program
+        case r of
+          Right (Tuple ls rs) -> do
+            ls `shouldEqual` [ 7, 8, 9 ]
+            rs `shouldEqual` ([] :: Array String)
+          Left _ -> Spec.fail "expected all-Left partitionEither to succeed"
+
+      it "propagates a typed failure raised by the upstream" do
+        let
+          producer :: Stream () (boom :: Int) (Either Int String)
+          producer = mapM
+            ( \i ->
+                if i == 2 then fail (Proxy :: Proxy "boom") i
+                else pure (Left i)
+            )
+            (fromArray [ 1, 2, 3 ])
+
+          program :: RIO () (boom :: Int) (Array Int)
+          program = do
+            { lefts } <- partitionEither producer
+            runCollect lefts
+        r <- runRIO program
+        case r of
+          Left _ -> pure unit
+          Right _ -> Spec.fail "expected partitionEither failure to surface"
 
     describe "backpressure timing" do
       it "slow consumers don't lose elements (buffer + backpressure)" do

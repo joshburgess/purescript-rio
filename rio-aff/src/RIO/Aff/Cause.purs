@@ -38,24 +38,39 @@ module RIO.Aff.Cause
   , catchSomeCause
   , containsFailure
   , defects
+  , ensuringWith
   , failCause
   , failures
   , find
+  , firstDefect
+  , firstFailure
+  , flatten
   , foldCause
   , foldCauseRIO
   , hasDefect
   , hasFailure
+  , ignore
   , isFailure
   , linearize
+  , mapFailures
+  , onExit
   , prettyCause
   , prettyCauseWithStack
+  , prettyPrint
   , combineParallel
   , fromOutcome
   , concatParallel
   , concatSequential
+  , contains
+  , matchCause
+  , matchCauseRIO
   , parTraverseCause
   , parSequenceCause
   , raceCause
+  , squash
+  , stripDefects
+  , stripFailures
+  , tapDefectCause
   , tapErrorCause
   ) where
 
@@ -70,7 +85,7 @@ import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
-import Effect.Aff (attempt, bracket)
+import Effect.Aff (attempt, bracket, invincible)
 import Effect.Class (liftEffect)
 import Data.String (joinWith, split) as String
 import Data.String.Pattern (Pattern(..)) as String
@@ -182,6 +197,19 @@ attemptCause
 attemptCause action = mkRIO \r -> do
   outcome <- attempt (unRIO action r)
   pure (fromOutcome outcome)
+
+-- | Run an action and discard both its result and any typed
+-- | failure or defect it raises. The returned action always
+-- | succeeds with `unit`.
+-- |
+-- | Useful for fire-and-forget effects whose outcome the caller
+-- | doesn't care about: log a metric, ping a webhook, etc. The
+-- | typed-error row is discharged via `attemptCause`, so the
+-- | result is `RIO r e' Unit` for any `e'` the caller wants.
+ignore :: forall r e e' a. RIO r e a -> RIO r e' Unit
+ignore action = do
+  _ <- attemptCause action
+  pure unit
 
 -- | The cause-aware analogue of `RIO.Aff.Error.foldRIO`: branch on the
 -- | full `Cause` (every typed failure *and* every defect, including
@@ -674,6 +702,45 @@ prettyCauseGo renderFail renderDie = go
         <> Array.intercalate "\n"
           [ go (depth + 1) a, go (depth + 1) b ]
 
+-- | Render a `Cause` as a tree using ASCII branch characters
+-- | (`|--` / `` `-- ``), as an alternative to `prettyCause`'s
+-- | indent-based layout.
+-- |
+-- | The caller supplies a renderer for typed failures because
+-- | `Variant` has no generic `Show`. Defects are rendered via
+-- | `Effect.Exception.message`.
+-- |
+-- | Output shape:
+-- |   * `Fail v`        renders as `"Fail " <> render v`
+-- |   * `Die err`       renders as `"Die " <> message err`
+-- |   * `Parallel a b`  renders a `"Both"` header with both
+-- |                     subtrees as branches
+-- |   * `Sequential a b` renders a `"Then"` header with both
+-- |                     subtrees as branches
+-- |
+-- | This is the tree-style sibling of `prettyCause`. Reach for it
+-- | when the output is going to a place that benefits from visual
+-- | tree characters (a console with a fixed-width font); reach for
+-- | `prettyCause` when a simpler indented format is enough.
+prettyPrint :: forall e. (Variant e -> String) -> Cause e -> String
+prettyPrint render = String.joinWith "\n" <<< go
+  where
+  go :: Cause e -> Array String
+  go (Fail v) = [ "Fail " <> render v ]
+  go (Die e) = [ "Die " <> message e ]
+  go (Sequential a b) = [ "Then" ] <> branch false (go a) <> branch true (go b)
+  go (Parallel a b) = [ "Both" ] <> branch false (go a) <> branch true (go b)
+
+  branch :: Boolean -> Array String -> Array String
+  branch isLast xs = case Array.uncons xs of
+    Nothing -> []
+    Just { head, tail } ->
+      let
+        firstPrefix = if isLast then "`-- " else "|-- "
+        contPrefix = if isLast then "    " else "|   "
+      in
+        [ firstPrefix <> head ] <> map (contPrefix <> _) tail
+
 dieMessageOnly :: Int -> Error -> String
 dieMessageOnly depth err = pad depth <> "defect: " <> message err
 
@@ -708,3 +775,220 @@ repeatStr :: Int -> String -> String
 repeatStr n s
   | n <= 0 = ""
   | otherwise = s <> repeatStr (n - 1) s
+
+-- | The leftmost typed failure in the cause tree, or `Nothing` if
+-- | the cause is defect-only.
+firstFailure :: forall e. Cause e -> Maybe (Variant e)
+firstFailure = case _ of
+  Fail v -> Just v
+  Die _ -> Nothing
+  Parallel a b -> case firstFailure a of
+    Just v -> Just v
+    Nothing -> firstFailure b
+  Sequential a b -> case firstFailure a of
+    Just v -> Just v
+    Nothing -> firstFailure b
+
+-- | The leftmost defect in the cause tree, or `Nothing` if the
+-- | cause is purely typed failures.
+firstDefect :: forall e. Cause e -> Maybe Error
+firstDefect = case _ of
+  Fail _ -> Nothing
+  Die err -> Just err
+  Parallel a b -> case firstDefect a of
+    Just err -> Just err
+    Nothing -> firstDefect b
+  Sequential a b -> case firstDefect a of
+    Just err -> Just err
+    Nothing -> firstDefect b
+
+-- | Map every typed failure to a different row, preserving the
+-- | tree shape. Defects are unchanged.
+mapFailures
+  :: forall e e'. (Variant e -> Variant e') -> Cause e -> Cause e'
+mapFailures f = case _ of
+  Fail v -> Fail (f v)
+  Die err -> Die err
+  Parallel a b -> Parallel (mapFailures f a) (mapFailures f b)
+  Sequential a b -> Sequential (mapFailures f a) (mapFailures f b)
+
+-- | Drop every typed failure from the cause tree, keeping only
+-- | defects. Returns `Nothing` if the cause was purely typed
+-- | failures (rio-aff's `Cause` has no `Empty` constructor, so the
+-- | fully-stripped tree has no in-band representation).
+stripFailures :: forall e. Cause e -> Maybe (Cause e)
+stripFailures = case _ of
+  Fail _ -> Nothing
+  Die err -> Just (Die err)
+  Parallel a b -> combineMaybe Parallel (stripFailures a) (stripFailures b)
+  Sequential a b -> combineMaybe Sequential (stripFailures a) (stripFailures b)
+
+-- | Drop every defect from the cause tree, keeping only typed
+-- | failures. Returns `Nothing` if the cause was defect-only.
+stripDefects :: forall e. Cause e -> Maybe (Cause e)
+stripDefects = case _ of
+  Fail v -> Just (Fail v)
+  Die _ -> Nothing
+  Parallel a b -> combineMaybe Parallel (stripDefects a) (stripDefects b)
+  Sequential a b -> combineMaybe Sequential (stripDefects a) (stripDefects b)
+
+combineMaybe
+  :: forall e
+   . (Cause e -> Cause e -> Cause e)
+  -> Maybe (Cause e)
+  -> Maybe (Cause e)
+  -> Maybe (Cause e)
+combineMaybe op = case _, _ of
+  Nothing, Nothing -> Nothing
+  Just c, Nothing -> Just c
+  Nothing, Just c -> Just c
+  Just a, Just b -> Just (op a b)
+
+-- | Collapse a cause to its two leaf populations: every typed
+-- | failure and every defect, in left-to-right order. The
+-- | structural shape (`Parallel` / `Sequential`) is discarded.
+flatten
+  :: forall e
+   . Cause e
+  -> { failures :: Array (Variant e)
+     , defects :: Array Error
+     }
+flatten c =
+  { failures: failures c
+  , defects: defects c
+  }
+
+-- | Does any node in the cause tree satisfy the predicate? The
+-- | predicate sees every node, atomic and composite, in
+-- | depth-first left-to-right order. Useful for "does this cause
+-- | contain a `Sequential` somewhere" / "any defect whose message
+-- | matches X" / etc. queries that cross both leaf populations.
+contains :: forall e. (Cause e -> Boolean) -> Cause e -> Boolean
+contains p = go
+  where
+  go c = p c || case c of
+    Fail _ -> false
+    Die _ -> false
+    Parallel a b -> go a || go b
+    Sequential a b -> go a || go b
+
+-- | The cause-aware sibling of `RIO.Aff.Error.tapDefect`: run a
+-- | side-effecting handler whenever the failure tree contains at
+-- | least one defect, then re-raise the original cause. Purely-
+-- | typed failures (no defects anywhere) and successes pass
+-- | through without invoking the handler.
+-- |
+-- | If the handler itself fails or dies, that failure replaces
+-- | the original (same policy as `tapErrorCause`).
+tapDefectCause
+  :: forall r e a
+   . (Cause e -> RIO r e Unit)
+  -> RIO r e a
+  -> RIO r e a
+tapDefectCause f = tapErrorCause \c ->
+  if hasDefect c then f c else pure unit
+
+-- | Pure analogue of `foldCauseRIO`: reify the outcome as `Either`
+-- | and project both arms back to a plain value. Useful when the
+-- | recovery arm doesn't need to run any effects.
+matchCause
+  :: forall r e e' a b
+   . (Cause e -> b)
+  -> (a -> b)
+  -> RIO r e a
+  -> RIO r e' b
+matchCause onCause onOk inner = do
+  outcome <- attemptCause inner
+  pure case outcome of
+    Right a -> onOk a
+    Left c -> onCause c
+
+-- | Effectful analogue of `matchCause`. An alias for
+-- | `foldCauseRIO` provided for symmetry with `matchCause` and to
+-- | match the naming used in rio-fiber / Effect-TS.
+matchCauseRIO
+  :: forall r e e' a b
+   . (Cause e -> RIO r e' b)
+  -> (a -> RIO r e' b)
+  -> RIO r e a
+  -> RIO r e' b
+matchCauseRIO = foldCauseRIO
+
+-- | Run `action` to completion, then run the finalizer `k` with
+-- | the observed outcome. The finalizer receives `Right a` on
+-- | success and `Left cause` on any non-success exit (typed
+-- | failure or defect). It runs inside an uninterruptible region
+-- | so a late kill cannot abandon it midway.
+-- |
+-- | If the finalizer itself fails or dies, that failure replaces
+-- | the action's outcome (same policy as `ensuring`). Otherwise
+-- | the original outcome is preserved: a success forwards `a`, a
+-- | non-success re-raises via `failCause`.
+-- |
+-- | This is the exit-aware variant of `ensuring` (from
+-- | `RIO.Aff.Resource`). Use it when the finalizer needs to log
+-- | success and failure differently, record the cause to a
+-- | metric, or skip cleanup work that's only needed on one
+-- | branch.
+-- |
+-- | ```purescript
+-- | -- log every outcome with full cause detail
+-- | runJob # ensuringWith \case
+-- |   Right a -> logSuccess a
+-- |   Left c -> logFailure (prettyCause renderTag c)
+-- | ```
+ensuringWith
+  :: forall r e a
+   . RIO r e a
+  -> (Either (Cause e) a -> RIO r e Unit)
+  -> RIO r e a
+ensuringWith action k = do
+  result <- attemptCause action
+  uninterruptibleInline (k result)
+  case result of
+    Right a -> pure a
+    Left c -> failCause c
+  where
+  uninterruptibleInline :: forall b. RIO r e b -> RIO r e b
+  uninterruptibleInline m = mkRIO \r -> invincible (unsafeUnRIO m r)
+
+-- | Run `action`; on any non-success exit, run the finalizer `k`
+-- | with the observed cause. Success branches skip the finalizer.
+-- | The handler's error row is `()` so the finalizer cannot
+-- | introduce a typed failure (the original cause always wins).
+-- | Defects raised inside the handler still propagate.
+-- |
+-- | The finalizer runs uninterruptibly (via `ensuringWith`), so a
+-- | late kill cannot abandon it midway.
+-- |
+-- | Equivalent to `ensuringWith` with the success branch discarded.
+-- | Useful for "log if and only if this failed" patterns where the
+-- | handler shouldn't be able to introduce a new failure mode.
+-- |
+-- | ```purescript
+-- | -- emit a single failure metric on any non-success exit
+-- | runQuery # onExit \c -> incrementCounter "query.failure"
+-- | ```
+onExit
+  :: forall r e a
+   . RIO r e a
+  -> (Cause e -> RIO r () Unit)
+  -> RIO r e a
+onExit action k = ensuringWith action handler
+  where
+  handler (Right _) = pure unit
+  handler (Left c) = mkRIO \r -> unsafeUnRIO (k c) r
+
+-- | Squash a cause into a single `Error` for handoff to code that
+-- | does not understand `Cause`. Priority: the first defect, then
+-- | the first typed failure rendered through the caller's
+-- | projector. The rio-aff invariant guarantees at least one of
+-- | the two is present.
+squash :: forall e. (Variant e -> Error) -> Cause e -> Error
+squash render c = case firstDefect c of
+  Just err -> err
+  Nothing -> case firstFailure c of
+    Just v -> render v
+    -- Unreachable: a rio-aff `Cause` always carries at least one
+    -- `Fail` or `Die` leaf.
+    Nothing -> Exception.error "RIO.Aff.Cause.squash: impossible"

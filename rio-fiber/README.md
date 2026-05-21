@@ -1,30 +1,39 @@
 # rio-fiber
 
-A fiber runtime for `RIO` that does not sit on `Effect.Aff`.
+The default runtime for `purescript-rio`. A hand-rolled fiber
+interpreter for `RIO r e a` that owns its scheduling, supervision,
+and failure model end-to-end.
 
-The main `purescript-rio` package interprets `RIO r e a` on top of
-`Aff`. That is a deliberate, sensible default, but it inherits
-`Aff`'s ceiling: no fiber identity, no per-fiber state, no
-structured supervision, no virtual time except by Clock discipline,
-no `Cause` distinguishing failure from defect from interrupt, and
-cancellation semantics shaped by `Effect.Aff`'s canceler protocol.
+`RIO r e a` is the same three-channel type you'd see anywhere else
+in the repository: typed environment row `r`, typed failure row
+`e`, success value `a`. What `rio-fiber` adds is the runtime
+underneath: numeric fiber identity, `FiberRef` copy-on-write
+across fork, first-class `Cause e`, a `TestClock` that wakes
+sleeping fibers, structured concurrency via `Scope` / `forkScoped`
+/ `forkSupervised`, STM with `retry` parking on `TVar` change,
+and an interruption model that distinguishes typed failure from
+defect from interrupt at every node of the cause tree.
 
-`rio-fiber` replaces the `Aff` interpreter with a hand-rolled step
-loop and per-fiber state. The user-facing type is still
-`RIO r e a`; what changes is the runtime underneath. In exchange
-for that work you get proper fibers, FiberRef, Cause, a TestClock,
-STM with event-loop atomicity, and the rest of the ZIO-shaped
-surface, and the bind hot path is roughly 4x faster than `Aff` on
-the workspace benchmarks; `fork x16 + join each` sits at parity
-with `forkAff` once V8's JIT is warm (whichever variant the bench
-runs second wins; the first pays the JIT compile cost).
+The bind hot path is roughly 4x faster than the `Aff`-backed
+[`rio-aff`](../rio-aff/) on the workspace benchmarks (about 10 ns
+per `bind` versus 33 ns); `fork x16 + join each` sits at parity
+with `forkAff` once V8's JIT is warm; and the specialised
+`forkAll x16 + joinAll` array fan-out runs at roughly 5x the
+speed of `forkAff x16 + joinFiber` (it walks the array in a
+single op dispatch instead of the per-element bind chain that
+`traverse fork` builds).
 
-This package is independent of the main `rio` package: it has its
-own `RIO.Fiber.Core` module, its own combinators, its own
-runtime. Programs are written against `RIO.Fiber.*` instead of
-`RIO.*`. The two cannot share a program directly, but
-[`RIO.Fiber.Aff`](./src/RIO/Fiber/Aff.purs) bridges either
-direction at the boundary.
+Programs are written against `RIO.Fiber.*`.
+[`RIO.Fiber.Aff`](./src/RIO/Fiber/Aff.purs) bridges to / from
+`Effect.Aff` at the boundary, so a top-level `Aff` host program
+can call into a fiber-backed subroutine, or vice versa, without
+forcing the whole tree onto one runtime.
+
+If you're starting a new project, this is the package to pick.
+[`rio-aff`](../rio-aff/) is maintained alongside as the
+ecosystem-friendly alternative for codebases that need to stay
+on `Effect.Aff` end-to-end; the cost of that choice is documented
+in [`docs/aff-constraints.md`](../docs/aff-constraints.md).
 
 ## A 30-second tour
 
@@ -150,26 +159,25 @@ sibling fibers are left alone. On the workspace benchmarks
 - **`RIO.Fiber.Random`**: a small randomness service with a
   seeded deterministic backend for tests.
 
-## Choosing between `rio` and `rio-fiber`
+## Choosing between `rio-fiber` and `rio-aff`
 
-| | `rio` (Aff-backed) | `rio-fiber` |
+| | `rio-fiber` (default) | `rio-aff` (Aff-backed alternative) |
 |---|---|---|
-| Cancellation | `Aff` canceler protocol; interruption is cooperative | Structured: interrupt request observed at safe points; finalizers always run |
-| Fiber identity | None | Numeric id, supervisor hooks, observe |
-| Per-fiber state | Shared `RIO.Local` cells | `FiberRef` with copy-on-write to children |
-| Failure model | Single `Variant e` or `Cause` reified at boundaries | First-class `Cause e` everywhere (Then/Both/Interrupt) |
-| Virtual time | `RIO.Test.Clock` simulated via `Clock` discipline | `TestClock` wakes sleeping fibers directly |
-| STM atomicity | One commit per event-loop turn (shared with `Aff` scheduling) | Same model, plus retry on `TVar` change without spinning |
-| Bind hot path | About 33 ns per `bind` in the workspace bench | About 10 ns per `bind` (BIND fuses common leaf ops in the step loop) |
-| Fork hot path | About the same as `forkAff` | At parity with `forkAff` on `fork x16 + join each` once V8 is warm; the bench variant that runs second wins by ~10% over the one that runs first because of JIT compile cost |
-| Array fan-out | `traverse forkAff` builds a per-element bind chain | `forkAll` / `joinAll` are specialized ops; `forkAll x16 + joinAll` runs at roughly 5x the speed of `forkAff x16 + joinFiber` |
+| Cancellation | Structured: interrupt request observed at safe points; finalizers always run | `Aff` canceler protocol; interruption is cooperative |
+| Fiber identity | Numeric id, supervisor hooks, observe | None |
+| Per-fiber state | `FiberRef` with copy-on-write to children | Shared `RIO.Aff.Local` cells (process-global) |
+| Failure model | First-class `Cause e` everywhere (Then / Both / Interrupt) | Single `Variant e` or `Cause` reified at boundaries |
+| Virtual time | `TestClock` wakes sleeping fibers directly | `RIO.Aff.Test.Clock` simulated via `Clock` discipline |
+| STM atomicity | One commit per event-loop turn, plus `retry` parks on `TVar` change without spinning | Same atomicity model, no `TVar`-park retry |
+| Bind hot path | About 10 ns per `bind` (BIND fuses common leaf ops in the step loop) | About 33 ns per `bind` in the workspace bench |
+| Fork hot path | At parity with `forkAff` on `fork x16 + join each` once V8 is warm | About the same as `forkAff` |
+| Array fan-out | `forkAll` / `joinAll` are specialised ops; `forkAll x16 + joinAll` runs at roughly 5x the speed of `forkAff x16 + joinFiber` | `traverse forkAff` builds a per-element bind chain |
 
-Use `rio` for code that already lives on `Aff` and only needs the
-three-channel type. Use `rio-fiber` when you need any of the
-columns the `Aff` runtime can't deliver: structured
-cancellation, fiber identity, FiberRef, full `Cause` tree, or a
-test clock that drives sleeping fibers without the harness having
-to advance them by hand.
+Pick `rio-fiber` unless you have a specific reason to stay on
+`Aff`. Pick `rio-aff` when the host program is already on `Aff`,
+when you want the smallest surface to learn first, or when you're
+embedding into a framework whose handler shape is `Aff a` and you
+want to discharge to it without a bridge call.
 
 The two interop at the boundary via `RIO.Fiber.Aff`. A common
 shape is a top-level `Aff` program that calls
@@ -202,5 +210,8 @@ npx spago run -p rio-benchmarks
 
 Pre-release. The interpreter is stable, the surface in
 `RIO.Fiber.*` is unlikely to shift in shape, and the test
-suite covers each module end-to-end (269 tests at time of
-writing). It has not been published to the PureScript registry.
+suite covers each module end-to-end (570+ tests at time of
+writing). New design work in the repository targets
+`rio-fiber` first; the matching surface is then ported to
+`rio-aff` when it can be expressed on the `Aff` runtime.
+Nothing has been published to the PureScript registry yet.

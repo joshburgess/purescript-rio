@@ -31,7 +31,7 @@ import Effect.Now (now) as Now
 import Effect.Unsafe (unsafePerformEffect)
 import RIO.Fiber.Internal (FiberRef, RIO(..))
 import RIO.Fiber.Internal as Internal
-import RIO.Fiber.Ref (getFiberRef, newFiberRef, setFiberRef)
+import RIO.Fiber.Ref (getFiberRef, locally, newFiberRef, setFiberRef)
 
 -- | A clock implementation. Three operations: read the raw
 -- | `Instant`, read the epoch as `Milliseconds`, and suspend for a
@@ -98,12 +98,7 @@ setClock = setFiberRef clockRef
 -- | Run `body` with `clock` as the active clock, restoring the
 -- | previous implementation on exit (success or failure).
 withClock :: forall r e a. Clock -> RIO r e a -> RIO r e a
-withClock clock body = do
-  prev <- getClock
-  setClock clock
-  case body of
-    RIO op ->
-      RIO (Internal.opEnsuring (case setClock prev of RIO o -> o) op)
+withClock clock body = locally clockRef clock body
 
 foreign import data TimeoutId :: Type
 foreign import _setTimeout :: Number -> Effect Unit -> Effect TimeoutId

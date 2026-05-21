@@ -15,6 +15,8 @@ module RIO.Fiber.Ref
   , getFiberRef
   , setFiberRef
   , modifyFiberRef
+  , locally
+  , locallyWith
   ) where
 
 import Prelude
@@ -42,3 +44,29 @@ setFiberRef ref value = RIO (Internal.opSetFiberRef ref value)
 -- | Update the current fiber's view of the ref by applying `f`.
 modifyFiberRef :: forall r e a. FiberRef a -> (a -> a) -> RIO r e Unit
 modifyFiberRef ref f = RIO (Internal.opModifyFiberRef ref f)
+
+-- | Run `body` with the ref temporarily holding `value`, restoring
+-- | the previous value on exit (success, typed failure, defect, or
+-- | interrupt). This is the canonical "scoped override" pattern that
+-- | every `withX` service helper boils down to: read the current
+-- | value, install the override, run the body, restore.
+-- |
+-- | Child fibers forked inside `body` inherit the override at the
+-- | moment of fork, exactly like any other `FiberRef` write.
+locally :: forall r e a b. FiberRef a -> a -> RIO r e b -> RIO r e b
+locally ref value (RIO body) = do
+  prev <- getFiberRef ref
+  setFiberRef ref value
+  let RIO restore = setFiberRef ref prev
+  RIO (Internal.opEnsuring restore body)
+
+-- | Like `locally` but takes a function over the current value. The
+-- | function runs once at entry, and the previous value (not the
+-- | modified one) is restored on exit.
+locallyWith
+  :: forall r e a b. FiberRef a -> (a -> a) -> RIO r e b -> RIO r e b
+locallyWith ref f (RIO body) = do
+  prev <- getFiberRef ref
+  setFiberRef ref (f prev)
+  let RIO restore = setFiberRef ref prev
+  RIO (Internal.opEnsuring restore body)

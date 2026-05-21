@@ -32,10 +32,13 @@ module RIO.Aff.Schedule
   , Step(..)
   , andThen
   , asUnit
+  , bothS
   , collectAll
+  , compose
   , addDelayM
   , dayOfWeek
   , delayed
+  , delays
   , dimap
   , elapsed
   , eventually
@@ -50,15 +53,19 @@ module RIO.Aff.Schedule
   , jittered
   , mapDelay
   , mapInput
+  , mapOutput
   , modifyDelayM
   , mapSchedule
   , once
+  , passthrough
   , recurs
   , recursUntil
   , recursWhile
   , repeat
+  , repeatN
   , repetitions
   , retry
+  , retryN
   , retryOrElse
   , spaced
   , step
@@ -330,6 +337,86 @@ intersect sa sb = Schedule \i -> mkRIO \env -> do
   maxMs (Milliseconds a) (Milliseconds b) =
     Milliseconds (if a >= b then a else b)
 
+-- | Alias for `intersect`, named to match the rio-fiber and ZIO
+-- | spelling.
+bothS
+  :: forall r i o o'
+   . Schedule r i o
+  -> Schedule r i o'
+  -> Schedule r i (Tuple o o')
+bothS = intersect
+
+-- | Sequential composition: thread the output of the first schedule
+-- | into the input of the second. Both schedules must continue for
+-- | the composition to continue; the combined delay is the maximum
+-- | of the two so neither schedule's pacing is violated.
+-- |
+-- | When either inner schedule says `Done`, the composition is
+-- | `Done`. Useful for layering "stop after N" (via `recurs`) over
+-- | a paced policy like `exponential`, or for piping `elapsed` into
+-- | a `whileOutput` cutoff.
+-- |
+-- | ```purescript
+-- | -- exponential backoff, but stop once the total elapsed wall
+-- | -- time crosses 10 seconds
+-- | compose
+-- |   (exponential (Milliseconds 100.0) 2.0)
+-- |   (whileInput (\(Milliseconds t) -> t < 10000.0) elapsed)
+-- | ```
+compose
+  :: forall r a b c
+   . Schedule r a b
+  -> Schedule r b c
+  -> Schedule r a c
+compose sa sb = Schedule \input -> mkRIO \env -> do
+  let
+    Schedule fa = sa
+    Schedule fb = sb
+  resA <- unsafeUnRIO (fa input) env
+  case resA of
+    Done -> pure Done
+    Continue b delA sa' -> do
+      resB <- unsafeUnRIO (fb b) env
+      case resB of
+        Done -> pure Done
+        Continue c delB sb' ->
+          pure (Continue c (maxMs delA delB) (compose sa' sb'))
+  where
+  maxMs (Milliseconds a) (Milliseconds b) =
+    Milliseconds (if a >= b then a else b)
+
+-- | The identity schedule: continues forever, echoing the input as
+-- | the output with zero delay between recurrences. Useful as the
+-- | left argument to `compose` to inspect or tag inputs while
+-- | delegating pacing to another schedule.
+-- |
+-- | ```purescript
+-- | -- expose every retry's failure variant alongside an exponential
+-- | -- backoff policy
+-- | retry (compose passthrough (exponential (Milliseconds 100.0) 2.0))
+-- |   fetch
+-- | ```
+passthrough :: forall r a. Schedule r a a
+passthrough = Schedule \input -> mkRIO \_ ->
+  pure (Continue input (Milliseconds 0.0) passthrough)
+
+-- | Replace the inner schedule's output with the delay it emitted.
+-- | The inner schedule's pacing is preserved (each step still
+-- | sleeps for the same amount); only the output changes. Useful
+-- | for observing the timing sequence of a retry/backoff policy.
+-- |
+-- | ```purescript
+-- | -- collect the delay sequence an exponential schedule produces
+-- | collectAll (delays (exponential (Milliseconds 100.0) 2.0))
+-- | ```
+delays :: forall r a b. Schedule r a b -> Schedule r a Milliseconds
+delays (Schedule s) = Schedule \input -> mkRIO \env -> do
+  d <- unsafeUnRIO (s input) env
+  case d of
+    Done -> pure Done
+    Continue _ delay next ->
+      pure (Continue delay delay (delays next))
+
 -- | Continue only while the input satisfies the predicate. The
 -- | underlying schedule's decision is consulted only when the
 -- | predicate holds; if it doesn't, the result is `Done` immediately.
@@ -438,6 +525,15 @@ mapSchedule f (Schedule s) = Schedule \i -> mkRIO \env -> do
     Done -> pure Done
     Continue o d next ->
       pure (Continue (f o) d (mapSchedule f next))
+
+-- | Alias for `mapSchedule`, named to match the rio-fiber and ZIO
+-- | spelling.
+mapOutput
+  :: forall r i o o'
+   . (o -> o')
+  -> Schedule r i o
+  -> Schedule r i o'
+mapOutput = mapSchedule
 
 -- | Transform a schedule's input. Pre-processes each input with `f`
 -- | before passing it to the underlying schedule. Cadence, output,
@@ -832,6 +928,26 @@ retry sched action = loop sched
           Continue _ ms next -> do
             _ <- unsafeUnRIO (sleepIfPositive ms) env
             unsafeUnRIO (loop next) env
+
+-- | `repeat (recurs n)` - convenience for "run the action `n + 1`
+-- | times total (initial run plus `n` repeats)". Returns the
+-- | action's last value.
+repeatN
+  :: forall r e a
+   . Int
+  -> RIO r e a
+  -> RIO (clock :: Clock | r) e a
+repeatN n = repeat (recurs n)
+
+-- | `retry (recurs n)` - convenience for "up to `n` retries on
+-- | typed failure, no delay between attempts". The most recent
+-- | failure is re-raised when the budget runs out.
+retryN
+  :: forall r e a
+   . Int
+  -> RIO r e a
+  -> RIO (clock :: Clock | r) e a
+retryN n = retry (recurs n)
 
 -- | Retry forever (no delay between attempts) until the action
 -- | succeeds. The caller's error row is discharged because no typed

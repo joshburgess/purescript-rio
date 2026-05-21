@@ -223,6 +223,88 @@ spec = describe "rio-fiber: Layer" do
     fired <- liftEffect (Ref.read ref)
     fired `shouldEqual` true
 
+  it "scoped: a layer can register finalizers via its scope" do
+    ref <- liftEffect (Ref.new false)
+    let
+      buildResource
+        :: Scope.Scope -> F.RIO () () (Record (n :: Int))
+      buildResource scope = do
+        n <- Scope.acquireRelease scope
+          (pure 9)
+          (\_ -> F.liftEffect (Ref.write true ref))
+        pure { n }
+
+      layer :: Layer.Layer () () (n :: Int)
+      layer = Layer.scoped buildResource
+
+      prog :: F.RIO () () Int
+      prog = Layer.provide layer do
+        env <- F.ask
+        pure env.n
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 9
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
+    fired <- liftEffect (Ref.read ref)
+    fired `shouldEqual` true
+
+  it "memoize: a memoized layer runs its build exactly once across uses" do
+    runs <- liftEffect (Ref.new 0)
+    let
+      raw :: Layer.Layer () () (n :: Int)
+      raw = Layer.fromRIO do
+        F.liftEffect (Ref.modify_ (_ + 1) runs)
+        pure { n: 11 }
+    memo <- liftEffect (Layer.memoize raw)
+    let
+      readN :: Layer.Layer () () (n :: Int) -> F.RIO () () Int
+      readN l = Layer.provide l (F.ask <#> _.n)
+    a <- runAff (readN memo) {}
+    b <- runAff (readN memo) {}
+    c <- runAff (readN memo) {}
+    case a, b, c of
+      Success x, Success y, Success z -> do
+        x `shouldEqual` 11
+        y `shouldEqual` 11
+        z `shouldEqual` 11
+      _, _, _ -> fail "expected three Success"
+    count <- liftEffect (Ref.read runs)
+    count `shouldEqual` 1
+
+  it "memoize: replays a typed failure without re-running the build" do
+    runs <- liftEffect (Ref.new 0)
+    let
+      raw :: Layer.Layer (boom :: String) () (n :: Int)
+      raw = Layer.fromRIO do
+        F.liftEffect (Ref.modify_ (_ + 1) runs)
+        F.fail (Variant.inj (Proxy :: _ "boom") "nope")
+    memo <- liftEffect (Layer.memoize raw)
+    let
+      readN
+        :: Layer.Layer (boom :: String) () (n :: Int)
+        -> F.RIO () (boom :: String) Int
+      readN l = Layer.provide l (F.ask <#> _.n)
+    a <- runAff (readN memo) {}
+    b <- runAff (readN memo) {}
+    case a, b of
+      Fail _, Fail _ -> pure unit
+      _, _ -> fail "expected two Fail"
+    count <- liftEffect (Ref.read runs)
+    count `shouldEqual` 1
+
+  it "fresh: identity on layer values (currently a no-op marker)" do
+    let
+      raw :: Layer.Layer () () (n :: Int)
+      raw = Layer.fromValue { n: 3 }
+
+      prog :: F.RIO () () Int
+      prog = Layer.provide (Layer.fresh raw) (F.ask <#> _.n)
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 3
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"
 describeOutcome (Fail _) = "Fail"

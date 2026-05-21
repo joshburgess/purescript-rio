@@ -2,10 +2,12 @@ module Test.RIO.Fiber.ScopeSpec (spec) where
 
 import Prelude
 
+import Data.Maybe (Maybe(..), isJust)
 import Data.Time.Duration (Milliseconds(..))
 import Data.Variant as Variant
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
+import RIO.Fiber.Cause as Cause
 import RIO.Fiber.Core (Outcome(..))
 import RIO.Fiber.Core as F
 import RIO.Fiber.Scope as Scope
@@ -224,6 +226,102 @@ spec = describe "rio-fiber: Scope" do
       Die _ -> pure unit
       other -> fail ("expected Die, got " <> describeOutcome other)
 
+  it "addFinalizerExit reports Nothing when the body succeeds" do
+    seen <- liftEffect (Ref.new (Nothing :: Maybe (Maybe (Cause.Cause ()))))
+    let
+      prog :: F.RIO () () Int
+      prog = Scope.scoped \s -> do
+        Scope.addFinalizerExit s \mc ->
+          Ref.write (Just mc) seen
+        pure 1
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 1
+      other -> fail ("expected Success, got " <> describeOutcome other)
+    _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
+    result <- liftEffect (Ref.read seen)
+    case result of
+      Just Nothing -> pure unit
+      Just (Just _) -> fail "exit-aware finalizer saw a Cause on success"
+      Nothing -> fail "exit-aware finalizer did not fire"
+
+  it "addFinalizerExit reports the typed failure cause" do
+    seen <- liftEffect (Ref.new (Nothing :: Maybe (Maybe (Cause.Cause (boom :: String)))))
+    let
+      prog :: F.RIO () (boom :: String) Unit
+      prog = Scope.scoped \s -> do
+        Scope.addFinalizerExit s \mc ->
+          Ref.write (Just mc) seen
+        F.fail (Variant.inj (Proxy :: _ "boom") "nope")
+    out <- runAff prog {}
+    case out of
+      Fail _ -> pure unit
+      other -> fail ("expected Fail, got " <> describeOutcome other)
+    _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
+    result <- liftEffect (Ref.read seen)
+    case result of
+      Just (Just c) ->
+        (isJust (Cause.firstFailure c)) `shouldEqual` true
+      Just Nothing ->
+        fail "exit-aware finalizer saw Nothing on a typed failure"
+      Nothing -> fail "exit-aware finalizer did not fire"
+
+  it "addFinalizerExit reports an Interrupt cause when the body is interrupted" do
+    seen <- liftEffect (Ref.new (Nothing :: Maybe (Maybe (Cause.Cause ()))))
+    let
+      action :: F.RIO () () Unit
+      action = Scope.scoped \s -> do
+        Scope.addFinalizerExit s \mc ->
+          Ref.write (Just mc) seen
+        F.sleep (Milliseconds 100.0)
+
+      prog :: F.RIO () () Unit
+      prog = do
+        fib <- F.fork action
+        F.sleep (Milliseconds 10.0)
+        F.interrupt fib
+        _ <- F.join fib
+        pure unit
+    _ <- runAff prog {}
+    _ <- runAff (F.sleep (Milliseconds 20.0) :: F.RIO () () Unit) {}
+    result <- liftEffect (Ref.read seen)
+    case result of
+      Just (Just c) -> Cause.isInterrupted c `shouldEqual` true
+      Just Nothing -> fail "exit-aware finalizer saw Nothing on interrupt"
+      Nothing -> fail "exit-aware finalizer did not fire"
+
+  it "addFinalizerExit and addFinalizer interleave in LIFO order" do
+    log <- liftEffect (Ref.new ([] :: Array String))
+    let
+      prog :: F.RIO () () Unit
+      prog = Scope.scoped \s -> do
+        Scope.addFinalizer s (Ref.modify_ (\xs -> xs <> [ "plain-1" ]) log)
+        Scope.addFinalizerExit s \_ ->
+          Ref.modify_ (\xs -> xs <> [ "exit-2" ]) log
+        Scope.addFinalizer s (Ref.modify_ (\xs -> xs <> [ "plain-3" ]) log)
+        pure unit
+    _ <- runAff prog {}
+    _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
+    seen <- liftEffect (Ref.read log)
+    seen `shouldEqual` [ "plain-3", "exit-2", "plain-1" ]
+
+  it "closeScope (no exit) reports Nothing to exit-aware finalizers" do
+    seen <- liftEffect (Ref.new (Nothing :: Maybe (Maybe (Cause.Cause ()))))
+    let
+      prog :: F.RIO () () Unit
+      prog = do
+        s <- Scope.newScope
+        Scope.addFinalizerExit s \mc ->
+          Ref.write (Just mc) seen
+        Scope.closeScope s
+    _ <- runAff prog {}
+    _ <- runAff (F.sleep (Milliseconds 10.0) :: F.RIO () () Unit) {}
+    result <- liftEffect (Ref.read seen)
+    case result of
+      Just Nothing -> pure unit
+      Just (Just _) -> fail "plain closeScope leaked a Cause"
+      Nothing -> fail "exit-aware finalizer did not fire"
+
   it "supervised blocks nest: inner scope is independent" do
     innerChildFin <- liftEffect (Ref.new false)
     outerChildFin <- liftEffect (Ref.new false)
@@ -247,6 +345,46 @@ spec = describe "rio-fiber: Scope" do
     outerFired <- liftEffect (Ref.read outerChildFin)
     innerFired `shouldEqual` true
     outerFired `shouldEqual` true
+
+  it "scopedAwait waits for forkScoped children to finish their cleanup before returning" do
+    -- Without awaiting, the parent body returns after sending interrupts;
+    -- the child's `ensuring` finalizer may run later. With awaiting, by
+    -- the time the body returns, every child has already drained.
+    fin <- liftEffect (Ref.new false)
+    let
+      child :: F.RIO () () Unit
+      child = F.ensuring
+        (F.liftEffect (Ref.write true fin))
+        (F.sleep (Milliseconds 200.0))
+
+      prog :: F.RIO () () Boolean
+      prog = do
+        Scope.scopedAwait \s -> do
+          _ <- Scope.forkScoped s child
+          F.sleep (Milliseconds 5.0)
+        -- Read immediately after the scope returns. With `scoped` the
+        -- finalizer would not yet have run; with `scopedAwait` it has.
+        F.liftEffect (Ref.read fin)
+    out <- runAff prog {}
+    case out of
+      Success seen -> seen `shouldEqual` true
+      other -> fail ("expected Success, got " <> describeOutcome other)
+
+  it "addFinalizerRIO runs an RIO finalizer that scopedAwait waits for" do
+    ref <- liftEffect (Ref.new 0)
+    let
+      prog :: F.RIO () () Int
+      prog = do
+        Scope.scopedAwait \s -> do
+          Scope.addFinalizerRIO s do
+            F.sleep (Milliseconds 50.0)
+            F.liftEffect (Ref.write 9 ref)
+          pure unit
+        F.liftEffect (Ref.read ref)
+    out <- runAff prog {}
+    case out of
+      Success n -> n `shouldEqual` 9
+      other -> fail ("expected Success, got " <> describeOutcome other)
 
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"

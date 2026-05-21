@@ -76,6 +76,69 @@ spec = describe "RIO.Aff.Sink" do
       calls <- liftEffect (Ref.read ref)
       calls `shouldEqual` 5
 
+    it "foldUntil halts once stop holds on the accumulator" do
+      -- Stop as soon as the running sum is at least 6: after
+      -- folding 1, 2, 3 the accumulator hits 6 and the sink halts
+      -- without pulling 4 or 5.
+      counter <- liftEffect (Ref.new 0)
+      let
+        tick :: Int -> RIO () () Int
+        tick i = liftEffect (Ref.modify_ (_ + 1) counter) *> pure i
+
+        program :: RIO () () Int
+        program = Sink.runSink (Sink.foldUntil (_ >= 6) (+) 0)
+          (Stream.mapM tick (Stream.fromArray [ 1, 2, 3, 4, 5 ]))
+      r <- runRIO' program
+      r `shouldEqual` 6
+      pulls <- liftEffect (Ref.read counter)
+      pulls `shouldEqual` 3
+
+    it "foldUntil returns the final accumulator when stop never holds" do
+      r <- runRIO' (Sink.runSink (Sink.foldUntil (_ >= 100) (+) 0) source)
+      r `shouldEqual` 15
+
+    it "foldUntil returns the seed on an empty stream" do
+      r <- runRIO'
+        ( Sink.runSink (Sink.foldUntil (_ >= 100) (+) 0)
+            (Stream.empty :: Stream () () Int)
+        )
+      r `shouldEqual` 0
+
+    it "foldMUntil halts once stop holds on the accumulator" do
+      counter <- liftEffect (Ref.new 0)
+      let
+        step :: Int -> Int -> RIO () () Int
+        step acc i = do
+          liftEffect (Ref.modify_ (_ + 1) counter)
+          pure (acc + i)
+
+        program :: RIO () () Int
+        program = Sink.runSink (Sink.foldMUntil (_ >= 6) step 0)
+          (Stream.fromArray [ 1, 2, 3, 4, 5 ])
+      r <- runRIO' program
+      r `shouldEqual` 6
+      steps <- liftEffect (Ref.read counter)
+      steps `shouldEqual` 3
+
+    it "foldMUntil step failure surfaces and halts consumption" do
+      counter <- liftEffect (Ref.new 0)
+      let
+        step :: Int -> Int -> RIO () (boom :: Int) Int
+        step acc i = do
+          liftEffect (Ref.modify_ (_ + 1) counter)
+          if i == 3 then fail (Proxy :: Proxy "boom") i
+          else pure (acc + i)
+
+        program :: RIO () (boom :: Int) Int
+        program = Sink.runSink (Sink.foldMUntil (_ >= 100) step 0)
+          (Stream.fromArray [ 1, 2, 3, 4, 5 ])
+      result <- runRIO program
+      steps <- liftEffect (Ref.read counter)
+      case result of
+        Left _ -> pure unit
+        Right _ -> Spec.fail "expected foldMUntil step failure to surface"
+      steps `shouldEqual` 3
+
     it "foldM typed failure surfaces and halts consumption" do
       -- The whole Sink suite had no failure-path coverage. Pin the
       -- contract that a typed failure raised inside a foldM step
@@ -504,3 +567,26 @@ spec = describe "RIO.Aff.Sink" do
       case result of
         Left _ -> pure unit
         Right _ -> Spec.fail "expected typed failure"
+
+  describe "peel" do
+    it "halts the sink on the prefix and hands the remainder back as a Stream" do
+      let
+        program :: RIO () () (Tuple (Array Int) (Array Int))
+        program = do
+          Tuple prefix rest <- Sink.peel (Sink.take 3)
+            (Stream.fromArray [ 1, 2, 3, 4, 5 ])
+          tail <- Stream.runCollect rest
+          pure (Tuple prefix tail)
+      result <- runRIO' program
+      result `shouldEqual` (Tuple [ 1, 2, 3 ] [ 4, 5 ])
+
+    it "returns the sink's finish value and an empty stream on a short input" do
+      let
+        program :: RIO () () (Tuple (Array Int) (Array Int))
+        program = do
+          Tuple prefix rest <- Sink.peel (Sink.take 10)
+            (Stream.fromArray [ 1, 2 ])
+          tail <- Stream.runCollect rest
+          pure (Tuple prefix tail)
+      result <- runRIO' program
+      result `shouldEqual` (Tuple [ 1, 2 ] [])

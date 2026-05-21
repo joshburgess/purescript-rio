@@ -1,22 +1,36 @@
--- | A bounded asynchronous FIFO queue.
+-- | A bounded asynchronous FIFO queue with four offer strategies.
 -- |
--- | `offer` enqueues an element, suspending if the queue is at
--- | capacity. `take` dequeues, suspending if empty. Both fairly
--- | unblock the longest-waiting fiber when room (or an item)
--- | appears.
+-- | `make` is the default: bounded with backpressure. Offering to a
+-- | full queue suspends the offering fiber until a slot frees up.
+-- | The other three constructors trade backpressure for different
+-- | full-queue behaviour:
 -- |
--- | Cancelling an awaiting offer or take drops the request from the
--- | corresponding queue cleanly so no element is delivered into a
--- | stale fiber and no slot is silently consumed.
+-- |   * `unbounded` accepts every offer without a capacity check;
+-- |     offers never suspend.
+-- |   * `dropping cap` drops the offered element when the queue is
+-- |     full; offers never suspend, but the new element is silently
+-- |     discarded. Use `tryOffer` to learn whether an offer was kept.
+-- |   * `sliding cap` makes room by dropping the oldest stored
+-- |     element, then appends the new one; offers never suspend and
+-- |     are always accepted.
+-- |
+-- | `take` is the same across all four: dequeue the next element,
+-- | suspending if empty. Cancelling an awaiting offer or take drops
+-- | the request from the corresponding queue cleanly.
 module RIO.Fiber.Queue
   ( Queue
+  , Strategy(..)
   , make
+  , unbounded
+  , dropping
+  , sliding
   , offer
   , take
   , tryOffer
   , tryTake
   , size
   , capacity
+  , strategy
   ) where
 
 import Prelude
@@ -29,11 +43,21 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import RIO.Fiber.Core (RIO, async, liftEffect)
 
+-- | How a queue behaves when an offer arrives at a full queue.
+data Strategy
+  = BackPressure
+  | Dropping
+  | Sliding
+  | Unbounded
+
+derive instance eqStrategy :: Eq Strategy
+
 type Offerer a = { id :: Int, value :: a, fire :: Effect Unit }
 type Taker a = { id :: Int, deliver :: a -> Effect Unit }
 
 type State a =
   { capacity :: Int
+  , strategy :: Strategy
   , items :: Array a
   , offerers :: Array (Offerer a)
   , takers :: Array (Taker a)
@@ -42,20 +66,49 @@ type State a =
 
 newtype Queue a = Queue (Ref (State a))
 
--- | Allocate a queue with the given positive capacity. A non-positive
--- | input is clamped to 1.
-make :: forall a. Int -> Effect (Queue a)
-make cap = Queue <$> Ref.new
+mkQueue :: forall a. Strategy -> Int -> Effect (Queue a)
+mkQueue strat cap = Queue <$> Ref.new
   { capacity: max 1 cap
+  , strategy: strat
   , items: []
   , offerers: []
   , takers: []
   , nextId: 0
   }
 
--- | Enqueue an element. If a taker is already waiting it receives
--- | the element directly; if the queue has room it is appended; else
--- | the offering fiber suspends until a taker arrives.
+-- | Allocate a bounded queue with backpressure. Offers to a full
+-- | queue suspend until a slot opens. A non-positive capacity is
+-- | clamped to 1.
+make :: forall a. Int -> Effect (Queue a)
+make = mkQueue BackPressure
+
+-- | Allocate an unbounded queue. Offers never suspend and never drop
+-- | elements. The reported `capacity` is the sentinel `top` value
+-- | but is never enforced.
+unbounded :: forall a. Effect (Queue a)
+unbounded = mkQueue Unbounded top
+
+-- | Allocate a bounded queue that drops the offered element when
+-- | full. Offers always return immediately. Use `tryOffer` to learn
+-- | whether the offer was accepted or dropped.
+dropping :: forall a. Int -> Effect (Queue a)
+dropping = mkQueue Dropping
+
+-- | Allocate a bounded queue that drops the oldest stored element
+-- | to make room for a new offer. Offers always return immediately
+-- | and are always accepted.
+sliding :: forall a. Int -> Effect (Queue a)
+sliding = mkQueue Sliding
+
+-- | Enqueue an element. Behaviour depends on the queue strategy:
+-- |
+-- |   * `BackPressure`: suspends if at capacity.
+-- |   * `Dropping`: drops the element if at capacity.
+-- |   * `Sliding`: drops the oldest stored element to make room.
+-- |   * `Unbounded`: always appends.
+-- |
+-- | If a taker is already waiting it always receives the element
+-- | directly, regardless of strategy.
 offer :: forall r e a. Queue a -> a -> RIO r e Unit
 offer (Queue ref) a = async \cb -> do
   st <- Ref.read ref
@@ -66,29 +119,48 @@ offer (Queue ref) a = async \cb -> do
       cb (Right unit)
       pure (pure unit)
     Nothing
-      | length st.items < st.capacity -> do
+      | st.strategy == Unbounded || length st.items < st.capacity -> do
           Ref.write (st { items = snoc st.items a }) ref
           cb (Right unit)
           pure (pure unit)
-      | otherwise -> do
-          let
-            id = st.nextId
-            offerer = { id, value: a, fire: cb (Right unit) }
-          Ref.write
-            ( st
-                { offerers = snoc st.offerers offerer
-                , nextId = id + 1
-                }
-            )
-            ref
-          pure
-            ( Ref.modify_
-                ( \s -> s
-                    { offerers = filter (\o -> o.id /= id) s.offerers
-                    }
-                )
-                ref
-            )
+      | otherwise -> case st.strategy of
+          BackPressure -> do
+            let
+              id = st.nextId
+              offerer = { id, value: a, fire: cb (Right unit) }
+            Ref.write
+              ( st
+                  { offerers = snoc st.offerers offerer
+                  , nextId = id + 1
+                  }
+              )
+              ref
+            pure
+              ( Ref.modify_
+                  ( \s -> s
+                      { offerers = filter (\o -> o.id /= id) s.offerers
+                      }
+                  )
+                  ref
+              )
+          Dropping -> do
+            -- Drop the offered element; succeed immediately.
+            cb (Right unit)
+            pure (pure unit)
+          Sliding -> do
+            -- Drop the oldest stored element, append the new one.
+            let
+              newItems = case uncons st.items of
+                Just { tail } -> snoc tail a
+                Nothing -> snoc st.items a
+            Ref.write (st { items = newItems }) ref
+            cb (Right unit)
+            pure (pure unit)
+          Unbounded -> do
+            -- Unreachable: handled in the guard above.
+            Ref.write (st { items = snoc st.items a }) ref
+            cb (Right unit)
+            pure (pure unit)
 
 -- | Dequeue the next element. If the queue is empty the fiber
 -- | suspends until an `offer` arrives.
@@ -129,8 +201,9 @@ take (Queue ref) = async \cb -> do
         )
 
 -- | Non-blocking enqueue. Returns `true` if the element was accepted
--- | (handed to a taker or appended), `false` if the queue was full
--- | with no taker waiting.
+-- | (handed to a taker, appended, or made room for via Sliding),
+-- | `false` if the offer was dropped because the queue is full
+-- | (Dropping) or if it would have to suspend (BackPressure).
 tryOffer :: forall r e a. Queue a -> a -> RIO r e Boolean
 tryOffer (Queue ref) a = liftEffect do
   st <- Ref.read ref
@@ -140,10 +213,22 @@ tryOffer (Queue ref) a = liftEffect do
       t.deliver a
       pure true
     Nothing
-      | length st.items < st.capacity -> do
+      | st.strategy == Unbounded || length st.items < st.capacity -> do
           Ref.write (st { items = snoc st.items a }) ref
           pure true
-      | otherwise -> pure false
+      | otherwise -> case st.strategy of
+          BackPressure -> pure false
+          Dropping -> pure false
+          Sliding -> do
+            let
+              newItems = case uncons st.items of
+                Just { tail } -> snoc tail a
+                Nothing -> snoc st.items a
+            Ref.write (st { items = newItems }) ref
+            pure true
+          Unbounded -> do
+            Ref.write (st { items = snoc st.items a }) ref
+            pure true
 
 -- | Non-blocking dequeue. Returns `Nothing` if the queue is empty.
 tryTake :: forall r e a. Queue a -> RIO r e (Maybe a)
@@ -170,6 +255,11 @@ tryTake (Queue ref) = liftEffect do
 size :: forall r e a. Queue a -> RIO r e Int
 size (Queue ref) = liftEffect (length <<< _.items <$> Ref.read ref)
 
--- | Configured capacity.
+-- | Configured capacity. For an `Unbounded` queue this is the
+-- | sentinel `top` value (`Int` upper bound) and is never enforced.
 capacity :: forall r e a. Queue a -> RIO r e Int
 capacity (Queue ref) = liftEffect (_.capacity <$> Ref.read ref)
+
+-- | Read the offer strategy.
+strategy :: forall r e a. Queue a -> RIO r e Strategy
+strategy (Queue ref) = liftEffect (_.strategy <$> Ref.read ref)

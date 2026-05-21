@@ -25,6 +25,7 @@ module RIO.Aff.Stream.Timed
   ( debounce
   , groupedWithin
   , throttle
+  , timeoutPerPull
   ) where
 
 import Prelude
@@ -35,7 +36,7 @@ import Effect.Aff (Milliseconds(..))
 
 import RIO.Aff.Clock (Clock)
 import RIO.Aff.Clock as Clock
-import RIO.Aff.Concurrency (race)
+import RIO.Aff.Concurrency (race, timeout)
 import RIO.Aff.Stream (Step(..), Stream(..), unStream)
 
 -- | Emit elements no faster than one per `interval`. The first
@@ -137,6 +138,31 @@ groupedWithin maxSize duration
                   unStream (go groupStart (Array.snoc buf a) rest)
       in
         go (Milliseconds 0.0) []
+
+-- | Wrap every upstream pull in a deadline. If a pull does not
+-- | produce a step within `duration`, the consumer sees
+-- | `Yield Nothing` and the stream continues with the same source
+-- | (the slow pull is interrupted by the underlying `race` inside
+-- | `timeout`). A successful pull yields `Yield (Just a)`.
+-- | End-of-stream propagates as a final `Done`.
+-- |
+-- | Useful for "stop a stalled producer from blocking the
+-- | consumer indefinitely, but keep the consumer alive" patterns:
+-- | the consumer can see the timeout, log it, fall back to a
+-- | cached value, and keep pulling.
+timeoutPerPull
+  :: forall r e a
+   . Milliseconds
+  -> Stream r e a
+  -> Stream r e (Maybe a)
+timeoutPerPull duration = go
+  where
+  go (Stream pull) = Stream do
+    result <- timeout duration pull
+    case result of
+      Nothing -> pure (Yield Nothing (go (Stream pull)))
+      Just Done -> pure Done
+      Just (Yield a rest) -> pure (Yield (Just a) (go rest))
 
 -- Local Either-like helpers for `debounce` and `groupedWithin` so
 -- the race scrutinee can pattern-match without importing

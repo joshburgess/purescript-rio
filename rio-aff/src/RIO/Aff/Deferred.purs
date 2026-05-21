@@ -16,6 +16,7 @@ module RIO.Aff.Deferred
   ( Deferred
   , awaitDeferred
   , failDeferred
+  , isDoneDeferred
   , makeDeferred
   , pollDeferred
   , succeedDeferred
@@ -133,3 +134,14 @@ pollDeferred (Deferred avar) = mkRIO \_ -> do
   pure case s of
     Filled a -> Just a
     _ -> Nothing
+
+-- | Non-blocking "is this filled yet?" probe. Returns `true` once
+-- | the cell has been filled (with either a success or a failure),
+-- | `false` while empty. Cheaper than `pollDeferred` when the
+-- | caller only needs the readiness bit and not the value.
+isDoneDeferred :: forall r e' e a. Deferred e a -> RIO r e' Boolean
+isDoneDeferred (Deferred avar) = mkRIO \_ -> do
+  s <- AVar.status avar
+  pure case s of
+    Filled _ -> true
+    _ -> false

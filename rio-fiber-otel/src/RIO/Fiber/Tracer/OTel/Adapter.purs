@@ -2,23 +2,29 @@
 -- |
 -- | `makeOTelTracer name` wraps an `@opentelemetry/api` tracer in
 -- | the fiber `Tracer` record that the rest of `rio-fiber` consumes.
--- | The call sites (`withSpan`, `addAttribute`, `currentSpan`,
--- | `startSpan`, `finishSpan`) do not change.
+-- | Call sites that work with the fiber `Tracer` API (`withSpan`,
+-- | `addAttribute`, `addEvent`, `addLink`, `setStatus`,
+-- | `currentSpan`, `startSpan`, `finishSpan`) work against the OTel
+-- | tracer transparently.
 -- |
--- | The adapter delegates span lifecycle and attribute writes to
--- | the OTel tracer directly. The fiber `Tracer` model hands the
--- | parent `Span` opaquely on `startSpan`; when the parent was
--- | created by this adapter, the OTel handle is recovered from a
--- | private map keyed on the underlying span record's reference
--- | identity. A `Just parent` whose handle is no longer in the
--- | map (already finished, or created by a different tracer)
--- | falls back to opening a root span rather than throwing.
+-- | The adapter delegates span lifecycle, attributes, events, and
+-- | status to the OTel tracer directly. The fiber `Tracer` model
+-- | hands the parent `Span` opaquely on `startSpan`; when the
+-- | parent was created by this adapter, the OTel handle is
+-- | recovered from a private map keyed on the underlying span
+-- | record's reference identity. A `Just parent` whose handle is
+-- | no longer in the map (already finished, or created by a
+-- | different tracer) falls back to opening a root span rather than
+-- | throwing.
 -- |
--- | The fiber `Tracer` API does not surface a status code, so
--- | every closed span is reported to OTel with
--- | `SpanStatusCode.OK`. Callers that need richer status can
--- | call `addAttribute` to record a status string and the
--- | exporter can pick it up.
+-- | `SpanKind` is forwarded to OTel as the OTel `SpanKind` (Server
+-- | / Client / Producer / Consumer / Internal) at span start.
+-- | `addLink` after start time attaches the linked span's
+-- | trace/span IDs as attributes, since the OTel JS API only
+-- | accepts links at construction time. `setStatus` maps to
+-- | `SpanStatusCode.OK` / `ERROR` / `UNSET`; if `setStatus` is
+-- | never called the span finishes with the default `UNSET`,
+-- | which most exporters treat as implicit OK.
 -- |
 -- | Production wiring: install `@opentelemetry/sdk-node` (or
 -- | another OTel SDK) and register it at application startup
@@ -41,7 +47,13 @@ import Data.Tuple (Tuple(..), fst, snd)
 import Effect (Effect)
 import Effect.Ref as Ref
 
-import RIO.Fiber.Tracer (Span(..), StartSpanRequest, Tracer(..))
+import RIO.Fiber.Tracer
+  ( Span(..)
+  , SpanKind(..)
+  , SpanStatus(..)
+  , StartSpanRequest
+  , Tracer(..)
+  )
 
 foreign import refEq :: forall a b. a -> b -> Boolean
 
@@ -57,17 +69,31 @@ foreign import otelStartRootSpan
   :: OTelTracer
   -> String
   -> Array { key :: String, value :: String }
+  -> String
   -> Effect OTelSpan
 
 foreign import otelStartChildSpan
   :: OTelTracer
   -> String
   -> Array { key :: String, value :: String }
+  -> String
   -> OTelSpan
   -> Effect OTelSpan
 
 foreign import otelSetAttribute
   :: OTelSpan -> String -> String -> Effect Unit
+
+foreign import otelAddEvent
+  :: OTelSpan
+  -> String
+  -> Array { key :: String, value :: String }
+  -> Effect Unit
+
+foreign import otelAddLink :: OTelSpan -> OTelSpan -> Effect Unit
+
+foreign import otelSetStatusOk :: OTelSpan -> Effect Unit
+foreign import otelSetStatusError :: OTelSpan -> String -> Effect Unit
+foreign import otelSetStatusUnset :: OTelSpan -> Effect Unit
 
 foreign import otelEndSpan :: OTelSpan -> Effect Unit
 
@@ -76,6 +102,9 @@ foreign import otelEndSpan :: OTelSpan -> Effect Unit
 -- | that the adapter previously produced.
 type SpanRec =
   { addAttribute :: String -> String -> Effect Unit
+  , addEvent :: String -> Array { key :: String, value :: String } -> Effect Unit
+  , addLink :: Span -> Effect Unit
+  , setStatus :: SpanStatus -> Effect Unit
   , finish :: Effect Unit
   }
 
@@ -109,18 +138,38 @@ makeOTelTracer name = do
     removeEntry rec =
       Ref.modify_ (Array.filter (\t -> not (unsafeRefEq (fst t) rec))) spansRef
 
+    kindTag :: SpanKind -> String
+    kindTag = case _ of
+      Internal -> "Internal"
+      Server -> "Server"
+      Client -> "Client"
+      Producer -> "Producer"
+      Consumer -> "Consumer"
+
     startSpan :: StartSpanRequest -> Effect Span
     startSpan req = do
+      let tag = kindTag req.kind
       parentOtel <- case req.parent of
         Nothing -> pure Nothing
         Just (Span p) -> lookupOTel p
       otelSpan <- case parentOtel of
-        Nothing -> otelStartRootSpan otel req.name req.attributes
-        Just p -> otelStartChildSpan otel req.name req.attributes p
+        Nothing -> otelStartRootSpan otel req.name req.attributes tag
+        Just p -> otelStartChildSpan otel req.name req.attributes tag p
+
       let
         rec :: SpanRec
         rec =
           { addAttribute: \k v -> otelSetAttribute otelSpan k v
+          , addEvent: \evName evAttrs -> otelAddEvent otelSpan evName evAttrs
+          , addLink: \(Span linkSpan) -> do
+              mTarget <- lookupOTel linkSpan
+              case mTarget of
+                Just target -> otelAddLink otelSpan target
+                Nothing -> pure unit
+          , setStatus: \status -> case status of
+              StatusOk -> otelSetStatusOk otelSpan
+              StatusError msg -> otelSetStatusError otelSpan msg
+              StatusUnset -> otelSetStatusUnset otelSpan
           , finish: do
               otelEndSpan otelSpan
               removeEntry rec

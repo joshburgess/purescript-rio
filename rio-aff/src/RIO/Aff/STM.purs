@@ -40,6 +40,7 @@ module RIO.Aff.STM
   , readTRef
   , readTVar
   , retry
+  , swapTVar
   , throwSTM
   , writeTRef
   , writeTVar
@@ -264,6 +265,15 @@ writeTVar = writeTRef
 -- | `modifyTRef` under the `TVar` name. See `modifyTRef`.
 modifyTVar :: forall e a. TVar a -> (a -> a) -> STM e Unit
 modifyTVar = modifyTRef
+
+-- | Atomically replace the value in a `TVar`, returning the
+-- | previous value. Equivalent to a `readTVar` followed by a
+-- | `writeTVar` inside one transaction.
+swapTVar :: forall e a. TVar a -> a -> STM e a
+swapTVar var new = do
+  old <- readTVar var
+  writeTVar var new
+  pure old
 
 -- | Abort the current transaction attempt and re-run it once any
 -- | `TRef` the transaction read changes.

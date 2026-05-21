@@ -3,6 +3,7 @@ module Test.RIO.Fiber.ScheduleSpec (spec) where
 import Prelude
 
 import Data.Array as Array
+import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
 import Data.Variant (Variant)
 import Data.Variant as Variant
@@ -368,6 +369,107 @@ spec = describe "rio-fiber: Schedule" do
         Success n -> n `shouldEqual` 3
         other -> fail ("expected Success, got " <> describeOutcome other)
 
+  describe "compose" do
+    it "feeds the first schedule's output into the second's input" do
+      -- `recurs 4` emits 1, 2, 3, 4 then halts.
+      -- `mapInput (_ * 10) (recurs 3)` consumes those, halts on the 4th input.
+      let
+        Schedule step = Sch.compose
+          (Sch.recurs 4)
+          (Sch.mapInput (_ * 10) (Sch.recurs 3))
+      outs <- liftEffect (collectOutputs 10 step [])
+      -- recurs 3 outputs 1, 2, 3 (it's an attempt counter, not the input).
+      outs `shouldEqual` [ 1, 2, 3 ]
+
+    it "halts when either schedule halts" do
+      let
+        Schedule step = Sch.compose (Sch.recurs 2) Sch.passthrough
+      outs <- liftEffect (collectOutputs 10 step [])
+      -- recurs 2 emits 1, 2 then halts; passthrough echoes them.
+      outs `shouldEqual` [ 1, 2 ]
+
+    it "uses the max of the two delays" do
+      let
+        Schedule step = Sch.compose
+          (Sch.spaced (Milliseconds 5.0))
+          (Sch.spaced (Milliseconds 20.0))
+      ds <- liftEffect (collect 3 step [])
+      ds `shouldEqual`
+        [ Milliseconds 20.0, Milliseconds 20.0, Milliseconds 20.0 ]
+
+  describe "mapInput" do
+    it "pre-processes the input via the supplied function" do
+      let
+        -- whileInput on the inner schedule will halt when its remapped
+        -- input is >= 30. Feeding 1, 2, 3, ... means the remapped
+        -- input is 10, 20, 30, ... so it halts on the third element.
+        Schedule step = Sch.mapInput (_ * 10)
+          (Sch.whileInput (\i -> i < 30) (Sch.recurs 10))
+      outs <- liftEffect (collectInputs 10 1 step [])
+      outs `shouldEqual` [ 1, 2 ]
+
+  describe "passthrough" do
+    it "echoes every input as the output forever" do
+      let
+        Schedule step = Sch.passthrough
+      outs <- liftEffect (collectInputs 5 100 step [])
+      outs `shouldEqual` [ 100, 101, 102, 103, 104 ]
+
+    it "emits a zero delay per step" do
+      let
+        Schedule step = Sch.passthrough
+      ds <- liftEffect (collect 4 step [])
+      ds `shouldEqual`
+        [ Milliseconds 0.0, Milliseconds 0.0, Milliseconds 0.0, Milliseconds 0.0 ]
+
+  describe "elapsed" do
+    it "first output is zero" do
+      let
+        Schedule step = Sch.elapsed
+      outs <- liftEffect (collectOutputs 1 step [])
+      outs `shouldEqual` [ Milliseconds 0.0 ]
+
+    it "subsequent outputs are monotonically non-decreasing" do
+      let
+        Schedule step = Sch.elapsed
+      Milliseconds first <- pure (Milliseconds 0.0)
+      outs <- liftEffect (collectOutputs 5 step [])
+      let
+        nums = Array.mapMaybe
+          ( case _ of
+              Milliseconds m -> pure m
+          )
+          outs
+        nonDecreasing = case Array.uncons nums of
+          Nothing -> true
+          Just { head: h, tail: t } ->
+            Array.foldl
+              (\acc x -> acc && x >= 0.0)
+              (h >= first)
+              t
+      nonDecreasing `shouldEqual` true
+
+  describe "delays" do
+    it "replaces the output with the inner schedule's delay" do
+      let
+        Schedule step = Sch.delays
+          (Sch.exponential (Milliseconds 1.0) 2.0)
+      outs <- liftEffect (collectOutputs 4 step [])
+      outs `shouldEqual`
+        [ Milliseconds 1.0
+        , Milliseconds 2.0
+        , Milliseconds 4.0
+        , Milliseconds 8.0
+        ]
+
+    it "preserves the inner schedule's pacing (output equals emitted delay)" do
+      let
+        sched = Sch.delays (Sch.spaced (Milliseconds 7.0))
+        Schedule step = sched
+      ds <- liftEffect (collect 3 step [])
+      ds `shouldEqual`
+        [ Milliseconds 7.0, Milliseconds 7.0, Milliseconds 7.0 ]
+
 collectOutputs
   :: forall a
    . Int
@@ -382,6 +484,26 @@ collectOutputs n step acc
         Halt _ -> pure acc
         Step b _ (Schedule next) ->
           collectOutputs (n - 1) next (acc <> [ b ])
+
+-- | Like `collectOutputs` but feeds a stream of integer inputs
+-- | (`startInput, startInput + 1, ...`). Used to exercise schedules
+-- | whose behavior depends on the input value (`mapInput`,
+-- | `passthrough`, `compose`).
+collectInputs
+  :: forall a
+   . Int
+  -> Int
+  -> (Int -> Effect (Decision Int a))
+  -> Array a
+  -> Effect (Array a)
+collectInputs remaining input step acc
+  | remaining <= 0 = pure acc
+  | otherwise = do
+      d <- step input
+      case d of
+        Halt _ -> pure acc
+        Step b _ (Schedule next) ->
+          collectInputs (remaining - 1) (input + 1) next (acc <> [ b ])
 
 describeOutcome :: forall e a. Outcome e a -> String
 describeOutcome (Success _) = "Success"

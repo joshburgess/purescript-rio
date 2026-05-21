@@ -20,19 +20,27 @@
 -- | transactional operations.
 module RIO.Aff.Hub
   ( Hub
+  , Subscription
   , make
+  , makeBounded
   , publish
   , publishAll
+  , publishDropNew
+  , publishDropOld
   , shutdown
   , subscribe
+  , subscribeScoped
   , subscriberCount
+  , subscribers
+  , tryPublish
   , unsubscribe
   ) where
 
 import Prelude
 
-import Data.Array (filter, length, snoc) as Array
+import Data.Array (filter, length, snoc, uncons) as Array
 import Data.Foldable (for_, traverse_)
+import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
@@ -41,6 +49,7 @@ import Effect.Ref as Ref
 import RIO.Aff.Internal (RIO(..), mkEffectRIO, mkRIO, unsafeUnRIO)
 import RIO.Aff.Queue (Queue)
 import RIO.Aff.Queue as Queue
+import RIO.Aff.Resource (Scope, addFinalizer)
 
 -- | A single subscription, tagged so it can be removed.
 type Subscriber a =
@@ -52,31 +61,74 @@ type State a =
   { subscribers :: Array (Subscriber a)
   , nextTag :: Int
   , isShutdown :: Boolean
+  , subCapacity :: Maybe Int
   }
 
 -- | A broadcast hub.
 newtype Hub a = Hub (Ref (State a))
 
--- | Allocate a fresh hub with no subscribers.
+-- | Allocate a fresh hub with no subscribers. Each subscriber
+-- | gets an unbounded private queue, so a slow consumer cannot
+-- | apply backpressure on the publisher (the natural tradeoff is
+-- | unbounded memory for a stalled subscriber).
+-- |
+-- | For drop-on-full semantics, reach for `makeBounded`; the
+-- | `tryPublish` / `publishDropNew` / `publishDropOld` helpers
+-- | only have non-trivial behaviour against bounded subscriber
+-- | queues.
 make :: forall a. Effect (Hub a)
 make = do
-  ref <- Ref.new { subscribers: [], nextTag: 0, isShutdown: false }
+  ref <- Ref.new
+    { subscribers: []
+    , nextTag: 0
+    , isShutdown: false
+    , subCapacity: Nothing
+    }
   pure (Hub ref)
+
+-- | Allocate a hub whose subscribers each get a *bounded*
+-- | back-pressure queue of the given capacity. `publish` blocks
+-- | when any subscriber's queue is full; reach for `tryPublish`,
+-- | `publishDropNew`, or `publishDropOld` for non-blocking
+-- | broadcast with explicit drop policies.
+makeBounded :: forall a. Int -> Effect (Hub a)
+makeBounded cap = do
+  ref <- Ref.new
+    { subscribers: []
+    , nextTag: 0
+    , isShutdown: false
+    , subCapacity: Just (max 1 cap)
+    }
+  pure (Hub ref)
+
+-- | A handle returned by `subscribe`. Holds the subscriber's queue
+-- | and the action that removes it from the hub. Exposed as a
+-- | named record so call sites can type the result without
+-- | inlining the row.
+type Subscription r e a =
+  { queue :: Queue a
+  , unsubscribe :: RIO r e Unit
+  }
 
 -- | Subscribe a new consumer. Returns a queue that receives every
 -- | subsequent `publish`. The queue is unbounded; if you need
 -- | backpressure, drop the hub and wire `Queue.bounded` queues
 -- | directly.
 -- |
--- | Returns `{ queue, unsubscribe }`. Call `unsubscribe` (or use
--- | the `unsubscribe` smart constructor below) to remove the
--- | subscription when you are done.
+-- | Returns a `Subscription`: a record holding the queue and the
+-- | `unsubscribe` action. Call `unsubscribe` (or use the
+-- | `unsubscribe` smart constructor below) to remove the
+-- | subscription when you are done; for scope-managed teardown
+-- | reach for `subscribeScoped` instead.
 subscribe
   :: forall r e a
    . Hub a
-  -> RIO r e { queue :: Queue a, unsubscribe :: RIO r e Unit }
+  -> RIO r e (Subscription r e a)
 subscribe (Hub ref) = mkRIO \r -> do
-  queue <- liftEffect Queue.unbounded
+  state0 <- liftEffect (Ref.read ref)
+  queue <- liftEffect case state0.subCapacity of
+    Nothing -> Queue.unbounded
+    Just cap -> Queue.bounded cap
   state <- liftEffect (Ref.read ref)
   let tag = state.nextTag
   liftEffect
@@ -115,6 +167,25 @@ subscribe (Hub ref) = mkRIO \r -> do
 unsubscribe :: forall r e. RIO r e Unit -> RIO r e Unit
 unsubscribe action = action
 
+-- | Subscribe and register `unsubscribe` as a finalizer on the
+-- | given `Scope`. The returned `Queue` is live until the scope
+-- | exits; on exit the subscription is removed automatically, on
+-- | every termination path.
+-- |
+-- | This is the resource-safe form of `subscribe`. Use it inside a
+-- | `scoped` block when you want the subscription's lifetime to
+-- | match the scope's.
+subscribeScoped
+  :: forall r e a
+   . Scope
+  -> Hub a
+  -> RIO r e (Queue a)
+subscribeScoped scope hub = mkRIO \r -> do
+  sub <- unsafeUnRIO (subscribe hub) r
+  let unsubAff = unsafeUnRIO sub.unsubscribe r
+  unsafeUnRIO (addFinalizer scope unsubAff) r
+  pure sub.queue
+
 -- | Publish a value to every current subscriber. Each subscriber
 -- | observes the value through its own queue (so a slow consumer
 -- | cannot delay other consumers).
@@ -132,11 +203,76 @@ publish (Hub ref) a = mkRIO \r -> do
 publishAll :: forall r e a. Hub a -> Array a -> RIO r e Unit
 publishAll hub xs = for_ xs (publish hub)
 
+-- | Non-blocking publish. Returns `true` only if *every*
+-- | subscriber accepted the message; if any subscriber's queue
+-- | was full the call returns `false` and that subscriber misses
+-- | the message (the others still receive it, since fan-out is
+-- | per-subscriber rather than transactional).
+-- |
+-- | On a `make`-built hub (unbounded subscriber queues) this
+-- | always returns `true`; it is meaningful only on a
+-- | `makeBounded` hub.
+tryPublish :: forall r e a. Hub a -> a -> RIO r e Boolean
+tryPublish (Hub ref) a = mkRIO \r -> do
+  state <- liftEffect (Ref.read ref)
+  goAll true state.subscribers r
+  where
+  goAll acc subs r = case Array.uncons subs of
+    Nothing -> pure acc
+    Just { head, tail } -> do
+      ok <- unsafeUnRIO
+        (Queue.tryOffer head.queue a :: RIO _ _ Boolean)
+        r
+      goAll (acc && ok) tail r
+
+-- | Publish, dropping the message for any subscriber whose queue
+-- | is full. Never suspends. Other subscribers still receive it.
+-- |
+-- | Equivalent to `tryPublish` with the boolean result discarded;
+-- | exposed as a separate name so the intent ("drop, do not
+-- | block") is visible at the call site.
+publishDropNew :: forall r e a. Hub a -> a -> RIO r e Unit
+publishDropNew hub a = do
+  _ <- tryPublish hub a
+  pure unit
+
+-- | Publish, but if a subscriber's queue is full, evict the
+-- | subscriber's oldest buffered element and offer the new one.
+-- | Never suspends; the publisher's message is delivered to every
+-- | subscriber (possibly displacing a per-subscriber backlog
+-- | element).
+-- |
+-- | On an unbounded `make` hub the eviction branch never fires
+-- | and the call is equivalent to `publish`.
+publishDropOld :: forall r e a. Hub a -> a -> RIO r e Unit
+publishDropOld (Hub ref) a = mkRIO \r -> do
+  state <- liftEffect (Ref.read ref)
+  traverse_
+    ( \sub -> do
+        accepted <- unsafeUnRIO
+          (Queue.tryOffer sub.queue a :: RIO _ _ Boolean)
+          r
+        when (not accepted) do
+          _ <- unsafeUnRIO
+            (Queue.tryTake sub.queue :: RIO _ _ (Maybe a))
+            r
+          _ <- unsafeUnRIO
+            (Queue.tryOffer sub.queue a :: RIO _ _ Boolean)
+            r
+          pure unit
+    )
+    state.subscribers
+
 -- | How many subscribers are currently attached. Advisory: can
 -- | change concurrently.
 subscriberCount :: forall a. Hub a -> Effect Int
 subscriberCount (Hub ref) =
   Array.length <<< _.subscribers <$> Ref.read ref
+
+-- | `subscriberCount` lifted into `RIO`. Same advisory caveat
+-- | applies.
+subscribers :: forall r e a. Hub a -> RIO r e Int
+subscribers hub = liftEffect (subscriberCount hub)
 
 -- | Shut down the hub.
 -- |
