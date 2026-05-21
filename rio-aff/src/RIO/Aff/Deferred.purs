@@ -15,6 +15,7 @@
 module RIO.Aff.Deferred
   ( Deferred
   , awaitDeferred
+  , awaitDeferredPure
   , failDeferred
   , isDoneDeferred
   , makeDeferred
@@ -27,6 +28,7 @@ import Prelude
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Variant (Variant)
+import Data.Variant as Variant
 import Effect.AVar (AVarStatus(..))
 import Effect.Aff.AVar (AVar)
 import Effect.Aff.AVar as AVar
@@ -110,6 +112,17 @@ awaitDeferred (Deferred avar) = mkRIO \_ -> do
   case result of
     Right a -> pure a
     Left v -> rioFail v
+
+-- | Wait for a Deferred whose failure row is empty (`()`), so the
+-- | awaiter inherits the parent's row unchanged. The caller doesn't
+-- | need to extend its row to include the Deferred's. Useful for
+-- | "this Deferred can only ever succeed" handshake patterns.
+awaitDeferredPure :: forall r e a. Deferred () a -> RIO r e a
+awaitDeferredPure (Deferred avar) = mkRIO \_ -> do
+  result <- AVar.read avar
+  case result of
+    Right a -> pure a
+    Left v -> Variant.case_ v
 
 -- | Non-blocking probe: returns `Nothing` if the cell is empty,
 -- | `Just (Left v)` if filled with a typed failure, `Just (Right a)`

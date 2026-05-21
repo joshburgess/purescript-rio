@@ -20,6 +20,7 @@ module RIO.Aff.Queue
   ( Queue
   , Strategy(..)
   , bounded
+  , capacity
   , dropping
   , offer
   , offerAll
@@ -161,6 +162,12 @@ sliding n = do
 -- | the other inspectors; advisory (does not block).
 strategy :: forall r e a. Queue a -> RIO r e Strategy
 strategy (Queue ref) = mkEffectRIO \_ -> _.strategy <$> Ref.read ref
+
+-- | Read the configured capacity. `Nothing` for an `unbounded` queue;
+-- | `Just n` for `bounded n`, `dropping n`, or `sliding n`. Advisory
+-- | (does not block).
+capacity :: forall r e a. Queue a -> RIO r e (Maybe Int)
+capacity (Queue ref) = mkEffectRIO \_ -> _.capacity <$> Ref.read ref
 
 -- | Current size. Advisory: producers and consumers may change it
 -- | between the read and any subsequent action.

@@ -46,6 +46,7 @@ module RIO.Aff.STM.THub
   , newTHub
   , newUnboundedTHub
   , publishTHub
+  , tryPublishTHub
   , subscribeTHub
   , subscriberCount
   , takeSubscription
@@ -159,6 +160,63 @@ publishTHub (THub h) a = do
         else pure unit
       for_ buffers \buf -> modifyTRef buf (\xs -> Array.snoc xs a)
       pure true
+    Sliding n -> do
+      for_ buffers \buf -> do
+        xs <- readTRef buf
+        let xs' = if Array.length xs >= n then Array.drop 1 xs else xs
+        writeTRef buf (Array.snoc xs' a)
+      pure true
+    Dropping n ->
+      foldM
+        ( \acc buf -> do
+            xs <- readTRef buf
+            if Array.length xs >= n then pure false
+            else do
+              writeTRef buf (Array.snoc xs a)
+              pure acc
+        )
+        true
+        buffers
+    Unbounded -> do
+      for_ buffers \buf -> modifyTRef buf (\xs -> Array.snoc xs a)
+      pure true
+
+-- | Non-retrying publish. Differs from `publishTHub` only on the
+-- | `Bounded` strategy: where `publishTHub` retries while any
+-- | subscriber buffer is full, `tryPublishTHub` returns `false`
+-- | without delivering when *any* subscriber would be full
+-- | (atomically all-or-nothing), leaving every buffer untouched.
+-- |
+-- | Behaviour by strategy:
+-- |
+-- |   - `Bounded n`: returns `false` (and writes nothing) if any
+-- |     subscriber's buffer is already at `n`; otherwise writes to
+-- |     every subscriber and returns `true`.
+-- |   - `Sliding n`: identical to `publishTHub` (already
+-- |     non-blocking, always returns `true`).
+-- |   - `Dropping n`: identical to `publishTHub` (already
+-- |     non-blocking, returns `false` when at least one subscriber
+-- |     was full).
+-- |   - `Unbounded`: identical to `publishTHub`.
+tryPublishTHub :: forall e a. THub a -> a -> STM e Boolean
+tryPublishTHub (THub h) a = do
+  subs <- readTRef h.subscribers
+  let buffers = Map.values subs
+  case h.strategy of
+    Bounded n -> do
+      anyFull <- foldM
+        ( \acc buf ->
+            if acc then pure true
+            else do
+              xs <- readTRef buf
+              pure (Array.length xs >= n)
+        )
+        false
+        buffers
+      if anyFull then pure false
+      else do
+        for_ buffers \buf -> modifyTRef buf (\xs -> Array.snoc xs a)
+        pure true
     Sliding n -> do
       for_ buffers \buf -> do
         xs <- readTRef buf

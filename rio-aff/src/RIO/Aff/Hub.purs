@@ -32,6 +32,7 @@ module RIO.Aff.Hub
   , subscribeScoped
   , subscriberCount
   , subscribers
+  , take
   , tryPublish
   , unsubscribe
   ) where
@@ -273,6 +274,15 @@ subscriberCount (Hub ref) =
 -- | applies.
 subscribers :: forall r e a. Hub a -> RIO r e Int
 subscribers hub = liftEffect (subscriberCount hub)
+
+-- | Read the next value from this subscription's queue. Blocks
+-- | (suspends the fiber) until a value arrives, the queue is shut
+-- | down (returns the queue's `take` behaviour on shutdown), or the
+-- | subscription is unsubscribed. Thin wrapper over `Queue.take`
+-- | applied to the subscription's queue; pull it apart to use other
+-- | `Queue` combinators (`takeAll`, `tryTake`, `poll`).
+take :: forall r e a. Subscription r e a -> RIO r e (Maybe a)
+take sub = Queue.take sub.queue
 
 -- | Shut down the hub.
 -- |
