@@ -13,7 +13,10 @@ module RIO.Fiber.STM.TQueue
   , tryReadTQueue
   , writeTQueue
   , tryWriteTQueue
+  , writeAllTQueue
   , peekTQueue
+  , tryPeekTQueue
+  , flushTQueue
   , lengthTQueue
   , capacityTQueue
   , isEmptyTQueue
@@ -85,6 +88,17 @@ tryWriteTQueue (TQueue q) a = do
   else
     pure false
 
+-- | Enqueue every element of `xs` atomically and in order. Retries
+-- | when the queue lacks capacity for all of them: either the whole
+-- | batch lands or none of it does. Differs from rio-aff's variant in
+-- | that the aff queue is unbounded and never blocks; the bounded
+-- | fiber version waits on space.
+writeAllTQueue :: forall a. TQueue a -> Array a -> STM Unit
+writeAllTQueue (TQueue q) xs = do
+  ys <- STM.readTVar q.items
+  STM.check (length ys + length xs <= q.capacity)
+  STM.writeTVar q.items (ys <> xs)
+
 -- | Peek at the next element without consuming. Retries when empty.
 peekTQueue :: forall a. TQueue a -> STM a
 peekTQueue (TQueue q) = do
@@ -92,6 +106,23 @@ peekTQueue (TQueue q) = do
   case uncons xs of
     Nothing -> STM.retry
     Just { head } -> pure head
+
+-- | Peek at the next element without consuming or retrying.
+-- | `Nothing` when the queue is empty.
+tryPeekTQueue :: forall a. TQueue a -> STM (Maybe a)
+tryPeekTQueue (TQueue q) = do
+  xs <- STM.readTVar q.items
+  case uncons xs of
+    Nothing -> pure Nothing
+    Just { head } -> pure (Just head)
+
+-- | Atomically remove and return every buffered item. Empty array
+-- | when the queue is empty; never retries.
+flushTQueue :: forall a. TQueue a -> STM (Array a)
+flushTQueue (TQueue q) = do
+  xs <- STM.readTVar q.items
+  STM.writeTVar q.items []
+  pure xs
 
 -- | Current number of buffered items.
 lengthTQueue :: forall a. TQueue a -> STM Int

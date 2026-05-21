@@ -21,9 +21,12 @@ module RIO.Fiber.STM.TPubSub
   , tryPublish
   , subscribe
   , unsubscribe
+  , withSubscription
   , take
   , tryTake
   , subscribers
+  , isEmptySubscription
+  , lengthSubscription
   ) where
 
 import Prelude
@@ -33,6 +36,7 @@ import Data.Foldable (for_, all)
 import Data.Maybe (Maybe)
 import Data.Traversable (traverse)
 import Effect (Effect)
+import RIO.Fiber.Core (RIO, bracket)
 import RIO.Fiber.STM (STM, TVar)
 import RIO.Fiber.STM as STM
 import RIO.Fiber.STM.TQueue (TQueue)
@@ -118,3 +122,26 @@ tryTake (Subscription { queue }) = TQ.tryReadTQueue queue
 -- | Current number of active subscribers.
 subscribers :: forall a. TPubSub a -> STM Int
 subscribers (TPubSub tv) = length <<< _.subs <$> STM.readTVar tv
+
+-- | Whether this subscription's buffer is currently empty.
+isEmptySubscription :: forall a. Subscription a -> STM Boolean
+isEmptySubscription (Subscription { queue }) = TQ.isEmptyTQueue queue
+
+-- | How many values are buffered for this subscriber but not yet
+-- | taken.
+lengthSubscription :: forall a. Subscription a -> STM Int
+lengthSubscription (Subscription { queue }) = TQ.lengthTQueue queue
+
+-- | Scoped subscribe / unsubscribe. The subscription is released on
+-- | every termination path of `use` (success, typed failure, defect,
+-- | interrupt). Preferred over a manual `subscribe`/`unsubscribe` pair.
+withSubscription
+  :: forall r e a b
+   . TPubSub a
+  -> (Subscription a -> RIO r e b)
+  -> RIO r e b
+withSubscription hub use =
+  bracket
+    (STM.atomically (subscribe hub))
+    (\sub -> STM.atomically (unsubscribe sub))
+    use

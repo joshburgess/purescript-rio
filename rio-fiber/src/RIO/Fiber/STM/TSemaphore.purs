@@ -17,11 +17,13 @@ module RIO.Fiber.STM.TSemaphore
   , releaseN
   , tryAcquire
   , tryAcquireN
+  , with
   ) where
 
 import Prelude
 
 import Effect (Effect)
+import RIO.Fiber.Core (RIO, bracket)
 import RIO.Fiber.STM (STM, TVar)
 import RIO.Fiber.STM as STM
 
@@ -80,3 +82,14 @@ tryAcquireN n (TSemaphore tv)
       else do
         STM.writeTVar tv (have - n)
         pure true
+
+-- | Hold one permit for the duration of `action`. The permit is
+-- | acquired (retrying inside STM until available) and released even
+-- | if `action` fails, defects, or is interrupted. Two STM
+-- | transactions: one to acquire, one to release.
+with :: forall r e a. TSemaphore -> RIO r e a -> RIO r e a
+with sem action =
+  bracket
+    (STM.atomically (acquire sem))
+    (\_ -> STM.atomically (release sem))
+    (\_ -> action)

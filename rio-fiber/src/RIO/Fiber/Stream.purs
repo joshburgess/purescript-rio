@@ -20,6 +20,8 @@ module RIO.Fiber.Stream
   , async
   , empty
   , emit
+  , cons
+  , append
   , fromArray
   , fromRIO
   , repeatRIO
@@ -29,10 +31,13 @@ module RIO.Fiber.Stream
   , tick
   , range
   , iterate
+  , iterateRIO
+  , iterateM
   , unfold
   , unfoldRIO
   , paginate
   , paginateRIO
+  , forever
   , haltWhen
   , interruptWhen
   , map
@@ -40,6 +45,7 @@ module RIO.Fiber.Stream
   , mapRIO
   , filter
   , filterM
+  , collectSome
   , take
   , takeWhile
   , takeUntil
@@ -49,7 +55,11 @@ module RIO.Fiber.Stream
   , tap
   , tapError
   , fold
+  , runFoldM
   , forEach
+  , head
+  , last
+  , find
   , run
   , runCollect
   , runSink
@@ -65,6 +75,8 @@ module RIO.Fiber.Stream
   , mapPar
   , mapRIOPar
   , scan
+  , scanM
+  , scanRIO
   , mapAccum
   , intersperse
   , flatMap
@@ -97,6 +109,7 @@ module RIO.Fiber.Stream
   , transduce
   , aggregate
   , aggregateWithin
+  , groupedWithin
   , changes
   ) where
 
@@ -132,6 +145,7 @@ import RIO.Fiber.Scope (Scope)
 import RIO.Fiber.Scope as Scope
 import RIO.Fiber.Pipe (Pipe(..))
 import RIO.Fiber.Sink (Sink(..), SinkLoop)
+import RIO.Fiber.Sink as Sink
 import RIO.Fiber.STM as STM
 import RIO.Fiber.STM.TDeferred (TDeferred)
 import RIO.Fiber.STM.TDeferred as TDeferred
@@ -285,6 +299,25 @@ empty = Stream (pure Done)
 emit :: forall r e a. a -> Stream r e a
 emit a = Stream (pure (Yield a empty))
 
+-- | Prepend an element to a stream. The result yields `a` first,
+-- | then every element of `s`. Constant-time: no work is done on
+-- | the tail until it is pulled.
+cons :: forall r e a. a -> Stream r e a -> Stream r e a
+cons a s = Stream (pure (Yield a s))
+
+-- | Append an element after every element of a stream. The result
+-- | yields the input first, then `a` once the input has finished.
+-- |
+-- | Lazy: the input is not run until pulled. On an infinite input
+-- | the appended element is never reached, which is consistent
+-- | with `concat s (emit a)`.
+append :: forall r e a. Stream r e a -> a -> Stream r e a
+append (Stream pull) a = Stream do
+  step <- pull
+  case step of
+    Done -> pure (Yield a empty)
+    Yield x rest -> pure (Yield x (append rest a))
+
 -- | A stream that yields each element of the array in order, then halts.
 fromArray :: forall r e a. Array a -> Stream r e a
 fromArray xs = Stream
@@ -369,6 +402,18 @@ iterate :: forall r e a. a -> (a -> a) -> Stream r e a
 iterate seed step = Stream do
   s <- pure seed
   pure (Yield s (iterate (step s) step))
+
+-- | Effectful sibling of `iterate`: yield `seed`, then `f seed`,
+-- | then `f (f seed)`, ... where `f` runs in `RIO`. The step runs
+-- | once per element pulled. Infinite: bound externally.
+iterateRIO :: forall r e a. a -> (a -> RIO r e a) -> Stream r e a
+iterateRIO seed f = Stream do
+  next <- f seed
+  pure (Yield seed (iterateRIO next f))
+
+-- | Alias for `iterateRIO`, matching rio-aff's `iterateM` name.
+iterateM :: forall r e a. a -> (a -> RIO r e a) -> Stream r e a
+iterateM = iterateRIO
 
 -- | Build a stream by unfolding a seed with a pure step. The
 -- | generator returns `Nothing` to halt, or `Just (Tuple a s')` to
@@ -562,6 +607,24 @@ filterM p (Stream pull) = Stream (loop pull)
         if keep then pure (Yield a (filterM p (Stream rest)))
         else loop rest
 
+-- | Filter + map in one pass: keep the elements where the function
+-- | returns `Just`, replacing them with the inner value. Elements
+-- | producing `Nothing` are dropped silently.
+collectSome
+  :: forall r e a b
+   . (a -> Maybe b)
+  -> Stream r e a
+  -> Stream r e b
+collectSome f (Stream pull) = Stream (loop pull)
+  where
+  loop next = do
+    s <- next
+    case s of
+      Done -> pure Done
+      Yield a (Stream rest) -> case f a of
+        Just b -> pure (Yield b (collectSome f (Stream rest)))
+        Nothing -> loop rest
+
 -- | Take at most `n` elements from the stream. Non-positive `n`
 -- | becomes the empty stream.
 take :: forall r e a. Int -> Stream r e a -> Stream r e a
@@ -680,6 +743,59 @@ fold step seed (Stream pull) = do
   case s of
     Done -> pure seed
     Yield a rest -> fold step (step seed a) rest
+
+-- | Effectful left fold: drain the stream with an `RIO` step
+-- | function. Matches rio-aff's `runFoldM`.
+runFoldM
+  :: forall r e a b
+   . b
+  -> (b -> a -> RIO r e b)
+  -> Stream r e a
+  -> RIO r e b
+runFoldM seed step (Stream pull) = do
+  s <- pull
+  case s of
+    Done -> pure seed
+    Yield a rest -> do
+      seed' <- step seed a
+      runFoldM seed' step rest
+
+-- | Pull the stream's first element, then stop. Returns `Nothing`
+-- | for an empty stream. Short-circuits: the tail is never evaluated.
+head :: forall r e a. Stream r e a -> RIO r e (Maybe a)
+head (Stream pull) = do
+  s <- pull
+  case s of
+    Done -> pure Nothing
+    Yield a _ -> pure (Just a)
+
+-- | Drain the stream and return the last element, or `Nothing` if
+-- | the stream is empty. Runs the whole stream; do not call on an
+-- | infinite stream.
+last :: forall r e a. Stream r e a -> RIO r e (Maybe a)
+last = go Nothing
+  where
+  go acc (Stream pull) = do
+    s <- pull
+    case s of
+      Done -> pure acc
+      Yield a rest -> go (Just a) rest
+
+-- | Pull elements until one matches the predicate, return that
+-- | element, and discard the rest. Returns `Nothing` if the stream
+-- | ends before a match is found. Short-circuits on first match.
+find
+  :: forall r e a
+   . (a -> Boolean)
+  -> Stream r e a
+  -> RIO r e (Maybe a)
+find p (Stream pull) = do
+  s <- pull
+  case s of
+    Done -> pure Nothing
+    Yield a rest ->
+      if p a then pure (Just a)
+      else find p rest
 
 -- | Run an `RIO` action for every element. Returns when the stream
 -- | is exhausted.
@@ -854,6 +970,22 @@ concatAll :: forall r e a. Array (Stream r e a) -> Stream r e a
 concatAll sources = case uncons sources of
   Nothing -> empty
   Just { head, tail } -> concat head (concatAll tail)
+
+-- | Repeat a stream forever. After the inner stream ends the same
+-- | stream is drained again.
+-- |
+-- | Idempotent on an already-infinite stream. On an empty stream
+-- | this produces an empty stream (the recursion never yields a
+-- | value), not a busy loop.
+forever :: forall r e a. Stream r e a -> Stream r e a
+forever s = Stream
+  ( case s of
+      Stream pull -> do
+        step <- pull
+        case step of
+          Done -> pure Done
+          Yield a rest -> pure (Yield a (concat rest (forever s)))
+  )
 
 -- | Deterministically interleave two streams: left, right, left,
 -- | right, alternating. When one side ends, the rest of the other
@@ -1064,6 +1196,33 @@ scan step seed source = Stream (pure (Yield seed (go seed source)))
       Yield a rest ->
         let next = step acc a
         in Yield next (go next rest)
+
+-- | Effectful running fold: emit `seed`, then for every element `a`
+-- | emit `step prev a` where the step runs in `RIO`.
+scanRIO
+  :: forall r e a b
+   . b
+  -> (b -> a -> RIO r e b)
+  -> Stream r e a
+  -> Stream r e b
+scanRIO seed step source = Stream (pure (Yield seed (go seed source)))
+  where
+  go acc (Stream pull) = Stream do
+    s <- pull
+    case s of
+      Done -> pure Done
+      Yield a rest -> do
+        next <- step acc a
+        pure (Yield next (go next rest))
+
+-- | Alias for `scanRIO`, matching rio-aff's `scanM` name.
+scanM
+  :: forall r e a b
+   . b
+  -> (b -> a -> RIO r e b)
+  -> Stream r e a
+  -> Stream r e b
+scanM = scanRIO
 
 -- | Stateful map: thread `s` through the stream and emit one `b` per
 -- | input. The result has the same length as the input.
@@ -1785,6 +1944,23 @@ aggregateWithin (Milliseconds dur) (Sink mkLoop) source = Stream do
         case mOut of
           Just b -> pure (Yield b (freshWindow q))
           Nothing -> runWindow q loop windowStart true
+
+-- | Group elements into chunks of up to `maxSize`. A chunk flushes
+-- | as soon as it fills, *or* when `duration` elapses since the
+-- | chunk window opened (whichever comes first). A trailing partial
+-- | chunk is flushed on upstream termination.
+-- |
+-- | Sugar over `aggregateWithin duration (Sink.takeN maxSize)`.
+groupedWithin
+  :: forall r e a
+   . Int
+  -> Milliseconds
+  -> Stream r e a
+  -> Stream r e (Array a)
+groupedWithin maxSize duration source
+  | maxSize <= 0 = empty
+  | otherwise =
+      aggregateWithin duration (Sink.takeN maxSize) source
 
 -- | Filter out consecutive duplicate elements. The first element of
 -- | each run is kept; subsequent equal neighbours are dropped. Useful

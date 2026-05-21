@@ -33,6 +33,7 @@ module RIO.Fiber.Core
   , forkAll
   , forkAllInline
   , forkInline
+  , ifM
   , ignore
   , interrupt
   , iterate
@@ -47,6 +48,8 @@ module RIO.Fiber.Core
   , poll
   , race
   , raceAll
+  , replicateM
+  , replicateM_
   , runRIO
   , runRIO'
   , runRIOCallback
@@ -727,6 +730,43 @@ unlessRIO :: forall r e. RIO r e Boolean -> RIO r e Unit -> RIO r e Unit
 unlessRIO cond body = do
   c <- cond
   unless c body
+
+-- | Branch on an effectful predicate. Both arms have the same
+-- | result type, so this is the value-returning sibling of
+-- | `whenRIO` / `unlessRIO`. Mirrors ZIO's `ZIO.ifZIO`.
+ifM
+  :: forall r e a
+   . RIO r e Boolean
+  -> RIO r e a
+  -> RIO r e a
+  -> RIO r e a
+ifM cond thenBranch elseBranch = do
+  b <- cond
+  if b then thenBranch else elseBranch
+
+-- | Run `action` `n` times and collect every result in input order.
+-- | Non-positive `n` returns an empty array without running the
+-- | action.
+-- |
+-- | Sequential: each invocation runs after the previous one
+-- | finishes. For concurrent replication, reach for
+-- | `parTraverse identity (Array.replicate n action)`.
+replicateM :: forall r e a. Int -> RIO r e a -> RIO r e (Array a)
+replicateM n action
+  | n <= 0 = pure []
+  | otherwise = do
+      a <- action
+      rest <- replicateM (n - 1) action
+      pure ([ a ] <> rest)
+
+-- | The discard sibling of `replicateM`: run `action` `n` times and
+-- | throw the results away. Non-positive `n` is a no-op.
+replicateM_ :: forall r e a. Int -> RIO r e a -> RIO r e Unit
+replicateM_ n action
+  | n <= 0 = pure unit
+  | otherwise = do
+      _ <- action
+      replicateM_ (n - 1) action
 
 -- | Iterate `f` starting at `seed` until the predicate `cont` is
 -- | `false`. Returns the final value (the first one for which `cont`

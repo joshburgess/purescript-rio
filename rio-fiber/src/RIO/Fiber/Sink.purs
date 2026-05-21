@@ -22,8 +22,15 @@ module RIO.Fiber.Sink
   , mkSink
   , map
   , contramap
+  , contramapRIO
+  , contramapM
+  , filterIn
   , count
   , sum
+  , product
+  , minimum
+  , maximum
+  , mconcat
   , collectAll
   , head
   , last
@@ -38,7 +45,11 @@ module RIO.Fiber.Sink
   , takeWhile
   , dropWhile
   , mkString
+  , find
   , findRIO
+  , any
+  , all
+  , andThen
   , race
   , zipPar
   , zipWithPar
@@ -96,6 +107,43 @@ contramap f (Sink mk) = Sink do
     , done: loop.done
     }
 
+-- | Effectful contravariant input map. Each input is first transformed
+-- | by `f` (which runs in `RIO` and may consult services or fail)
+-- | before being fed to the underlying sink.
+contramapRIO
+  :: forall r e i j o
+   . (j -> RIO r e i)
+  -> Sink r e i o
+  -> Sink r e j o
+contramapRIO f (Sink mk) = Sink do
+  loop <- mk
+  pure
+    { step: \j -> do
+        i <- f j
+        loop.step i
+    , done: loop.done
+    }
+
+-- | Alias for `contramapRIO`, named to mirror rio-aff.
+contramapM
+  :: forall r e i j o
+   . (j -> RIO r e i)
+  -> Sink r e i o
+  -> Sink r e j o
+contramapM = contramapRIO
+
+-- | Drop inputs for which the predicate is false before feeding them
+-- | to the underlying sink. The underlying sink only ever observes
+-- | elements that pass `p`, and its `done` is used unchanged on
+-- | end-of-stream.
+filterIn :: forall r e i o. (i -> Boolean) -> Sink r e i o -> Sink r e i o
+filterIn p (Sink mk) = Sink do
+  loop <- mk
+  pure
+    { step: \i -> if p i then loop.step i else pure Nothing
+    , done: loop.done
+    }
+
 -- | Count every element the sink sees. Never terminates early; the
 -- | result is the total count when the stream ends.
 count :: forall r e i. Sink r e i Int
@@ -112,6 +160,64 @@ sum = Sink do
   ref <- liftEffect (Ref.new zero)
   pure
     { step: \a -> liftEffect (Ref.modify_ (_ + a) ref) *> pure Nothing
+    , done: liftEffect (Ref.read ref)
+    }
+
+-- | Multiply every element via its `Semiring` instance. Starts from
+-- | `one`, so an empty stream yields `one`.
+product :: forall r e a. Semiring a => Sink r e a a
+product = Sink do
+  ref <- liftEffect (Ref.new one)
+  pure
+    { step: \a -> liftEffect (Ref.modify_ (_ * a) ref) *> pure Nothing
+    , done: liftEffect (Ref.read ref)
+    }
+
+-- | The minimum element under the `Ord` instance, or `Nothing` if the
+-- | stream was empty.
+minimum :: forall r e a. Ord a => Sink r e a (Maybe a)
+minimum = Sink do
+  ref <- liftEffect (Ref.new (Nothing :: Maybe _))
+  pure
+    { step: \a -> do
+        liftEffect
+          ( Ref.modify_
+              ( case _ of
+                  Nothing -> Just a
+                  Just curr -> Just (min curr a)
+              )
+              ref
+          )
+        pure Nothing
+    , done: liftEffect (Ref.read ref)
+    }
+
+-- | The maximum element under the `Ord` instance, or `Nothing` if the
+-- | stream was empty.
+maximum :: forall r e a. Ord a => Sink r e a (Maybe a)
+maximum = Sink do
+  ref <- liftEffect (Ref.new (Nothing :: Maybe _))
+  pure
+    { step: \a -> do
+        liftEffect
+          ( Ref.modify_
+              ( case _ of
+                  Nothing -> Just a
+                  Just curr -> Just (max curr a)
+              )
+              ref
+          )
+        pure Nothing
+    , done: liftEffect (Ref.read ref)
+    }
+
+-- | Concatenate every element under its `Monoid`. Empty stream yields
+-- | `mempty`.
+mconcat :: forall r e a. Monoid a => Sink r e a a
+mconcat = Sink do
+  ref <- liftEffect (Ref.new mempty)
+  pure
+    { step: \a -> liftEffect (Ref.modify_ (_ <> a) ref) *> pure Nothing
     , done: liftEffect (Ref.read ref)
     }
 
@@ -307,6 +413,16 @@ mkString sep = Sink do
   append s Nothing = Just s
   append s (Just acc) = Just (acc <> sep <> s)
 
+-- | Find the first element matching the pure predicate, terminating
+-- | early. Returns `Nothing` if the stream ends without a match.
+find :: forall r e i. (i -> Boolean) -> Sink r e i (Maybe i)
+find p = Sink
+  ( pure
+      { step: \i -> pure (if p i then Just (Just i) else Nothing)
+      , done: pure Nothing
+      }
+  )
+
 -- | Find the first element for which the effectful predicate
 -- | returns `true`, terminating early. Returns `Nothing` if the
 -- | stream ends without a match. Predicate failures propagate.
@@ -319,6 +435,71 @@ findRIO p = Sink
       , done: pure Nothing
       }
   )
+
+-- | Whether any element matches `p`. Short-circuits on the first
+-- | match, returning `true`; if the stream ends without a match,
+-- | returns `false`.
+any :: forall r e i. (i -> Boolean) -> Sink r e i Boolean
+any p = Sink
+  ( pure
+      { step: \i -> pure (if p i then Just true else Nothing)
+      , done: pure false
+      }
+  )
+
+-- | Whether every element matches `p`. Short-circuits on the first
+-- | non-match, returning `false`; if the stream ends with every
+-- | element matching (including the empty stream), returns `true`.
+all :: forall r e i. (i -> Boolean) -> Sink r e i Boolean
+all p = Sink
+  ( pure
+      { step: \i -> pure (if p i then Nothing else Just false)
+      , done: pure true
+      }
+  )
+
+-- | Sequence two sinks: run the first against the stream, then resume
+-- | with the second (built from the first's result) from the next
+-- | input. The element that triggered the first sink's termination is
+-- | consumed by the first sink; the second sink starts on the element
+-- | after that.
+-- |
+-- | If the stream ends while the first sink is still consuming, the
+-- | first sink's `done` runs, the result is fed into `k`, and the
+-- | resulting second sink's `done` runs immediately (so it never sees
+-- | any input).
+andThen
+  :: forall r e i a b
+   . Sink r e i a
+  -> (a -> Sink r e i b)
+  -> Sink r e i b
+andThen (Sink mkA) k = Sink do
+  loopA <- mkA
+  phaseRef <- liftEffect (Ref.new (Nothing :: Maybe (SinkLoop r e i b)))
+  let
+    stepFn i = do
+      mLoopB <- liftEffect (Ref.read phaseRef)
+      case mLoopB of
+        Just loopB -> loopB.step i
+        Nothing -> do
+          mResultA <- loopA.step i
+          case mResultA of
+            Nothing -> pure Nothing
+            Just a -> do
+              let Sink mkB = k a
+              loopB <- mkB
+              liftEffect (Ref.write (Just loopB) phaseRef)
+              pure Nothing
+    doneFn = do
+      mLoopB <- liftEffect (Ref.read phaseRef)
+      case mLoopB of
+        Just loopB -> loopB.done
+        Nothing -> do
+          a <- loopA.done
+          let Sink mkB = k a
+          loopB <- mkB
+          loopB.done
+  pure { step: stepFn, done: doneFn }
 
 -- | Run two sinks against the same input stream, with each element
 -- | fed to both step functions in parallel. Whichever side terminates

@@ -25,6 +25,9 @@ module RIO.Fiber.STM.TMap
   , values
   , keys
   , modify
+  , update
+  , clear
+  , awaitKey
   ) where
 
 import Prelude
@@ -91,3 +94,30 @@ modify k f (TMap tv) = STM.modifyTVar tv \m ->
   case Map.lookup k m of
     Nothing -> m
     Just v -> maybe (Map.delete k m) (\v' -> Map.insert k v' m) (f v)
+
+-- | Apply `f` to the value at `k`, if present. No-op when `k` is
+-- | absent. To turn an absent key into a present one (or vice versa),
+-- | use `modify`, or compose `lookup` with `insert` / `delete` in one
+-- | transaction.
+update
+  :: forall k v
+   . Ord k
+  => k
+  -> (v -> v)
+  -> TMap k v
+  -> STM Unit
+update k f (TMap tv) = STM.modifyTVar tv (Map.update (Just <<< f) k)
+
+-- | Remove every entry from the map.
+clear :: forall k v. TMap k v -> STM Unit
+clear (TMap tv) = STM.writeTVar tv Map.empty
+
+-- | Block until `k` has an entry, then return its value. Repeated
+-- | inserts re-evaluate this transaction; an insert of `k` wakes a
+-- | parked fiber on this call.
+awaitKey :: forall k v. Ord k => k -> TMap k v -> STM v
+awaitKey k (TMap tv) = do
+  m <- STM.readTVar tv
+  case Map.lookup k m of
+    Nothing -> STM.retry
+    Just v -> pure v

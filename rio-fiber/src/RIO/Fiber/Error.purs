@@ -38,6 +38,7 @@ module RIO.Fiber.Error
   , rethrow
   , tap
   , tapBoth
+  , tapDefect
   , tapDefectCause
   , tapError
   , tapErrorCause
@@ -47,6 +48,7 @@ module RIO.Fiber.Error
 import Prelude
 
 import Data.Either (Either(..))
+import Data.Foldable (traverse_)
 import Data.Maybe (Maybe(..))
 import Data.Symbol (class IsSymbol)
 import Data.Variant (Variant)
@@ -471,3 +473,19 @@ tapDefectCause f =
   catchAllCause \c ->
     if Cause.hasDefect c then f c *> failCause c
     else failCause c
+
+-- | Run a side-effecting handler on each defect leaf in the cause,
+-- | then re-raise the cause unchanged. Typed failures and pure-
+-- | interrupt causes pass through without invoking the handler.
+-- |
+-- | Differs from `tapDefectCause` in that the handler sees each
+-- | individual defect `Error` (running once per `Die` leaf) rather
+-- | than the whole composed `Cause`. Prefer this for telemetry that
+-- | wants per-defect logging; reach for `tapDefectCause` when the
+-- | handler needs the full structure (e.g. to pretty-print the tree).
+tapDefect
+  :: forall r e a
+   . (Error -> RIO r e Unit)
+  -> RIO r e a
+  -> RIO r e a
+tapDefect f = tapDefectCause \c -> traverse_ f (Cause.defects c)

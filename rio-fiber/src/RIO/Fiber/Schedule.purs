@@ -41,10 +41,18 @@ module RIO.Fiber.Schedule
   , whileOutput
   , untilInput
   , untilOutput
+  , recursWhile
+  , recursUntil
+  , repetitions
+  , tapOutput
+  , windowed
+  , fromFunction
+  , unfold
   , repeat
   , repeatN
   , retry
   , retryN
+  , retryOrElse
   , eventually
   ) where
 
@@ -394,6 +402,97 @@ untilInput p = whileInput (not <<< p)
 untilOutput :: forall a b. (b -> Boolean) -> Schedule a b -> Schedule a b
 untilOutput p = whileOutput (not <<< p)
 
+-- | `forever` but only while the input matches the predicate.
+-- | Equivalent to `whileInput pred forever`, exposed as a named
+-- | constructor for discoverability when reaching for a
+-- | "retry while this condition holds" policy.
+recursWhile :: forall a. (a -> Boolean) -> Schedule a Int
+recursWhile pred = whileInput pred forever
+
+-- | `forever` but only until the input matches the predicate.
+-- | Equivalent to `untilInput pred forever`.
+recursUntil :: forall a. (a -> Boolean) -> Schedule a Int
+recursUntil pred = untilInput pred forever
+
+-- | Replace the schedule's output with the (1-indexed) step count.
+-- | Cadence and termination are preserved.
+repetitions :: forall a b. Schedule a b -> Schedule a Int
+repetitions = go 1
+  where
+  go n (Schedule s) = Schedule \i -> do
+    d <- s i
+    case d of
+      Halt _ -> pure (Halt n)
+      Step _ delay next -> pure (Step n delay (go (n + 1) next))
+
+-- | Run an `Effect` side-effect with each emitted output, passing
+-- | the output through unchanged. Cadence is unaffected.
+-- |
+-- | The handler is `Effect`-typed (rather than `RIO`) because
+-- | rio-fiber's `Schedule` step is itself `Effect`-typed; reach for
+-- | a higher-level wrapper if you need full `RIO` semantics inside
+-- | the tap.
+tapOutput
+  :: forall a b
+   . (b -> Effect Unit)
+  -> Schedule a b
+  -> Schedule a b
+tapOutput f (Schedule s) = Schedule \i -> do
+  d <- s i
+  case d of
+    Halt b -> do
+      f b
+      pure (Halt b)
+    Step b delay next -> do
+      f b
+      pure (Step b delay (tapOutput f next))
+
+-- | Cap every per-step delay at `cap`. Delays already at or below
+-- | the cap pass through unchanged. The decision (number of steps,
+-- | output values, termination) is preserved; only the sleep time
+-- | is clamped.
+-- |
+-- | Useful for ensuring a runaway `exponential` or `fibonacci`
+-- | backoff never sleeps for an unreasonable amount of time. Pair
+-- | with `jittered` to keep the cap soft.
+windowed
+  :: forall a b
+   . Milliseconds
+  -> Schedule a b
+  -> Schedule a b
+windowed (Milliseconds cap) = mapDelay
+  (\(Milliseconds ms) -> Milliseconds (if ms > cap then cap else ms))
+
+-- | Build a stateless schedule from a pure function on the input.
+-- | The schedule never stops; each step emits the function's
+-- | result and the requested delay.
+fromFunction
+  :: forall a b
+   . (a -> { output :: b, delay :: Milliseconds })
+  -> Schedule a b
+fromFunction f = Schedule \i ->
+  let
+    r = f i
+  in
+    pure (Step r.output r.delay (fromFunction f))
+
+-- | Build a schedule from a state-threading function. Starts at
+-- | `seed` and at each step calls `f state input`, which returns
+-- | the per-step output, delay, and the next state. The schedule
+-- | never stops.
+unfold
+  :: forall s a b
+   . s
+  -> (s -> a -> { output :: b, delay :: Milliseconds, state :: s })
+  -> Schedule a b
+unfold seed f = go seed
+  where
+  go s = Schedule \i ->
+    let
+      r = f s i
+    in
+      pure (Step r.output r.delay (go r.state))
+
 -- | Run `action` once, then repeatedly while `schedule` decides to
 -- | continue. Returns the schedule's last output.
 repeat
@@ -443,6 +542,32 @@ retry schedule action = go schedule
 -- | `retry (recurs n)` — up to `n` retries.
 retryN :: forall r e a. Int -> RIO r e a -> RIO r e a
 retryN n = retry (recurs n)
+
+-- | Like `retry`, but when the schedule halts (gives up), run a
+-- | fallback action instead of re-raising the action's last typed
+-- | failure. The fallback's error row replaces the action's, so a
+-- | recovered run can change the surfaced error shape.
+-- |
+-- | If the schedule's first step is `Halt` (no retry allowed), the
+-- | fallback runs immediately on the first failure.
+retryOrElse
+  :: forall r e e' a b
+   . Schedule (Variant e) b
+  -> RIO r e a
+  -> (Variant e -> RIO r e' a)
+  -> RIO r e' a
+retryOrElse schedule action fallback = go schedule
+  where
+  go (Schedule step) = catchAll
+    ( \v -> do
+        d <- liftEffect (step v)
+        case d of
+          Halt _ -> fallback v
+          Step _ delay next -> do
+            sleep delay
+            go next
+    )
+    action
 
 -- | Run `action`; on any typed failure, immediately try again.
 -- | Repeats forever until a success, so the result type loses the

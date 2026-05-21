@@ -25,6 +25,8 @@ module RIO.Fiber.Cause
   , isInterrupted
   , isInterruptedOnly
   , hasDefect
+  , hasFailure
+  , isFailure
   , failures
   , defects
   , firstFailure
@@ -40,6 +42,7 @@ module RIO.Fiber.Cause
   , fold
   , linearize
   , prettyPrint
+  , prettyCause
   , find
   , contains
   ) where
@@ -127,6 +130,20 @@ hasDefect (Die _) = true
 hasDefect (Then a b) = hasDefect a || hasDefect b
 hasDefect (Both a b) = hasDefect a || hasDefect b
 hasDefect _ = false
+
+-- | At least one typed `Fail` somewhere in the cause tree?
+hasFailure :: forall e. Cause e -> Boolean
+hasFailure (Fail _) = true
+hasFailure (Then a b) = hasFailure a || hasFailure b
+hasFailure (Both a b) = hasFailure a || hasFailure b
+hasFailure _ = false
+
+-- | The cause is composed purely of typed `Fail` leaves: at least
+-- | one failure, no defects, no interrupts. Useful as a gate before
+-- | a recovery path that only handles the typed row (e.g. before
+-- | `failCause` to rethrow, or before destructuring `failures`).
+isFailure :: forall e. Cause e -> Boolean
+isFailure c = hasFailure c && not (hasDefect c) && not (isInterrupted c)
 
 -- | All typed failures in left-to-right order.
 failures :: forall e. Cause e -> Array (Variant e)
@@ -324,6 +341,10 @@ prettyPrint render = joinWith "\n" <<< go
         contPrefix = if isLast then "    " else "|   "
       in
         [ firstPrefix <> head ] <> map (contPrefix <> _) tail
+
+-- | Alias for `prettyPrint`, named to mirror rio-aff.
+prettyCause :: forall e. (Variant e -> String) -> Cause e -> String
+prettyCause = prettyPrint
 
 -- | Find the first sub-cause that matches the predicate, walking
 -- | the tree left-to-right. Returns `Nothing` when no node matches.
