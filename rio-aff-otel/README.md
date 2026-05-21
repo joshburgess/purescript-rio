@@ -53,8 +53,11 @@ floor."
 ## Limitations
 
 - **Span events and links are not forwarded.** The `RIO.Aff.Tracer`
-  record does not model them yet. Once `RIO.Aff.Tracer` grows that
-  surface, the adapter will forward through.
+  record intentionally exposes only attributes and status, so the
+  adapter has nothing to forward. For full event / link fidelity
+  over OTel, use the premier `rio-fiber` + `rio-fiber-otel` pair,
+  which model `addEvent`, `addLink`, and an explicit `SpanKind`
+  end-to-end.
 - **No sampler configuration knob.** The adapter delegates
   sampling to whatever sampler the SDK configures globally.
   Configure it in your SDK setup, not at the call site.

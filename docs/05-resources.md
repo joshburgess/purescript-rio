@@ -231,14 +231,17 @@ uninterruptible release phase.
 
 ## Pointers
 
-- Source: [`src/RIO/Resource.purs`](../src/RIO/Resource.purs).
+- Source:
+  [`rio-aff/src/RIO/Aff/Resource.purs`](../rio-aff/src/RIO/Aff/Resource.purs)
+  and
+  [`rio-fiber/src/RIO/Fiber/Resource.purs`](../rio-fiber/src/RIO/Fiber/Resource.purs).
 - Do-notation sugar:
-  [`src/RIO/Resource/Do.purs`](../src/RIO/Resource/Do.purs).
+  [`rio-aff/src/RIO/Aff/Resource/Do.purs`](../rio-aff/src/RIO/Aff/Resource/Do.purs).
 - Spec coverage:
-  [`test/Test/RIO/ResourceSpec.purs`](../test/Test/RIO/ResourceSpec.purs),
-  [`test/Test/RIO/Resource/DoSpec.purs`](../test/Test/RIO/Resource/DoSpec.purs).
+  [`rio-aff/test/Test/RIO/Aff/ResourceSpec.purs`](../rio-aff/test/Test/RIO/Aff/ResourceSpec.purs),
+  [`rio-aff/test/Test/RIO/Aff/Resource/DoSpec.purs`](../rio-aff/test/Test/RIO/Aff/Resource/DoSpec.purs).
 - Cause-aware variant:
-  [`src/RIO/Cause.purs`](../src/RIO/Cause.purs)
+  [`rio-aff/src/RIO/Aff/Cause.purs`](../rio-aff/src/RIO/Aff/Cause.purs)
   (`acquireReleaseCause`).
 - Layers (the abstraction that orchestrates many resources):
   [`docs/04-layers.md`](./04-layers.md).

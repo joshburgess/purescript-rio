@@ -1,18 +1,22 @@
 # Software Transactional Memory
 
-`RIO.STM` is the transactional-state primitive for `RIO`. An
-`STM e a` is a pure description of a transaction; `atomically`
-runs it as an `RIO` action that either commits every staged
-write at once or applies none.
+`RIO.Aff.STM` / `RIO.Fiber.STM` is the transactional-state
+primitive for `RIO`. An `STM e a` is a pure description of a
+transaction; `atomically` runs it as an `RIO` action that
+either commits every staged write at once or applies none.
 
-> Module-name convention used in this guide: `RIO.STM.*` is the
-> unqualified shape both packages follow. The live imports are
-> `RIO.Fiber.STM.*` (rio-fiber) and `RIO.Aff.STM.*` (rio-aff).
-> One naming difference: the pub/sub primitive is `THub` in
+> **Naming convention.** Code samples below use unqualified
+> `RIO.STM.*` shorthand for readability. The live imports are
+> `RIO.Aff.STM.*` (rio-aff) or `RIO.Fiber.STM.*` (rio-fiber);
+> the substitution is mechanical. One naming difference worth
+> calling out up front: the pub/sub primitive is `THub` in
 > rio-aff (`RIO.Aff.STM.THub`, with `newBoundedTHub` /
-> `newSlidingTHub` / `newDroppingTHub` / `newUnboundedTHub`) and
-> `TPubSub` in rio-fiber (`RIO.Fiber.STM.TPubSub`, with a single
-> `make` constructor and `publish` / `subscribe` operations).
+> `newSlidingTHub` / `newDroppingTHub` / `newUnboundedTHub`)
+> and `TPubSub` in rio-fiber (`RIO.Fiber.STM.TPubSub`, with a
+> single `make` constructor plus `publish` / `subscribe`
+> operations). The `THub` section below uses the rio-aff
+> spelling throughout; the rio-fiber equivalent has the same
+> semantics with a smaller surface.
 
 The shape mirrors ZIO `STM` / Effect `STM`:
 
@@ -36,7 +40,8 @@ so the picture is simpler:
 3. Therefore no other fiber can observe (or change) the
    transaction's intermediate writes.
 
-The `STM` implementation in `RIO.STM` exploits that directly. A
+The `STM` implementation in `RIO.Aff.STM` / `RIO.Fiber.STM`
+exploits that directly. A
 transaction accumulates writes in a log; the commit phase applies
 them to the underlying `Ref`s in a single `Effect` block, then
 fires the waiters registered on each written `TRef`. No version
@@ -64,7 +69,8 @@ from separate `newTRef` calls are distinct, and writes do not
 clash. `modifyTRef` is `readTRef` then `writeTRef`; pulling it
 out as a primitive is just for readability.
 
-`RIO.STM` also exports `TVar` as a type alias for `TRef`, with
+Both `RIO.Aff.STM` and `RIO.Fiber.STM` also export `TVar` as
+a type alias for `TRef`, with
 matching `newTVar` / `readTVar` / `writeTVar` / `modifyTVar`
 aliases. This is for muscle memory only: callers coming from
 ZIO or Haskell `stm` can spell the type either way, and both
@@ -188,12 +194,15 @@ confirms the final count is exactly 50.
 - **`Deferred`**: when one fiber needs to hand off *one* value
   to another fiber as a write-once cell. Not for ongoing state.
 
-## Derived structures: `TQueue`, `TMap`, `TSemaphore`, `THub`, `TArray`, `TDeferred`
+## Derived structures: `TQueue`, `TMap`, `TSemaphore`, `THub` / `TPubSub`, `TArray`, `TDeferred`
 
-Six derived structures ship in submodules. Each is a thin
-wrapper around a single `TRef` plus the primitives above; the
+Six derived structures ship in submodules under both
+`RIO.Aff.STM.*` and `RIO.Fiber.STM.*`. Each is a thin wrapper
+around a single `TRef` plus the primitives above; the
 implementations are short enough to read in one sitting if you
-want to see how they compose.
+want to see how they compose. (The pub/sub primitive is named
+`THub` on the aff side and `TPubSub` on the fiber side, as
+called out in the convention note above.)
 
 ### `RIO.STM.TQueue`
 
@@ -270,7 +279,7 @@ traversal, when a single fiber needs multiple permits at once,
 or when you want to expose the permit pool as a service for
 other callers to share.
 
-### `RIO.STM.THub`
+### `RIO.Aff.STM.THub` (rio-fiber: `RIO.Fiber.STM.TPubSub`)
 
 A transactional publish/subscribe hub. Each published value
 fans out to every active subscriber's private buffer;
@@ -362,7 +371,8 @@ rather than retrying.
 
 ### `RIO.STM.TDeferred`
 
-The transactional counterpart to `RIO.Deferred`. A `TDeferred`
+The transactional counterpart to `RIO.Aff.Deferred` /
+`RIO.Fiber.Deferred`. A `TDeferred`
 is a write-once cell whose await composes inside `atomically`
 with other STM operations, so you can wait on the cell *and*
 drain a queue (or check a flag) in a single transaction.
@@ -379,10 +389,10 @@ example = do
 
 Surface: `makeTDeferred`, `succeedTDeferred`, `failTDeferred`,
 `awaitTDeferred`, `tryAwaitTDeferred`, `pollTDeferred`. Like
-`RIO.Deferred`, fills after the first are no-ops; awaits after
-the fill see the same value.
+the plain `Deferred`, fills after the first are no-ops; awaits
+after the fill see the same value.
 
-## What `RIO.STM` does not give you yet
+## What `RIO.Aff.STM` / `RIO.Fiber.STM` does not give you yet
 
 - **Multi-transaction composition.** Each `atomically` is its
   own transaction; there is no way to span one transaction
@@ -399,17 +409,20 @@ the fill see the same value.
 
 ## Pointers
 
-- `src/RIO/STM.purs`: the type, primitives, and `atomically`.
-- `src/RIO/STM/TQueue.purs`, `src/RIO/STM/TMap.purs`,
-  `src/RIO/STM/TSemaphore.purs`, `src/RIO/STM/THub.purs`,
-  `src/RIO/STM/TArray.purs`, `src/RIO/STM/TDeferred.purs`: the
-  derived structures.
-- `test/Test/RIO/STMSpec.purs`: tests for commit / abort,
-  staged-write visibility, `failSTM` abort + write discard,
-  `retry` wakeup, `orElse` fallthrough, and 50-fiber parallel
-  increments.
-- `test/Test/RIO/STM/`: tests for the derived structures
-  (FIFO order, blocking dequeue, `awaitKey` wakeup, bounded
-  concurrency via `withTSemaphore`).
+- `rio-aff/src/RIO/Aff/STM.purs` and
+  `rio-fiber/src/RIO/Fiber/STM.purs`: the type, primitives, and
+  `atomically`.
+- `rio-aff/src/RIO/Aff/STM/` and `rio-fiber/src/RIO/Fiber/STM/`:
+  the derived structures (`TQueue`, `TMap`, `TSemaphore`,
+  `TArray`, `TDeferred`, `TChan`, `TMVar`, `TSet`, plus `THub`
+  on aff or `TPubSub` on fiber).
+- `rio-aff/test/Test/RIO/Aff/STMSpec.purs`: tests for commit /
+  abort, staged-write visibility, `failSTM` abort + write
+  discard, `retry` wakeup, `orElse` fallthrough, and 50-fiber
+  parallel increments.
+- `rio-aff/test/Test/RIO/Aff/STM/` and
+  `rio-fiber/test/Test/RIO/Fiber/STM/`: tests for the derived
+  structures (FIFO order, blocking dequeue, `awaitKey` wakeup,
+  bounded concurrency via `withTSemaphore`).
 - `docs/06-concurrency.md`: how `interrupt` interacts with a
   suspended `atomically`.

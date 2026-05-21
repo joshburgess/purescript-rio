@@ -144,9 +144,10 @@ provideLayer (myLogger <+> myDb) program
 `provide` adds one service; `provideAll` adds an entire record
 at once; `provideLayer` runs a `Layer` and provides its output.
 See `docs/02-services.md` for the smaller helpers; for the
-layer story the in-source comments in `src/RIO/Layer.purs` and
-the worked example in `spikes/phase-5-review/` are the
-reference.
+layer story the in-source comments in
+`rio-aff/src/RIO/Aff/Layer.purs` (and the fiber-side mirror
+`rio-fiber/src/RIO/Fiber/Layer.purs`) and the worked example in
+`spikes/phase-5-review/` are the reference.
 
 ## Typed errors
 

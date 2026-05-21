@@ -17,9 +17,11 @@ layers are safe by construction. This document covers:
 4. The failure model (the `Union` constraint on the error row).
 5. How layers interact with `Scope`.
 
-The source is `src/RIO/Layer.purs`. The qualified-do sugar for
-resources, frequently used inside layer bodies, is
-`src/RIO/Resource/Do.purs` (see also `docs/05-resources.md`).
+The source is `rio-aff/src/RIO/Aff/Layer.purs` (the fiber-side
+mirror is `rio-fiber/src/RIO/Fiber/Layer.purs`). The qualified-do
+sugar for resources, frequently used inside layer bodies, is
+`rio-aff/src/RIO/Aff/Resource/Do.purs` (see also
+`docs/05-resources.md`).
 
 ## Constructing layers
 
@@ -228,8 +230,10 @@ row is the analogue of ZIO's `E` channel.
 
 ## Pointers
 
-- Source: [`src/RIO/Layer.purs`](../src/RIO/Layer.purs).
-- Spec coverage: [`test/Test/RIO/LayerSpec.purs`](../test/Test/RIO/LayerSpec.purs).
+- Source: [`rio-aff/src/RIO/Aff/Layer.purs`](../rio-aff/src/RIO/Aff/Layer.purs)
+  and [`rio-fiber/src/RIO/Fiber/Layer.purs`](../rio-fiber/src/RIO/Fiber/Layer.purs).
+- Spec coverage:
+  [`rio-aff/test/Test/RIO/Aff/LayerSpec.purs`](../rio-aff/test/Test/RIO/Aff/LayerSpec.purs).
 - Resources (the safety primitives layers build on):
   [`docs/05-resources.md`](./05-resources.md).
 - Worked layered example:

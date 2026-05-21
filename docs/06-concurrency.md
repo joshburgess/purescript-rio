@@ -1,10 +1,21 @@
 # Concurrency
 
+> **Naming convention.** This guide uses `RIO.Aff.*` module
+> names in code samples. The same APIs exist under
+> `RIO.Fiber.*` for the premier rio-fiber package; the
+> walkthrough applies to both with a mechanical prefix swap.
+> The `Aff`-specific guarantees (cooperative cancellation,
+> `Effect.Aff.bracket`-backed resource safety) are documented
+> here against the rio-aff implementation; rio-fiber provides
+> the same observable guarantees through its custom fiber
+> interpreter.
+
 `RIO`'s fork-based concurrency surface is a `Fiber` type, the
 `fork` / `join` / `interrupt` primitives, parallel combinators
 (`parTraverse`, `parSequence`, `zipPar`), and racing (`race`,
-`raceAll`). Everything is built directly on `Effect.Aff`. This
-document describes:
+`raceAll`). In rio-aff everything is built directly on
+`Effect.Aff`; rio-fiber ships its own custom fiber interpreter
+with the same observable surface. This document describes:
 
 1. The interruption model: what cancels what, when, and why.
 2. Uninterruptible regions, where they live, and how to extend them.
@@ -38,13 +49,13 @@ Killing a fiber more than once is also a no-op (**S5**).
 
 From the joiner's perspective the kill surfaces as an `Aff`
 exception. `join` does not catch it: it propagates as a defect and
-is observable only via `RIO.Error.sandbox`. We chose this over
+is observable only via `RIO.Aff.Error.sandbox`. We chose this over
 turning the kill into a typed failure because the kill is not on
 the fiber's error row; it has been imposed externally.
 
 ## What survives interruption
 
-This is the load-bearing guarantee for `RIO.Resource`:
+This is the load-bearing guarantee for `RIO.Aff.Resource`:
 
 > `Effect.Aff.bracket` runs its release action on every termination
 > path, including external `killFiber`. The release phase is itself
@@ -54,14 +65,14 @@ This is the load-bearing guarantee for `RIO.Resource`:
 (Scenario **S3** in the spike.) Everything resource-related in `RIO`
 sits on top of this:
 
-- `RIO.Resource.acquireRelease` is a direct `bracket` wrapper. If
-  the fiber running it is killed while inside the use phase, the
-  release runs uninterruptibly.
-- `RIO.Resource.scoped` allocates a `Scope` and uses `bracket` to
-  drain its finalizer stack on exit. The drain is in the release
-  phase of that `bracket`, so it runs to completion under any
-  termination, including kill.
-- Layer-registered finalizers (`RIO.Layer.provideLayer` and
+- `RIO.Aff.Resource.acquireRelease` is a direct `bracket`
+  wrapper. If the fiber running it is killed while inside the
+  use phase, the release runs uninterruptibly.
+- `RIO.Aff.Resource.scoped` allocates a `Scope` and uses
+  `bracket` to drain its finalizer stack on exit. The drain is
+  in the release phase of that `bracket`, so it runs to
+  completion under any termination, including kill.
+- Layer-registered finalizers (`RIO.Aff.Layer.provideLayer` and
   friends) hang off the same `Scope` machinery, so the same
   guarantee applies.
 
@@ -120,7 +131,7 @@ apply:
 - The release runs uninterruptibly, so even if the parent fiber
   itself is killed during the race, the loser's finalizers complete.
 
-The `RIO.Concurrency` test suite exercises both: a `race` test
+The `RIO.Aff.Concurrency` test suite exercises both: a `race` test
 where the slow branch acquires a resource and the fast branch
 wins, and a `raceAll` test with two losers, each registering a
 finalizer. Both report the expected release events after the race
@@ -129,7 +140,7 @@ resolves.
 If you want a race in which one side is *not* killed when the other
 wins, use `fork` + `join` on the long-running side and proceed
 without joining the short-running one. There is no "non-cancelling
-race" primitive in `RIO.Concurrency` because the use case is
+race" primitive in `RIO.Aff.Concurrency` because the use case is
 better served by explicit `fork`.
 
 ## `parTraverse` failure semantics
@@ -144,7 +155,7 @@ better served by explicit `fork`.
   branch's `Left` is captured into the shared first-failure ref
   first wins. In practice, fast failures win over slow ones.
 - Defects from any branch propagate as `Aff` defects (observable
-  via `RIO.Error.sandbox`) and also interrupt the siblings.
+  via `RIO.Aff.Error.sandbox`) and also interrupt the siblings.
 
 The same short-circuit applies to `parSequence` (which is
 `parTraverse identity`) and to `zipPar` (where the first `Left`
@@ -171,11 +182,11 @@ bodies = parTraverseN 8 fetch urls
 
 ### Concurrent fan-out with `Par.ado`
 
-`RIO.Concurrency.Par` exposes `apply` / `map` / `pure` so a
+`RIO.Aff.Concurrency.Par` exposes `apply` / `map` / `pure` so a
 qualified `ado` block runs each `<-` line concurrently:
 
 ```purescript
-import RIO.Concurrency.Par as Par
+import RIO.Aff.Concurrency.Par as Par
 
 fetchAll :: forall r e. UserId -> RIO r e Bundle
 fetchAll uid = Par.ado
@@ -263,8 +274,9 @@ the program is happy to leak).
 
 ## Fiber handoff: `Deferred`
 
-`RIO.Deferred` is a one-shot write-once cell over
-`Effect.Aff.AVar`. Fiber A blocks on `awaitDeferred`; fiber B
+`RIO.Aff.Deferred` is a one-shot write-once cell over
+`Effect.Aff.AVar` (rio-fiber ships the equivalent
+`RIO.Fiber.Deferred` over its own scheduler). Fiber A blocks on `awaitDeferred`; fiber B
 fills the cell with `succeedDeferred` (or `failDeferred`); A wakes
 up with the value (or typed failure). Subsequent fills return
 `False` instead of overwriting; subsequent awaits see the same
@@ -292,22 +304,25 @@ For honesty, here is what `RIO` does *not* do:
   interrupted-due-to-failure-elsewhere, etc.) that `RIO` does not
   reproduce.
 
-`RIO.Local` (`docs/11-fiber-local.md`) covers ambient
-implicit-context state with `locally`-scoped overrides;
-`RIO.STM` (`docs/09-stm.md`) covers transactional refs,
-queues, maps, semaphores, and pub/sub hubs. Both are part of
-the current surface.
+`RIO.Aff.Local` / `RIO.Fiber.Local` (`docs/11-fiber-local.md`)
+covers ambient implicit-context state with `locally`-scoped
+overrides; `RIO.Aff.STM` / `RIO.Fiber.STM` (`docs/09-stm.md`)
+covers transactional refs, queues, maps, semaphores, and
+pub/sub hubs. Both are part of the current surface.
 
 ## Pointers
 
-- `src/RIO/Concurrency.purs`: implementations of every primitive
-  described above.
-- `src/RIO/Deferred.purs`: the one-shot fiber-handoff primitive.
-- `test/Test/RIO/ConcurrencySpec.purs` and
-  `test/Test/RIO/DeferredSpec.purs`: tests covering the scenarios
-  cited here, including the short-circuit cancellation behaviour
-  for `parTraverse` / `zipPar` and the scope-bounded lifetime of
-  `forkScoped`.
+- `rio-aff/src/RIO/Aff/Concurrency.purs` and
+  `rio-fiber/src/RIO/Fiber/Concurrency.purs`: implementations
+  of every primitive described above.
+- `rio-aff/src/RIO/Aff/Deferred.purs` and
+  `rio-fiber/src/RIO/Fiber/Deferred.purs`: the one-shot
+  fiber-handoff primitive.
+- `rio-aff/test/Test/RIO/Aff/ConcurrencySpec.purs` and
+  `rio-aff/test/Test/RIO/Aff/DeferredSpec.purs`: tests
+  covering the scenarios cited here, including the
+  short-circuit cancellation behaviour for `parTraverse` /
+  `zipPar` and the scope-bounded lifetime of `forkScoped`.
 - `spikes/aff-interruption/FINDINGS.md`: the authoritative source
   for `Aff`'s cancellation behaviour and the canonical
   cooperative-cancellation caveat.

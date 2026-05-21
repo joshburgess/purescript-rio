@@ -148,8 +148,10 @@ about a dozen lines of implementation.
 
 ## Pointers
 
-- `src/RIO/Local.purs`: the module.
-- `test/Test/RIO/LocalSpec.purs`: tests for `get` / `set` /
+- `rio-aff/src/RIO/Aff/Local.purs` and
+  `rio-fiber/src/RIO/Fiber/Local.purs`: the module.
+- `rio-aff/test/Test/RIO/Aff/LocalSpec.purs`: tests for `get` /
+  `set` /
   `update`, `locally` restore on success and on typed failure,
   nested `locally`, and the documented fork-inheritance
   semantics (child sees parent's current value; child writes

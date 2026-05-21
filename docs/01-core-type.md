@@ -183,15 +183,18 @@ type-narrowing way inside the monad.
 
 ## Pointers
 
-- Source: [`src/RIO/Core.purs`](../src/RIO/Core.purs) (re-export
-  surface) and [`src/RIO/Internal.purs`](../src/RIO/Internal.purs)
-  (the `RIO r e a` newtype and its
-  `Functor` / `Apply` / `Bind` / `Monad` / `MonadEffect` /
-  `MonadAff` instances).
+- Source: [`rio-aff/src/RIO/Aff/Core.purs`](../rio-aff/src/RIO/Aff/Core.purs)
+  (re-export surface) and
+  [`rio-aff/src/RIO/Aff/Internal.purs`](../rio-aff/src/RIO/Aff/Internal.purs)
+  (the `RIO r e a` newtype and its `Functor` / `Apply` / `Bind`
+  / `Monad` / `MonadEffect` / `MonadAff` instances). rio-fiber
+  ships the analogous
+  [`rio-fiber/src/RIO/Fiber/Core.purs`](../rio-fiber/src/RIO/Fiber/Core.purs)
+  with its own interpreter beneath.
 - Spec coverage:
-  [`test/Test/RIO/CoreSpec.purs`](../test/Test/RIO/CoreSpec.purs)
+  [`rio-aff/test/Test/RIO/Aff/CoreSpec.purs`](../rio-aff/test/Test/RIO/Aff/CoreSpec.purs)
   for the monad laws, and
-  [`test/Test/RIO/EffectAndFailSpec.purs`](../test/Test/RIO/EffectAndFailSpec.purs)
+  [`rio-aff/test/Test/RIO/Aff/EffectAndFailSpec.purs`](../rio-aff/test/Test/RIO/Aff/EffectAndFailSpec.purs)
   for `liftEffect` / `liftAff` / `fail`.
 - Services and `ask` / `provide`:
   [`docs/02-services.md`](./02-services.md).

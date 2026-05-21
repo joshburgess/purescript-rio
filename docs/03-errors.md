@@ -234,12 +234,16 @@ system won't catch.
 
 ## Pointers
 
-- Source: [`src/RIO/Error.purs`](../src/RIO/Error.purs).
+- Source:
+  [`rio-aff/src/RIO/Aff/Error.purs`](../rio-aff/src/RIO/Aff/Error.purs)
+  and
+  [`rio-fiber/src/RIO/Fiber/Error.purs`](../rio-fiber/src/RIO/Fiber/Error.purs).
 - Spec coverage:
-  [`test/Test/RIO/ErrorHandlingSpec.purs`](../test/Test/RIO/ErrorHandlingSpec.purs)
+  [`rio-aff/test/Test/RIO/Aff/ErrorHandlingSpec.purs`](../rio-aff/test/Test/RIO/Aff/ErrorHandlingSpec.purs)
   pins `catchTag` / `catchAll` / `mapError` / `rethrow` / `sandbox`;
-  [`test/Test/RIO/FailSpec.purs`](../test/Test/RIO/FailSpec.purs)
-  covers `fail` and `die`; the [`test/Test/RIO/Error/`](../test/Test/RIO/Error/)
+  [`rio-aff/test/Test/RIO/Aff/FailSpec.purs`](../rio-aff/test/Test/RIO/Aff/FailSpec.purs)
+  covers `fail` and `die`; the
+  [`rio-aff/test/Test/RIO/Aff/Error/`](../rio-aff/test/Test/RIO/Aff/Error/)
   subdirectory adds `catchSome`, `orElse`, `refine`, and `tap`
   combinator coverage.
 - Defect channel and the `Cause` tree it lands in:
@@ -247,6 +251,6 @@ system won't catch.
 - Worked example:
   [`examples/worker-pool/`](../examples/worker-pool/) raises a
   `jobFailed :: String` typed failure from each worker, retries
-  on it via `RIO.Schedule.retry`, and runs a `parTraverseCause`
-  pre-flight pass so multiple validation errors render as a
-  `Parallel` cause tree.
+  on it via `RIO.Aff.Schedule.retry`, and runs a
+  `parTraverseCause` pre-flight pass so multiple validation
+  errors render as a `Parallel` cause tree.

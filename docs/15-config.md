@@ -21,10 +21,13 @@ This doc covers:
    file-backed sources in `rio-config-file`).
 4. The `Secret` type and how redaction works.
 5. Running a load (`load`, `ConfigError`, `prettyConfigError`).
-6. Refreshable configs (`RIO.Config.Rotating`).
+6. Refreshable configs (`RIO.Aff.Config.Rotating` /
+   `RIO.Fiber.Config.Rotating`).
 
-The source is `src/RIO/Config.purs`; the file-backed sources
-live in the `rio-config-file` adapter package.
+The source is `rio-aff/src/RIO/Aff/Config.purs` (and the
+mirrored `rio-fiber/src/RIO/Fiber/Config.purs`); the
+file-backed sources live in the `rio-aff-config-file` /
+`rio-fiber-config-file` adapter packages.
 
 ## The core type
 
@@ -298,16 +301,24 @@ the "collect everything" default in 2.x.
 
 ## Pointers
 
-- Source: [`src/RIO/Config.purs`](../src/RIO/Config.purs).
+- Source:
+  [`rio-aff/src/RIO/Aff/Config.purs`](../rio-aff/src/RIO/Aff/Config.purs)
+  and
+  [`rio-fiber/src/RIO/Fiber/Config.purs`](../rio-fiber/src/RIO/Fiber/Config.purs).
 - Refreshable cells:
-  [`src/RIO/Config/Rotating.purs`](../src/RIO/Config/Rotating.purs).
+  [`rio-aff/src/RIO/Aff/Config/Rotating.purs`](../rio-aff/src/RIO/Aff/Config/Rotating.purs)
+  and
+  [`rio-fiber/src/RIO/Fiber/Config/Rotating.purs`](../rio-fiber/src/RIO/Fiber/Config/Rotating.purs).
 - File-backed sources:
-  [`rio-config-file/`](../rio-config-file/).
+  [`rio-aff-config-file/`](../rio-aff-config-file/) and
+  [`rio-fiber-config-file/`](../rio-fiber-config-file/).
 - Spec coverage:
-  [`test/Test/RIO/ConfigSpec.purs`](../test/Test/RIO/ConfigSpec.purs),
-  [`test/Test/RIO/Config/RotatingSpec.purs`](../test/Test/RIO/Config/RotatingSpec.purs),
+  [`rio-aff/test/Test/RIO/Aff/ConfigSpec.purs`](../rio-aff/test/Test/RIO/Aff/ConfigSpec.purs),
+  [`rio-aff/test/Test/RIO/Aff/Config/RotatingSpec.purs`](../rio-aff/test/Test/RIO/Aff/Config/RotatingSpec.purs),
   and the in-package tests under
-  [`rio-config-file/test/`](../rio-config-file/test/).
+  [`rio-aff-config-file/test/`](../rio-aff-config-file/test/)
+  and
+  [`rio-fiber-config-file/test/`](../rio-fiber-config-file/test/).
 - Worked example:
   [`examples/config-loader/`](../examples/config-loader/) loads
   the full `AppConfig` (port, dbUrl, debug flag, redacted API

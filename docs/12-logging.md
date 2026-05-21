@@ -209,10 +209,13 @@ matters, and the workaround is the same as for `RIO.Local`.
 
 ## Pointers
 
-- `src/RIO/Logger.purs`: the module.
-- `src/RIO/Test/Logger.purs`: the recording backend used in
-  tests.
-- `test/Test/RIO/LoggerSpec.purs`: tests for every level, for
+- `rio-aff/src/RIO/Aff/Logger.purs` and
+  `rio-fiber/src/RIO/Fiber/Logger.purs`: the module.
+- `rio-aff/src/RIO/Aff/Test/Logger.purs` and
+  `rio-fiber/src/RIO/Fiber/Test/Logger.purs`: the recording
+  backend used in tests.
+- `rio-aff/test/Test/RIO/Aff/LoggerSpec.purs`: tests for every
+  level, for
   `withField` / `withFields` propagation, for restoration on
   success and on typed failure, for nested annotation
   shadowing, and for input-order preservation.

@@ -557,8 +557,8 @@ FiberMap.size :: forall r e e' k a. FiberMap k e a -> RIO r e' Int
 
 **Problem.** A queue has no lifecycle signal: consumers
 `take`-ing from a finished producer block forever. Bulk takes
-are also missing — batching consumers loop on `take` in tight
-N+1 patterns. Note `Mailbox` (#3) wraps these concepts in a
+are also missing, so batching consumers loop on `take` in
+tight N+1 patterns. Note `Mailbox` (#3) wraps these concepts in a
 higher-level abstraction; this item adds them at the `Queue`
 primitive level too.
 
@@ -579,7 +579,7 @@ drain greedily.
 ### #18 `SubscriptionRef`
 
 **Problem.** Many state-management flows want "a `Ref` whose
-changes you can subscribe to as a Stream" — server-side cache
+changes you can subscribe to as a Stream": server-side cache
 state, UI store, derived computation. Today you build it from
 `Ref` + `Hub` by hand.
 
@@ -651,8 +651,9 @@ is a stateful fold that emits when the key changes.
 
 **Problem.** Schedule has `recurs n` (max N tries) and
 `spaced d` (every D), but no "for up to T total elapsed". And
-no observability hooks for retry/repeat policies — you can't
-log "tries before success" without writing your own counter.
+no observability hooks for retry/repeat policies, so you
+can't log "tries before success" without writing your own
+counter.
 
 **Shape.**
 
@@ -675,8 +676,8 @@ decision.
 `validatePar` accumulates failures but still fails the whole
 computation if any element failed. Neither suits "best effort:
 run all 100, return the 87 that worked and the 13 that didn't"
-semantics — useful for backfills, sync jobs, partial-failure
-reporting.
+semantics, which are useful for backfills, sync jobs, and
+partial-failure reporting.
 
 **Shape.**
 
@@ -913,7 +914,7 @@ the Deferred at each pull and emits `Done` once filled.
 
 **Problem.** Stream-side counterparts to the RIO combinators
 in #25, plus `drop`/`dropWhile` (we have `take` but no drop)
-and `mapRIOPar` (concurrent map without preserving order —
+and `mapRIOPar` (concurrent map without preserving order,
 faster than `mapPar` when downstream is order-insensitive).
 
 **Shape.**

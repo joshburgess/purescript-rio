@@ -36,10 +36,10 @@ Span status is independent of `withSpan`'s success / failure
 in rio-fiber: the span finishes with `StatusUnset` by default
 unless the body calls `setStatus`:
 
-- `StatusUnset` (rio-fiber default) — most exporters treat as
+- `StatusUnset` (rio-fiber default): most exporters treat as
   implicit OK.
-- `StatusOk` — explicitly mark success.
-- `StatusError msg` — explicitly mark failure with a message.
+- `StatusOk`: explicitly mark success.
+- `StatusError msg`: explicitly mark failure with a message.
 
 If you want a failed `withSpan` body to mark the span as
 `StatusError` automatically, call `setStatus` in a `catchAll`

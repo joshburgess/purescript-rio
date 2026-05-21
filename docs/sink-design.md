@@ -153,6 +153,10 @@ its own design pass rather than be retro-fitted onto this one.
 
 - User-facing reference: [`docs/13-streams.md`](./13-streams.md)
   ("Composable consumers" section).
-- Source: [`src/RIO/Sink.purs`](../src/RIO/Sink.purs).
+- Source:
+  [`rio-aff/src/RIO/Aff/Sink.purs`](../rio-aff/src/RIO/Aff/Sink.purs)
+  and
+  [`rio-fiber/src/RIO/Fiber/Sink.purs`](../rio-fiber/src/RIO/Fiber/Sink.purs).
 - Worked example: [`examples/sink-analytics/`](../examples/sink-analytics/).
-- Spec coverage: [`test/Test/RIO/SinkSpec.purs`](../test/Test/RIO/SinkSpec.purs).
+- Spec coverage:
+  [`rio-aff/test/Test/RIO/Aff/SinkSpec.purs`](../rio-aff/test/Test/RIO/Aff/SinkSpec.purs).

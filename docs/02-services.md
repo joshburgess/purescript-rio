@@ -174,10 +174,13 @@ exercised by the spike.
 ## Pointers
 
 - Source: `ask` / `asks` / `provide` / `provideAll` live in
-  [`src/RIO/Env.purs`](../src/RIO/Env.purs) and are re-exported
-  through [`src/RIO/Core.purs`](../src/RIO/Core.purs).
+  [`rio-aff/src/RIO/Aff/Env.purs`](../rio-aff/src/RIO/Aff/Env.purs)
+  and are re-exported through
+  [`rio-aff/src/RIO/Aff/Core.purs`](../rio-aff/src/RIO/Aff/Core.purs).
+  The fiber-side equivalent is
+  [`rio-fiber/src/RIO/Fiber/Env.purs`](../rio-fiber/src/RIO/Fiber/Env.purs).
 - Spec coverage:
-  [`test/Test/RIO/EnvSpec.purs`](../test/Test/RIO/EnvSpec.purs)
+  [`rio-aff/test/Test/RIO/Aff/EnvSpec.purs`](../rio-aff/test/Test/RIO/Aff/EnvSpec.purs)
   pins `ask` / `asks` / `provide` / `provideAll` against
   several row shapes.
 - Layers (`Layer r r' e`, the unit of service wiring at the

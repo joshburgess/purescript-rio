@@ -227,9 +227,11 @@ its delays in band over 100 samples.
 
 ## Pointers
 
-- `src/RIO/Schedule.purs`: the type, constructors, combinators, and
-  runners.
-- `test/Test/RIO/ScheduleSpec.purs`: tests covering `repeat`,
+- `rio-aff/src/RIO/Aff/Schedule.purs` and
+  `rio-fiber/src/RIO/Fiber/Schedule.purs`: the type,
+  constructors, combinators, and runners.
+- `rio-aff/test/Test/RIO/Aff/ScheduleSpec.purs`: tests covering
+  `repeat`,
   `retry`, `retryOrElse`, `intersect`, exponential under the test
   clock, and the `jittered` band sample.
 - `docs/06-concurrency.md`: how cancellation interacts with the

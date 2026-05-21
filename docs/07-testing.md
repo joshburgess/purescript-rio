@@ -178,12 +178,17 @@ whether the layer is mocked or live.
 
 ## Pointers
 
-- `src/RIO/Clock.purs`: the production service.
-- `src/RIO/Test/Clock.purs`: `newTestClock` and `advance`.
-- `src/RIO/Spec.purs`: `itRIO`, `itRIO_`, `runSpecRIO`.
-- `src/RIO/Test.purs`: `mockService`, `recording`.
-- `test/Test/RIO/ClockSpec.purs`: virtual-clock test patterns.
-- `test/Test/RIO/SpecHelpersSpec.purs`: `itRIO` and `itRIO_` in
-  use.
-- `test/Test/RIO/TestHelpersSpec.purs`: `mockService` and
-  `recording` in use.
+- `rio-aff/src/RIO/Aff/Clock.purs` and
+  `rio-fiber/src/RIO/Fiber/Clock.purs`: the production service.
+- `rio-aff/src/RIO/Aff/Test/Clock.purs` and
+  `rio-fiber/src/RIO/Fiber/Test/Clock.purs`: `newTestClock` and
+  `advance`.
+- `rio-aff/src/RIO/Aff/Spec.purs`: `itRIO`, `itRIO_`,
+  `runSpecRIO`.
+- `rio-aff/src/RIO/Aff/Test.purs`: `mockService`, `recording`.
+- `rio-aff/test/Test/RIO/Aff/ClockSpec.purs`: virtual-clock
+  test patterns.
+- `rio-aff/test/Test/RIO/Aff/SpecHelpersSpec.purs`: `itRIO` and
+  `itRIO_` in use.
+- `rio-aff/test/Test/RIO/Aff/TestHelpersSpec.purs`:
+  `mockService` and `recording` in use.

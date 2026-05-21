@@ -1,13 +1,20 @@
 ## Streams
 
-`RIO.Stream` is a pull-based effectful stream sitting on top of
-`RIO`. Each step is a single `RIO` action that either yields the
-next value paired with the rest of the stream, or signals
-end-of-stream. The stream itself has no schedule of its own:
-nothing happens until a runner pulls from it.
+`RIO.Aff.Stream` / `RIO.Fiber.Stream` is a pull-based effectful
+stream sitting on top of `RIO`. Each step is a single `RIO`
+action that either yields the next value paired with the rest
+of the stream, or signals end-of-stream. The stream itself has
+no schedule of its own: nothing happens until a runner pulls
+from it.
 
-> Module-name convention used in this guide: rio-aff splits the
-> surface into `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
+> **Naming convention.** Code samples below use unqualified
+> `RIO.Stream.*` / `RIO.Sink` / `RIO.Channel` shorthand for
+> readability. The live imports are `RIO.Aff.Stream.*` /
+> `RIO.Aff.Sink` / `RIO.Aff.Channel` (rio-aff) or
+> `RIO.Fiber.Stream` / `RIO.Fiber.Sink` / `RIO.Fiber.Channel`
+> (rio-fiber); the substitution is mechanical. One structural
+> difference worth calling out: rio-aff splits the surface into
+> `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
 > `RIO.Aff.Stream.Concurrent`, `RIO.Aff.Stream.Resource`, and
 > `RIO.Aff.Stream.Timed`. rio-fiber consolidates the whole
 > surface into a single `RIO.Fiber.Stream` module (parallel,
@@ -168,7 +175,9 @@ Sibling producers continue running until they find the queue
 closed and exit; their would-be failures are dropped.
 
 If you want every concurrent failure preserved as a tree, drain
-each branch separately through `RIO.Cause.parTraverseCause`.
+each branch separately through `RIO.Aff.Cause.parTraverseCause`
+(or, on rio-fiber, through `attemptCause` and the cause-tree
+constructors directly).
 
 ## Resource-safe streams (`RIO.Stream.Resource`)
 
@@ -353,21 +362,26 @@ expressible as first-class values when the standard
 ## Pointers
 
 - Source:
-  [`src/RIO/Stream.purs`](../src/RIO/Stream.purs) (the pull-
-  based core),
-  [`src/RIO/Stream/Par.purs`](../src/RIO/Stream/Par.purs)
+  rio-aff:
+  [`rio-aff/src/RIO/Aff/Stream.purs`](../rio-aff/src/RIO/Aff/Stream.purs)
+  (the pull-based core),
+  [`rio-aff/src/RIO/Aff/Stream/Par.purs`](../rio-aff/src/RIO/Aff/Stream/Par.purs)
   (`mergeAll`, `broadcast`), and
-  [`src/RIO/Sink.purs`](../src/RIO/Sink.purs) (one-pass
-  consumers and `zipPar`).
+  [`rio-aff/src/RIO/Aff/Sink.purs`](../rio-aff/src/RIO/Aff/Sink.purs)
+  (one-pass consumers and `zipPar`). rio-fiber:
+  [`rio-fiber/src/RIO/Fiber/Stream.purs`](../rio-fiber/src/RIO/Fiber/Stream.purs)
+  (consolidated module) and
+  [`rio-fiber/src/RIO/Fiber/Sink.purs`](../rio-fiber/src/RIO/Fiber/Sink.purs).
 - Spec coverage:
-  [`test/Test/RIO/StreamSpec.purs`](../test/Test/RIO/StreamSpec.purs)
+  [`rio-aff/test/Test/RIO/Aff/StreamSpec.purs`](../rio-aff/test/Test/RIO/Aff/StreamSpec.purs)
   (construction / transforms / runners) and
-  [`test/Test/RIO/SinkSpec.purs`](../test/Test/RIO/SinkSpec.purs)
+  [`rio-aff/test/Test/RIO/Aff/SinkSpec.purs`](../rio-aff/test/Test/RIO/Aff/SinkSpec.purs)
   (sink primitives and `zipPar` semantics).
 - Concurrency primitives the parallel combinators build on:
   [`docs/06-concurrency.md`](./06-concurrency.md).
 - Sink design notes:
   [`docs/sink-design.md`](./sink-design.md).
-- `RIO.Channel` source and tests:
-  [`src/RIO/Channel.purs`](../src/RIO/Channel.purs),
-  [`test/Test/RIO/ChannelSpec.purs`](../test/Test/RIO/ChannelSpec.purs).
+- `RIO.Aff.Channel` / `RIO.Fiber.Channel` source and tests:
+  [`rio-aff/src/RIO/Aff/Channel.purs`](../rio-aff/src/RIO/Aff/Channel.purs),
+  [`rio-fiber/src/RIO/Fiber/Channel.purs`](../rio-fiber/src/RIO/Fiber/Channel.purs),
+  [`rio-aff/test/Test/RIO/Aff/ChannelSpec.purs`](../rio-aff/test/Test/RIO/Aff/ChannelSpec.purs).
