@@ -180,8 +180,9 @@ unions both via `Union e e' eOut`.
   the call site grows monotonically as more layers are stacked.
 
 Defects (`die`, JavaScript exceptions, fiber kills) flow
-through `Aff` and are observable via `RIO.Error.sandbox` at the
-call site; they bypass the typed `Variant` channel by design.
+through `Aff` and are observable via `RIO.Aff.Error.sandbox`
+(rio-fiber: `RIO.Fiber.Error.sandbox`) at the call site; they
+bypass the typed `Variant` channel by design.
 
 ## Resource-safe layers
 

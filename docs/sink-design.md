@@ -135,9 +135,10 @@ its own design pass rather than be retro-fitted onto this one.
 
 - `Sink.fromQueue` / `Sink.fromHub` family. Once `Sink` exists,
   these are 5-line aliases over `Sink.foldM` pointing at the
-  `RIO.Queue` / `RIO.Hub` modules. Ship them in a follow-up
-  when an example actually needs them; until then they add
-  surface area without earning their keep.
+  `RIO.Aff.Queue` / `RIO.Aff.Hub` (rio-fiber: `RIO.Fiber.Queue`
+  / `RIO.Fiber.Hub`) modules. Ship them in a follow-up when an
+  example actually needs them; until then they add surface area
+  without earning their keep.
 - Sink-side fusion / rewriting. Today every `mapResult`,
   `mapInput`, and `filterIn` allocates a fresh wrapper per
   step. A real workload that shows up in a profile is the

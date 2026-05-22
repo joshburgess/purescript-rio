@@ -142,7 +142,7 @@ The handler runs on the raw `Variant`. Use it for:
   isn't structurally derived from the old one.
 
 Identity property: `catchAll rethrow ≡ id`. See
-`test/Test/RIO/ErrorHandlingSpec.purs` for the exercised version.
+`rio-aff/test/Test/RIO/Aff/ErrorHandlingSpec.purs` for the exercised version.
 
 ### `mapError` for a pure translation
 

@@ -12,7 +12,8 @@ RIO's testing surface covers:
    reach for which helper.
 
 This doc walks each piece end to end. The examples are drawn from
-the test suite at `test/Test/RIO/`.
+the test suite at `rio-aff/test/Test/RIO/Aff/` (rio-fiber:
+`rio-fiber/test/Test/RIO/Fiber/`).
 
 ## Mocking a service
 
@@ -181,7 +182,7 @@ whether the layer is mocked or live.
 - `rio-aff/src/RIO/Aff/Clock.purs` and
   `rio-fiber/src/RIO/Fiber/Clock.purs`: the production service.
 - `rio-aff/src/RIO/Aff/Test/Clock.purs` and
-  `rio-fiber/src/RIO/Fiber/Test/Clock.purs`: `newTestClock` and
+  `rio-fiber/src/RIO/Fiber/TestClock.purs`: `newTestClock` and
   `advance`.
 - `rio-aff/src/RIO/Aff/Spec.purs`: `itRIO`, `itRIO_`,
   `runSpecRIO`.

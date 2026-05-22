@@ -194,15 +194,17 @@ confirms the final count is exactly 50.
 - **`Deferred`**: when one fiber needs to hand off *one* value
   to another fiber as a write-once cell. Not for ongoing state.
 
-## Derived structures: `TQueue`, `TMap`, `TSemaphore`, `THub` / `TPubSub`, `TArray`, `TDeferred`
+## Derived structures: `TQueue`, `TMap`, `TSemaphore`, `THub` / `TPubSub`, `TArray`, `TDeferred`, `TChan`, `TMVar`, `TSet`
 
-Six derived structures ship in submodules under both
+Nine derived structures ship in submodules under both
 `RIO.Aff.STM.*` and `RIO.Fiber.STM.*`. Each is a thin wrapper
 around a single `TRef` plus the primitives above; the
 implementations are short enough to read in one sitting if you
 want to see how they compose. (The pub/sub primitive is named
 `THub` on the aff side and `TPubSub` on the fiber side, as
-called out in the convention note above.)
+called out in the convention note above.) The first six get
+worked examples below; `TChan`, `TMVar`, and `TSet` are
+sketched at the end with surface-only summaries.
 
 ### `RIO.STM.TQueue`
 
@@ -391,6 +393,36 @@ Surface: `makeTDeferred`, `succeedTDeferred`, `failTDeferred`,
 `awaitTDeferred`, `tryAwaitTDeferred`, `pollTDeferred`. Like
 the plain `Deferred`, fills after the first are no-ops; awaits
 after the fill see the same value.
+
+### `RIO.STM.TChan`
+
+An unbounded multi-producer / multi-consumer channel. Behaves
+like `TQueue` but exposes a separate read and write end so
+producers can be dropped without closing the read end, and
+multiple consumers can pull from the same channel.
+
+Surface: `newTChan`, `writeTChan`, `readTChan`,
+`tryReadTChan`, `peekTChan`, `isEmptyTChan`.
+
+### `RIO.STM.TMVar`
+
+A transactional `MVar`: a single-cell either-empty-or-full
+container. `takeTMVar` retries when empty; `putTMVar` retries
+when full. Useful as a rendezvous point or a one-element
+mailbox where back-pressure should block the producer.
+
+Surface: `newEmptyTMVar`, `newTMVar`, `takeTMVar`, `putTMVar`,
+`tryTakeTMVar`, `tryPutTMVar`, `readTMVar`, `tryReadTMVar`,
+`isEmptyTMVar`.
+
+### `RIO.STM.TSet`
+
+A transactional set. Like `TMap` but values are unit; the
+distinguishing primitive is `memberTSet`. Insertion / deletion
+are idempotent at the per-element granularity.
+
+Surface: `newTSet`, `insertTSet`, `deleteTSet`, `memberTSet`,
+`sizeTSet`, `nullTSet`, `toArrayTSet`.
 
 ## What `RIO.Aff.STM` / `RIO.Fiber.STM` does not give you yet
 

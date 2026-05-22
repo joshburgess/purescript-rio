@@ -241,7 +241,8 @@ provideLayer appLayer program
 Passthrough composition: if layer `B` between `A` and `C`
 produces services that `C` needs but doesn't itself consume,
 `B` must either re-emit them in its output row or be wrapped
-with `RIO.Layer.passthrough`, which extends the layer's output
+with `RIO.Aff.Layer.passthrough` (rio-fiber:
+`RIO.Fiber.Layer.passthrough`), which extends the layer's output
 row with the labels it required as input.
 
 ## Testing
