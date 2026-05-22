@@ -21,7 +21,17 @@ from it.
 > `RIO.Aff.Stream.Timed`. rio-fiber consolidates the whole
 > surface into a single `RIO.Fiber.Stream` module (parallel,
 > resource-safe, and time-based combinators all live there).
-> The combinator names are the same in both.
+> The combinator names are mostly the same in both, with a few
+> consistent renames worth knowing about. rio-aff spells the
+> effectful-callback variants with an `M` suffix; rio-fiber
+> spells them with a `RIO` suffix: `mapM` / `foldM` / `findM`
+> in rio-aff become `mapRIO` / `foldRIO` / `findRIO` in
+> rio-fiber. A handful of `RIO.Sink` primitives also diverge in
+> name: rio-aff's `collect`, `foldL`, `mapResult`, and
+> `zipParWith` are rio-fiber's `collectAll`, `fold`, `map`, and
+> `zipWithPar`. Where a code sample below uses an rio-aff name,
+> rio-fiber readers should substitute the matching name from
+> this list.
 
 ```purescript
 data Step r e a
