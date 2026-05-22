@@ -48,7 +48,8 @@ The release's error row is `()`: cleanup cannot fail with a
 typed error because there's no caller-visible place to surface
 one. Defects in the release path *will* propagate as `Aff`
 exceptions and are observable at the call site via
-`RIO.Aff.Error.sandbox` (rio-fiber: `RIO.Fiber.Error.sandbox`).
+`RIO.Aff.Error.sandbox` (rio-fiber: `RIO.Fiber.Error.causeOf`,
+which returns `Either (Cause e) a`).
 
 If `acquire` fails (typed or defect), `release` is not called.
 
@@ -183,7 +184,8 @@ release would either:
 
 The current behaviour: defects from release propagate as `Aff`
 exceptions. `RIO.Aff.Error.sandbox` (rio-fiber:
-`RIO.Fiber.Error.sandbox`) at the call site materialises them.
+`RIO.Fiber.Error.causeOf`, surfacing them as `Die` constructors
+inside `Either (Cause e) a`) at the call site materialises them.
 The typed channel is reserved for failures that callers are
 expected to recover from; resource release isn't one of those.
 

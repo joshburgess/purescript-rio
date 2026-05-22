@@ -100,7 +100,7 @@ import RIO.Fiber.Stream as Stream
 
 watchAndReport :: RIO r () Unit
 watchAndReport = do
-  q <- liftEffect (Q.bounded 64)
+  q <- liftEffect (Q.make 64)
 
   -- Producer fiber: push every event into the queue.
   _ <- F.fork (forever (push q))
@@ -187,16 +187,16 @@ import RIO.Fiber.Stream as Stream
 
 example :: RIO r () (Array Int)
 example = do
-  q <- STM.atomically (TQ.bounded 16)
+  q <- STM.atomically (TQ.newSTM 16)
 
   -- Producer fiber.
   _ <- F.fork do
     for_ (Array.range 1 100) \n ->
       STM.atomically (TQ.writeTQueue q n)
-    STM.atomically (TQ.closeTQueue q)
 
-  -- Consumer pulls one element per STM step.
-  Stream.runCollect (Stream.fromTQueue q)
+  -- Consumer pulls one element per STM step; bounded with `take`
+  -- because `fromTQueue` retries forever when the queue is empty.
+  Stream.runCollect (Stream.take 100 (Stream.fromTQueue q))
 ```
 
 The producer's `STM.atomically` step is a single event-loop
@@ -238,7 +238,7 @@ import RIO.Fiber.Sink as Sink
 
 batched :: RIO r () Int
 batched = do
-  q <- STM.atomically (TQ.bounded 1024)
+  q <- STM.atomically (TQ.newSTM 1024)
 
   -- assume producer running somewhere
 

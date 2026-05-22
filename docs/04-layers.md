@@ -191,8 +191,10 @@ unions both via `Union e e' eOut`.
 
 Defects (`die`, JavaScript exceptions, fiber kills) flow
 through `Aff` and are observable via `RIO.Aff.Error.sandbox`
-(rio-fiber: `RIO.Fiber.Error.sandbox`) at the call site; they
-bypass the typed `Variant` channel by design.
+(rio-fiber: `RIO.Fiber.Error.causeOf`, which returns
+`Either (Cause e) a` so defects surface as `Die` constructors
+in the cause tree) at the call site; they bypass the typed
+`Variant` channel by design.
 
 ## Resource-safe layers
 
