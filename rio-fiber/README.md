@@ -213,7 +213,7 @@ npx spago run -p rio-benchmarks
 
 Pre-release. The interpreter is stable, the surface in
 `RIO.Fiber.*` is unlikely to shift in shape, and the test
-suite covers each module end-to-end (570+ tests at time of
+suite covers each module end-to-end (880+ tests at time of
 writing). New design work in the repository targets
 `rio-fiber` first; the matching surface is then ported to
 `rio-aff` when it can be expressed on the `Aff` runtime.

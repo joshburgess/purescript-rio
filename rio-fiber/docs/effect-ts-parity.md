@@ -3,7 +3,8 @@
 Snapshot comparison of `rio-fiber` against Effect-TS
 (`@effect/effect`) with concrete improvement opportunities,
 ranked by value-per-effort. Compiled 2026-05-20 against the
-then-current Effect-TS surface and our 38-module fiber surface.
+then-current Effect-TS surface and the rio-fiber surface at
+that time (the fiber package has since grown to ~98 modules).
 
 This is a working planning document. As items are implemented
 they should be checked off in the relevant section, not deleted.
@@ -330,7 +331,7 @@ intentional differentiators worth preserving.
 
 ## Suggested batching
 
-**Batch 1 (this PR).** Items #1, #2, #4, #5, #10. All S or
+**Batch 1 (done).** Items #1, #2, #4, #5, #10. All S or
 small-M. Share no interpreter changes. Together they close
 most of the everyday-ergonomics gap.
 

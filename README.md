@@ -516,7 +516,7 @@ placeholder.
 `rio-fiber` is the active development target: its
 interpreter is stable, its surface in `RIO.Fiber.*` is
 unlikely to shift in shape, and the test suite covers each
-module end-to-end (570+ tests at time of writing). `rio-aff`
+module end-to-end (880+ tests at time of writing). `rio-aff`
 is maintained as the ecosystem-friendly alternative and
 receives bug fixes plus selective forward-ports of new
 surface, but new design work happens in `rio-fiber` first.

@@ -219,7 +219,7 @@ This is the only flip required. The gate already exits with a
 non-zero status on regression and a zero status on success, so
 GitHub Actions picks up the right semantics automatically.
 
-## What is *not* in this phase
+## What the benchmarks intentionally exclude
 
 **Profile-driven `unsafeCoerce` hot-path tightening.** `Record`
 and `Variant` indirection costs were the most-watched performance

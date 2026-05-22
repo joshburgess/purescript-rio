@@ -170,8 +170,10 @@ OTel metrics exporter) implements the same record.
 - **Per-bucket histogram counts in the OTLP exporter.** The
   metrics exporter emits `count` / `sum` / `min` / `max` per
   histogram; per-bucket counts are not modelled. For real
-  bucket counts, use `RIO.Fiber.Metrics.BucketHistogram` and
-  consume its `bucketSnapshot` directly.
+  bucket counts, use the `BucketHistogram` type exported from
+  `RIO.Fiber.Metrics` and consume its `bucketSnapshot`
+  directly. (On the aff side, the equivalent lives in
+  `RIO.Aff.Metric.BucketHistogram`.)
 - **Async backends.** All recording operations are `Effect`-
   typed and run synchronously. A production backend that needs
   to push over the network should fork its own emitter fiber
