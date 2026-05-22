@@ -176,7 +176,7 @@ whether the layer is mocked or live.
 
 - **Property tests via `purescript-quickcheck`.** The law checks
   in the test suite are sampled, not generated. Generators that
-  drive `Aff` programs are a future candidate.
+  drive `RIO` programs are a future candidate.
 - **Snapshot testing.** No built-in support; if you need it, write
   the snapshot to a file from `Aff` and diff in the assertion.
 - **Test isolation per fiber.** Per-test isolation is best handled

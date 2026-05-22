@@ -58,8 +58,13 @@ register callback, and have the cancel effect call `abort()`.
 ### #2 `onExit` / `ensuringWith`
 
 **Status:** Shipped in `RIO.Fiber.Core` as `ensuringWith` (with
-`onExit` as the success-discarding variant). The original
-proposal is preserved below.
+`onExit` as the success-discarding variant). Shipped shape
+diverges from the proposal: `ensuringWith` does not introduce a
+fresh `e'` error row for the handler; the callback runs in the
+same `RIO r e Unit` as the action. (`onExit`'s callback uses
+the empty row `RIO r () Unit` to enforce that the handler
+cannot introduce a new failure mode.) The original proposal is
+preserved below.
 
 **Problem.** `ensuring` finalizers do not see the cause of
 exit. Callers cannot log differently on success vs failure vs
@@ -630,8 +635,15 @@ drain greedily.
 
 ### #18 `SubscriptionRef`
 
-**Status:** Shipped in `RIO.Fiber.Ref.Subscription` (with `set`
-in place of the originally-proposed `write`). The original
+**Status:** Shipped in `RIO.Fiber.Ref.Subscription`. Shipped
+shape diverges from the proposal: `set` in place of the
+originally-proposed `write`; `make :: Int -> a -> RIO r e
+(SubscriptionRef a)` takes a leading buffer-capacity argument;
+`changes :: Scope -> SubscriptionRef a -> Stream r e a` takes
+an explicit `Scope` for the hub subscription. The
+implementation pairs a plain `Effect.Ref` under a `Semaphore`
+with a `Hub`, rather than wrapping a `Synchronized.Ref` as the
+proposal sketched (behaviour is equivalent). The original
 proposal is preserved below.
 
 **Problem.** Many state-management flows want "a `Ref` whose
