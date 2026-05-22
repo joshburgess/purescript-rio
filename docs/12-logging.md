@@ -186,8 +186,8 @@ The annotation set is stored in a `Ref` inside the `Logger`
 record. A forked fiber that emits a log line reads whatever
 annotations are current at emission time; writes from any
 fiber are visible to every fiber. This is the implicit-context
-model `RIO.Tracer` and `RIO.Local` use, and the trade-off is
-the same:
+model `RIO.Aff.Tracer` and `RIO.Aff.Local` use, and the trade-off
+is the same:
 
 - works correctly for the common pattern: snapshot annotations
   at the top of a request with `withFields`, fork child fibers

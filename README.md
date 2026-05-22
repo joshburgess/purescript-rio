@@ -438,7 +438,7 @@ the package's `spago.yaml` makes the choice explicit):
   end-to-end demo. A tiny `Logger` service run with
   `provideAll` + `runRIO`.
 - [`examples/notify/`](./examples/notify/): exercises
-  `RIO.Postgres.Notify` end-to-end against the workspace's
+  `RIO.Aff.Postgres.Notify` end-to-end against the workspace's
   docker-compose Postgres: subscribes via `withListen`, fires
   `NOTIFY` payloads on the pool, and lets the scope finalizer
   drain both clients on exit.

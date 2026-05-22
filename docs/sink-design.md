@@ -1,5 +1,15 @@
 ## `RIO.Sink` design notes
 
+> **Naming convention.** Prose in this design note uses the
+> unqualified shorthand `RIO.Sink`, `RIO.Stream`,
+> `RIO.Stream.Par`, and `RIO.Channel` to keep the rationale
+> readable. The concrete modules live under `RIO.Aff.*` in the
+> rio-aff package and under `RIO.Fiber.*` in the premier
+> rio-fiber package (with the caveat that rio-fiber consolidates
+> the streaming surface into `RIO.Fiber.Stream` rather than
+> splitting `Stream` / `Stream.Par` apart). The design rationale
+> applies to both runtimes.
+
 This doc records *why* `RIO.Sink` looks the way it does. The
 user-facing reference (constructors, primitives, combinators,
 runner) lives in [`docs/13-streams.md`](./13-streams.md) under

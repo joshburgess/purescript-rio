@@ -1,10 +1,11 @@
 # Resources
 
 RIO's resource-safety primitives are `acquireRelease`, `ensuring`,
-and `Scope` / `scoped`. These all build on `Aff.bracket`, whose
-release phase is uninterruptible by default (verified in
-`spikes/aff-interruption/FINDINGS.md`, scenario S6). The guarantees
-they offer:
+and `Scope` / `scoped`. In rio-aff these all build on `Aff.bracket`,
+whose release phase is uninterruptible by default (verified in
+`spikes/aff-interruption/FINDINGS.md`, scenario S6); in rio-fiber
+they sit on the fiber runtime's own bracket / ensuring primitives
+with the same observable guarantees. The guarantees they offer:
 
 - The release of an acquired resource runs on every path:
   success, typed failure, defect (`die` or any `Aff`
@@ -195,7 +196,8 @@ for cause-tree construction.
 ## Interruption guarantees
 
 Every primitive in this module sits on `Aff.bracket` or
-`Aff.finally`, whose release phase is uninterruptible:
+`Aff.finally` in rio-aff (and on the equivalent fiber-runtime
+primitives in rio-fiber), whose release phase is uninterruptible:
 
 - A fiber kill landing during release is **queued** until the
   release completes.
@@ -249,7 +251,7 @@ uninterruptible release phase.
   scenarios S5 and S6.
 - Worked examples:
   [`examples/notify/`](../examples/notify/) holds the
-  `RIO.Postgres.Notify` subscriber connection inside a `scoped`
+  `RIO.Aff.Postgres.Notify` subscriber connection inside a `scoped`
   block so the dedicated client tears down on every exit path;
   [`examples/todo-api/`](../examples/todo-api/) takes the
   `postgresLayer` + HTTPurple server through `provideLayer`, so

@@ -1,7 +1,7 @@
 # todo-api
 
 A small HTTP service built with [HTTPurple](https://pursuit.purescript.org/packages/purescript-httpurple/4.0.0)
-and `rio`, backed by a real Postgres instance via `rio-postgres`.
+and `rio`, backed by a real Postgres instance via `rio-aff-postgres`.
 Listens on `localhost:8080`.
 
 The example covers the production-relevant slice of the library
@@ -111,7 +111,7 @@ assigns a monotonic `req-N`.
 ### Handlers as `RIO` programs talking to Postgres
 
 Each handler returns an `RIO Env ApiError a` and calls
-`rio-postgres` smart constructors directly. Cross-cutting
+`rio-aff-postgres` smart constructors directly. Cross-cutting
 concerns like logging correlation are scoped by
 `RIO.Aff.Logger.withFields`, not threaded through every call:
 

@@ -1,5 +1,10 @@
 # Layers
 
+> **Naming convention.** Code samples in this guide use the
+> `RIO.Aff.*` module names. The same APIs exist under
+> `RIO.Fiber.*` for the premier rio-fiber package; the
+> walkthrough applies to both with a mechanical prefix swap.
+
 A `Layer rIn e rOut` is a recipe for constructing a record of
 services `rOut` from a record of services `rIn`, possibly
 failing with a typed error in `Variant e`. Layers compose
@@ -28,7 +33,7 @@ sugar for resources, frequently used inside layer bodies, is
 The simplest layer is one whose services are statically known:
 
 ```purescript
-import RIO.Layer (Layer, fromRecord)
+import RIO.Aff.Layer (Layer, fromRecord)
 
 consoleLoggerLayer
   :: forall rIn e. Layer rIn e (logger :: Logger)
@@ -44,7 +49,7 @@ For layers that need to read other services, allocate state, or
 register finalizers, `fromRIO` is the constructor:
 
 ```purescript
-import RIO.Layer (Layer, fromRIO)
+import RIO.Aff.Layer (Layer, fromRIO)
 
 counterStoreLayer
   :: forall rIn e. Layer rIn e (counter :: { incr :: Aff Int })
@@ -190,7 +195,7 @@ A layer that opens a resource is built with `fromRIO` plus
 `addFinalizer`:
 
 ```purescript
-import RIO.Resource (Scope, addFinalizer)
+import RIO.Aff.Resource (Scope, addFinalizer)
 
 dbLayer :: Layer (config :: Config) (dbConnect :: String) (db :: Database)
 dbLayer = fromRIO do
