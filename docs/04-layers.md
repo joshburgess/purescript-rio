@@ -1,9 +1,14 @@
 # Layers
 
 > **Naming convention.** Code samples in this guide use the
-> `RIO.Aff.*` module names. The same APIs exist under
-> `RIO.Fiber.*` for the premier rio-fiber package; the
-> walkthrough applies to both with a mechanical prefix swap.
+> `RIO.Aff.*` module names. The same concepts exist under
+> `RIO.Fiber.*` for the premier rio-fiber package, with two
+> renames worth knowing: rio-aff's `fromRecord` is rio-fiber's
+> `fromValue`, and rio-aff's `buildLayer` / `provideLayer` are
+> rio-fiber's `provide` / `provideScoped` (the runners take a
+> `Scope` instead of returning one). Where the walkthrough
+> uses an rio-aff name, rio-fiber readers substitute the
+> matching rio-fiber name.
 
 A `Layer rIn e rOut` is a recipe for constructing a record of
 services `rOut` from a record of services `rIn`, possibly

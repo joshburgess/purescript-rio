@@ -1,9 +1,16 @@
 # Scheduling: retry and repeat
 
 > **Naming convention.** This guide uses `RIO.Aff.*` module
-> names in code samples. The same APIs exist under
-> `RIO.Fiber.*` for the premier rio-fiber package; the
-> walkthrough applies to both with a mechanical prefix swap.
+> names in code samples. The same combinators exist under
+> `RIO.Fiber.*` for the premier rio-fiber package
+> (`recurs`, `spaced`, `exponential`, `jittered`, `intersect`,
+> `andThen`, `whileInput`, `repeat`, `retry`, `step`, etc.), so
+> the walkthrough body is usable with a mechanical prefix swap.
+> Two type-level divergences worth flagging: the rio-fiber
+> `Schedule` is `Schedule input output = Schedule (input ->
+> Effect (Decision input output))` (no env row; uses `Effect`
+> rather than `RIO r ()`), and the step ADT is `Decision`
+> (`Halt` / `Step`) rather than `Step` (`Done` / `Continue`).
 > Unqualified shorthand like `RIO.Schedule` in the prose
 > refers to whichever variant your package is using.
 

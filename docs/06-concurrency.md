@@ -2,8 +2,12 @@
 
 > **Naming convention.** This guide uses `RIO.Aff.*` module
 > names in code samples. The same APIs exist under
-> `RIO.Fiber.*` for the premier rio-fiber package; the
-> walkthrough applies to both with a mechanical prefix swap.
+> `RIO.Fiber.*` for the premier rio-fiber package, mostly with
+> a mechanical prefix swap. One rename worth flagging:
+> `RIO.Aff.Deferred` spells its operations `makeDeferred` /
+> `succeedDeferred` / `failDeferred` / `awaitDeferred` /
+> `pollDeferred`; `RIO.Fiber.Deferred` drops the suffix and
+> uses `make` / `succeed` / `fail` / `await` / `poll`.
 > The `Aff`-specific guarantees (cooperative cancellation,
 > `Effect.Aff.bracket`-backed resource safety) are documented
 > here against the rio-aff implementation; rio-fiber provides
