@@ -26,7 +26,7 @@ the test suite at `rio-aff/test/Test/RIO/Aff/` (rio-fiber:
 
 ## Mocking a service
 
-A service in RIO is a record of `Aff`-valued operations
+A service in RIO is a record of `Aff` or `Effect`-valued operations
 (`docs/02-services.md`). Provide a mock implementation as that same
 record, then inject it with `mockService` or `provideAll`.
 

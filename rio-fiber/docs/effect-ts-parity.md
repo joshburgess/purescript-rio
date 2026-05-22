@@ -27,7 +27,13 @@ they should be checked off in the relevant section, not deleted.
 ### #1 `asyncAbortable`
 
 **Status:** Shipped in `RIO.Fiber.AbortSignal` as `asyncAbortable`.
-The original proposal is preserved below for the historical record.
+Shipped shape diverges from the proposal: the register receives
+`AbortSignal` and the `resume` callback as curried arguments
+(`AbortSignal -> (Either (Variant e) a -> Effect Unit) -> Effect
+Unit`) rather than a single combined callback, and the cancel
+action is constructed automatically from the controller rather
+than returned by the register. The original proposal is preserved
+below for the historical record.
 
 **Problem.** `RIO.Fiber.Core.async` accepts a register callback
 that returns a cancel `Effect Unit`. Every caller that wants
@@ -81,8 +87,14 @@ onExit
 
 ### #3 `Mailbox` primitive
 
-**Status:** Shipped in `RIO.Fiber.Mailbox`. The original proposal
-is preserved below.
+**Status:** Shipped in `RIO.Fiber.Mailbox`. Shipped shape
+diverges from the proposal: the terminal signal is `done` (not
+`end`); there is no `fail` export (no typed-error signalling on
+the Mailbox); the stream integration is an internal helper rather
+than a `toStream` method on the type; and `make :: Int -> Int ->
+Effect (Mailbox a)` takes capacity and producer count as `Effect`
+(not `RIO`), with no `e` parameter. The original proposal is
+preserved below.
 
 **Problem.** No first-class bridge between a fiber-based
 producer (event listener, external queue) and a pull-based
@@ -109,7 +121,10 @@ pull.
 
 **Status:** Shipped in `RIO.Fiber.Queue` as `unbounded`,
 `dropping`, and `sliding` alongside the original bounded
-constructor. The original proposal is preserved below.
+constructor. Shipped shape diverges from the proposal: all three
+constructors are `Effect`-valued with no `r` / `e` parameters,
+matching the existing `make` constructor (the proposal showed
+them as `RIO`-valued). The original proposal is preserved below.
 
 **Problem.** `Queue.make` is bounded-with-backpressure only.
 Real-time pipelines need drop-new / drop-old / unbounded
@@ -130,7 +145,10 @@ unconditionally.
 ### #5 `FiberHandle` / `FiberSet`
 
 **Status:** Shipped in `RIO.Fiber.FiberHandle` and
-`RIO.Fiber.FiberSet`. The original proposal is preserved below.
+`RIO.Fiber.FiberSet`. Shipped shape diverges from the proposal:
+`run` accepts `RIO r e a` (not `RIO () e a`) so the action is
+not restricted to the empty environment. The original proposal
+is preserved below.
 
 **Problem.** Tracking N background fibers manually requires a
 `Ref (Array Fiber)` + manual interrupt-on-exit logic. Easy to
@@ -211,8 +229,13 @@ map. Add `Frequency` as a `Ref (Map String Int)` wrapper.
 ### #8 `Pool.invalidate` + `Pool.makeWithTTL`
 
 **Status:** Shipped in `RIO.Fiber.Pool` (with the keyed variant
-in `RIO.Fiber.KeyedPool`). The original proposal is preserved
-below.
+in `RIO.Fiber.KeyedPool`). Shipped shape diverges from the
+proposal: `Pool` carries three type parameters (`Pool r e a`,
+not `Pool a`); `makeWithTTL` takes a single `capacity` field
+rather than separate `min` / `max` (no minimum size); and
+`invalidate` is exposed as a per-borrow callback inside
+`withResource'` rather than as a standalone `Pool -> a -> RIO`
+function. The original proposal is preserved below.
 
 **Problem.** A bad pooled resource (dead DB connection) lives
 in the pool forever. No idle eviction; no min/max for dynamic
