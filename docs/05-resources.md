@@ -177,8 +177,9 @@ release would either:
 
 - shadow the original (the user loses visibility into the
   underlying problem), or
-- merge with it (a cause tree, which is what `RIO.Cause`
-  exists for, but isn't yet wired into resource release).
+- merge with it (a cause tree, which is what `RIO.Aff.Cause`
+  / `RIO.Fiber.Cause` exists for, but isn't yet wired into
+  resource release).
 
 The current behaviour: defects from release propagate as `Aff`
 exceptions. `RIO.Aff.Error.sandbox` (rio-fiber:

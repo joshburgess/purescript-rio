@@ -1,9 +1,17 @@
 # Performance baseline
 
-This page captures baseline performance numbers for `rio`. The
-goal is not absolute benchmark heroics; it is to make the cost
-model legible so users can reason about hot paths and so changes
-can spot regressions.
+This page captures baseline performance numbers for the
+**rio-aff** runtime. The goal is not absolute benchmark heroics;
+it is to make the cost model legible so users can reason about
+hot paths and so changes can spot regressions.
+
+The premier **rio-fiber** runtime is faster than rio-aff on the
+bind hot path (about 10 ns per `bind` versus 33 ns) and on
+fork-heavy fan-out (`forkAll x16 + joinAll` runs at roughly 5x
+the speed of `forkAff x16 + joinFiber`); see the rio-fiber
+README for the headline rio-fiber numbers and the
+`Benchmarks.VsAff` / `Benchmarks.VsFiber` modules under
+`benchmarks/src/Benchmarks/` for the head-to-head sources.
 
 The benchmark suite lives in `benchmarks/`. Run it with:
 

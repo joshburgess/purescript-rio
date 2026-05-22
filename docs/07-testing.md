@@ -1,5 +1,14 @@
 # Testing RIO Programs
 
+> **Naming convention.** Prose and code samples in this guide
+> use the shorthand `RIO.Test`, `RIO.Clock`, `RIO.Test.Clock`,
+> and `RIO.Spec`. The concrete modules live under `RIO.Aff.*`
+> in the rio-aff package and under `RIO.Fiber.*` in the
+> premier rio-fiber package (with the rio-fiber test clock at
+> the top-level `RIO.Fiber.TestClock` rather than under a
+> `Test/` subdir). The walkthrough applies to both runtimes
+> with a mechanical prefix swap.
+
 RIO's testing surface covers:
 
 1. `RIO.Test`: `mockService` and `recording` for replacing one

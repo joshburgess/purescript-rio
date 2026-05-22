@@ -26,6 +26,9 @@ they should be checked off in the relevant section, not deleted.
 
 ### #1 `asyncAbortable`
 
+**Status:** Shipped in `RIO.Fiber.AbortSignal` as `asyncAbortable`.
+The original proposal is preserved below for the historical record.
+
 **Problem.** `RIO.Fiber.Core.async` accepts a register callback
 that returns a cancel `Effect Unit`. Every caller that wants
 `fetch` cancellation has to allocate an `AbortController`,
@@ -47,6 +50,10 @@ asyncAbortable
 register callback, and have the cancel effect call `abort()`.
 
 ### #2 `onExit` / `ensuringWith`
+
+**Status:** Shipped in `RIO.Fiber.Core` as `ensuringWith` (with
+`onExit` as the success-discarding variant). The original
+proposal is preserved below.
 
 **Problem.** `ensuring` finalizers do not see the cause of
 exit. Callers cannot log differently on success vs failure vs
@@ -74,6 +81,9 @@ onExit
 
 ### #3 `Mailbox` primitive
 
+**Status:** Shipped in `RIO.Fiber.Mailbox`. The original proposal
+is preserved below.
+
 **Problem.** No first-class bridge between a fiber-based
 producer (event listener, external queue) and a pull-based
 `Stream` consumer. Users reinvent the `Queue` + `Deferred` +
@@ -97,6 +107,10 @@ pull.
 
 ### #4 Queue variants
 
+**Status:** Shipped in `RIO.Fiber.Queue` as `unbounded`,
+`dropping`, and `sliding` alongside the original bounded
+constructor. The original proposal is preserved below.
+
 **Problem.** `Queue.make` is bounded-with-backpressure only.
 Real-time pipelines need drop-new / drop-old / unbounded
 policies.
@@ -114,6 +128,9 @@ the offered element / drop the oldest stored element / accept
 unconditionally.
 
 ### #5 `FiberHandle` / `FiberSet`
+
+**Status:** Shipped in `RIO.Fiber.FiberHandle` and
+`RIO.Fiber.FiberSet`. The original proposal is preserved below.
 
 **Problem.** Tracking N background fibers manually requires a
 `Ref (Array Fiber)` + manual interrupt-on-exit logic. Easy to
@@ -193,6 +210,10 @@ map. Add `Frequency` as a `Ref (Map String Int)` wrapper.
 
 ### #8 `Pool.invalidate` + `Pool.makeWithTTL`
 
+**Status:** Shipped in `RIO.Fiber.Pool` (with the keyed variant
+in `RIO.Fiber.KeyedPool`). The original proposal is preserved
+below.
+
 **Problem.** A bad pooled resource (dead DB connection) lives
 in the pool forever. No idle eviction; no min/max for dynamic
 sizing.
@@ -238,6 +259,9 @@ String String)` so it propagates through fork (copy-on-write).
 `jsonLogger` is a pure formatter over the log-entry record.
 
 ### #10 Stream `peel` / `transduce` / `changes`
+
+**Status:** Shipped in `RIO.Fiber.Stream` as `peel`, `transduce`,
+and `changes`. The original proposal is preserved below.
 
 **Problem.** Three commonly-needed Stream operators are absent.
 
@@ -335,10 +359,14 @@ intentional differentiators worth preserving.
 small-M. Share no interpreter changes. Together they close
 most of the everyday-ergonomics gap.
 
-**Batch 2.** Items #3, #6 (streaming surface).
+**Batch 2 (done; #6 partial).** Items #3 (`Mailbox`) and #6
+(streaming surface; `fromAsyncIterable` shipped, `ReadableStream`
+interop pending).
 
-**Batch 3.** Items #7, #8, #9 (production observability and
-resource lifecycle).
+**Batch 3 (#8 done; #7 and #9 still open).** Items #7
+(metrics labels / `Frequency` / `timer`), #8
+(`Pool.invalidate` / `Pool.makeWithTTL`, shipped), #9
+(logger annotations / JSON formatter, still open).
 
 **Batch 4 (separate effort).** Runtime-level items
 (`uninterruptibleMask`, `forkDaemon`).
@@ -579,6 +607,10 @@ drain greedily.
 
 ### #18 `SubscriptionRef`
 
+**Status:** Shipped in `RIO.Fiber.Ref.Subscription` (with `set`
+in place of the originally-proposed `write`). The original
+proposal is preserved below.
+
 **Problem.** Many state-management flows want "a `Ref` whose
 changes you can subscribe to as a Stream": server-side cache
 state, UI store, derived computation. Today you build it from
@@ -673,6 +705,9 @@ decision.
 
 ### #22 `partition`
 
+**Status:** Shipped in `RIO.Fiber.Core` as `partition`. The
+original proposal is preserved below.
+
 **Problem.** `parTraverse` short-circuits on the first failure;
 `validatePar` accumulates failures but still fails the whole
 computation if any element failed. Neither suits "best effort:
@@ -738,16 +773,24 @@ the bounded-concurrency footgun, the micro-batching gap, the
 OTel-span fidelity gap, the histogram-export gap, and the
 stream-async constructor gap.
 
-**Batch 2.** Items #3, #6 (streaming surface) plus #20
-(stream-queue/hub adapters). #15 already landed in Batch 1.5.
+**Batch 2 (#3 done; #6 partial; #20 still open).** Item #3
+(`Mailbox`) shipped; item #6 partially shipped
+(`fromAsyncIterable` done, `ReadableStream` interop pending);
+item #20 (stream-queue / hub adapters) still open. #15 already
+landed in Batch 1.5.
 
-**Batch 3.** Items #7, #8, #9 plus #17, #18, #19 (production
-observability and resource lifecycle).
+**Batch 3 (#8 and #18 done; the rest still open).** Item #8
+(`Pool.invalidate` / `Pool.makeWithTTL`) and item #18
+(`SubscriptionRef`) shipped. Items #7 (metrics labels /
+`Frequency` / `timer`), #9 (logger JSON formatter),
+#17 (`Queue.shutdown` / `takeUpTo`), and #19 (`Logger.batched`
+/ `tagged` / `json`) still open.
 
 **Batch 4 (separate effort).** Runtime-level items
 (`uninterruptibleMask`, `forkDaemon`).
 
-**Backlog.** Items #16, #21, #22, #23, #24.
+**Backlog.** Items #16, #21, #23, #24. (Item #22 `partition`
+shipped.)
 
 ## Third pass: ergonomics and surface depth
 
