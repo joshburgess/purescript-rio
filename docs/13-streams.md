@@ -8,11 +8,13 @@ no schedule of its own: nothing happens until a runner pulls
 from it.
 
 > **Naming convention.** Code samples below use unqualified
-> `RIO.Stream.*` / `RIO.Sink` / `RIO.Channel` shorthand for
-> readability. The live imports are `RIO.Aff.Stream.*` /
-> `RIO.Aff.Sink` / `RIO.Aff.Channel` (rio-aff) or
-> `RIO.Fiber.Stream` / `RIO.Fiber.Sink` / `RIO.Fiber.Channel`
-> (rio-fiber); the substitution is mechanical. One structural
+> `RIO.Stream.*` / `RIO.Sink` / `RIO.Channel` / `RIO.Concurrency`
+> shorthand for readability. The live imports are
+> `RIO.Aff.Stream.*` / `RIO.Aff.Sink` / `RIO.Aff.Channel` /
+> `RIO.Aff.Concurrency` (rio-aff) or `RIO.Fiber.Stream` /
+> `RIO.Fiber.Sink` / `RIO.Fiber.Channel` /
+> `RIO.Fiber.Concurrency` (rio-fiber); the substitution is
+> mechanical. One structural
 > difference worth calling out: rio-aff splits the surface into
 > `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
 > `RIO.Aff.Stream.Concurrent`, `RIO.Aff.Stream.Resource`, and
