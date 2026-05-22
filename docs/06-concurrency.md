@@ -299,10 +299,14 @@ For honesty, here is what `RIO` does *not* do:
   fiber whose lifetime is unbounded; if you want
   "killed-when-parent-dies" semantics, reach for `forkScoped` and
   hand it a `Scope`. There is no automatic supervisor tree.
-- **Interrupt-with-cause.** Kill exceptions are just `Aff` errors
-  carrying a message. ZIO has a richer notion (interrupted-by-whom,
-  interrupted-due-to-failure-elsewhere, etc.) that `RIO` does not
-  reproduce.
+- **Interrupt-with-cause (rio-aff only).** In rio-aff, kill
+  exceptions are `Aff` errors carrying a message; ZIO's richer
+  notion (interrupted-by-whom, interrupted-due-to-failure-elsewhere,
+  etc.) is not reproduced. rio-fiber does track this: `Cause e`
+  carries a first-class `Interrupt FiberId` constructor that
+  records the interrupting fiber's identity, and `Then` / `Both`
+  preserve cause trees when an interrupt collides with a failure.
+  See [`docs/14-causes.md`](./14-causes.md) for the full algebra.
 
 `RIO.Aff.Local` / `RIO.Fiber.Local` (`docs/11-fiber-local.md`)
 covers ambient implicit-context state with `locally`-scoped
