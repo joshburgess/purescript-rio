@@ -4,8 +4,13 @@
 > names in code samples. The same combinators exist under
 > `RIO.Fiber.*` for the premier rio-fiber package
 > (`recurs`, `spaced`, `exponential`, `jittered`, `intersect`,
-> `andThen`, `whileInput`, `repeat`, `retry`, `step`, etc.), so
-> the walkthrough body is usable with a mechanical prefix swap.
+> `andThen`, `whileInput`, `repeat`, `retry`, `retryOrElse`,
+> `once`, `forever`, etc.), so the walkthrough body is usable
+> with a mechanical prefix swap. `step` is the exception: it is
+> only exported from `RIO.Aff.Schedule`. In `RIO.Fiber.Schedule`,
+> `Step` is the constructor of `Decision` and there is no
+> public `step` runner; the test-helper pattern at the end of
+> this guide is therefore rio-aff-only.
 > Two type-level divergences worth flagging: the rio-fiber
 > `Schedule` is `Schedule input output = Schedule (input ->
 > Effect (Decision input output))` (no env row; uses `Effect`

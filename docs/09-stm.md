@@ -6,17 +6,38 @@ transaction; `atomically` runs it as an `RIO` action that
 either commits every staged write at once or applies none.
 
 > **Naming convention.** Code samples below use unqualified
-> `RIO.STM.*` shorthand for readability. The live imports are
-> `RIO.Aff.STM.*` (rio-aff) or `RIO.Fiber.STM.*` (rio-fiber);
-> the substitution is mechanical. One naming difference worth
-> calling out up front: the pub/sub primitive is `THub` in
-> rio-aff (`RIO.Aff.STM.THub`, with `newBoundedTHub` /
-> `newSlidingTHub` / `newDroppingTHub` / `newUnboundedTHub`)
-> and `TPubSub` in rio-fiber (`RIO.Fiber.STM.TPubSub`, with a
-> single `make` constructor plus `publish` / `subscribe`
-> operations). The `THub` section below uses the rio-aff
-> spelling throughout; the rio-fiber equivalent has the same
-> semantics with a smaller surface.
+> `RIO.STM.*` shorthand and rio-aff names for readability. The
+> live imports are `RIO.Aff.STM.*` (rio-aff) or
+> `RIO.Fiber.STM.*` (rio-fiber). The names mostly line up, but
+> a few categories of rename are worth knowing up front:
+>
+> - **TQueue.** `newTQueue` (rio-aff, unbounded) is `newSTM n`
+>   in rio-fiber (bounded, takes capacity).
+> - **TMap.** `newTMap` / `insertTMap` / `lookupTMap` /
+>   `deleteTMap` / `memberTMap` / `sizeTMap` (rio-aff,
+>   STM-valued allocator) are `empty` / `insert` / `lookup` /
+>   `delete` / `member` / `size` in rio-fiber, with `empty`
+>   being `Effect`-valued rather than `STM`-valued.
+> - **TSemaphore.** `newTSemaphore` / `acquireTSemaphore` /
+>   `releaseTSemaphore` / `availableTSemaphore` /
+>   `withTSemaphore` (rio-aff, STM-valued allocator) are `make`
+>   / `acquire` / `release` / `available` / `with` in rio-fiber,
+>   with `make` being `Effect`-valued.
+> - **TDeferred.** `makeTDeferred` / `succeedTDeferred` /
+>   `awaitTDeferred` / `pollTDeferred` (rio-aff, with typed
+>   errors via `TDeferred e a`) are `make` / `complete` /
+>   `await` / `poll` in rio-fiber (no error row: `TDeferred a`).
+>   rio-aff's `failTDeferred` and `tryAwaitTDeferred` do not
+>   have rio-fiber counterparts.
+> - **Pub/sub.** The primitive is `THub` in rio-aff
+>   (`RIO.Aff.STM.THub`, with `newBoundedTHub` /
+>   `newSlidingTHub` / `newDroppingTHub` / `newUnboundedTHub`)
+>   and `TPubSub` in rio-fiber (`RIO.Fiber.STM.TPubSub`, with a
+>   single `make` constructor plus `publish` / `subscribe`
+>   operations).
+>
+> Where a code sample below uses an rio-aff name, rio-fiber
+> readers substitute the matching name from this list.
 
 The shape mirrors ZIO `STM` / Effect `STM`:
 

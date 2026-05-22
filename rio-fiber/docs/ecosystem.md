@@ -141,16 +141,15 @@ Plus the STM-aware structures: `TVar` (from `RIO.Fiber.STM`),
 
 ```purescript
 import RIO.Fiber.STM as STM
-import RIO.Fiber.STM.TVar as TVar
 
 makeCounter :: Int -> RIO r e (RIO r e Unit)
 makeCounter cap = do
-  v <- STM.atomically (TVar.new 0)
+  v <- STM.atomically (STM.newTVarSTM 0)
   pure do
     STM.atomically do
-      n <- TVar.read v
+      n <- STM.readTVar v
       STM.check (n < cap)
-      TVar.write v (n + 1)
+      STM.writeTVar v (n + 1)
 ```
 
 `STM.check (n < cap)` parks the fiber via `retry` until some

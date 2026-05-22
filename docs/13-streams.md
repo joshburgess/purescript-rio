@@ -26,12 +26,14 @@ from it.
 > effectful-callback variants with an `M` suffix; rio-fiber
 > spells them with a `RIO` suffix: `mapM` / `foldM` / `findM`
 > in rio-aff become `mapRIO` / `foldRIO` / `findRIO` in
-> rio-fiber. A handful of `RIO.Sink` primitives also diverge in
-> name: rio-aff's `collect`, `foldL`, `mapResult`, and
-> `zipParWith` are rio-fiber's `collectAll`, `fold`, `map`, and
-> `zipWithPar`. Where a code sample below uses an rio-aff name,
-> rio-fiber readers should substitute the matching name from
-> this list.
+> rio-fiber. Two stream runners also diverge in name: rio-aff's
+> `runDrain` and `runFold` are rio-fiber's `run` and `fold`
+> (`runFoldM` keeps the same name in both). A handful of
+> `RIO.Sink` primitives also diverge: rio-aff's `collect`,
+> `foldL`, `mapResult`, and `zipParWith` are rio-fiber's
+> `collectAll`, `fold`, `map`, and `zipWithPar`. Where a code
+> sample below uses an rio-aff name, rio-fiber readers should
+> substitute the matching name from this list.
 
 ```purescript
 data Step r e a

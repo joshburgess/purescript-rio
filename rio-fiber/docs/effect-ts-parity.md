@@ -922,7 +922,13 @@ that prevents `memoize`'s sharing.
 `RIO.Fiber.STM.TMap`, and `RIO.Fiber.STM.TDeferred` ship as
 the compositionally-atomic counterparts to the existing
 `TVar` / `TArray` / `TChan` / `TMVar` / `TQueue`. `TSet` and
-`TPubSub` landed alongside.
+`TPubSub` landed alongside. Two shape divergences from the
+proposal below: `TMap.get` / `TMap.put` shipped as `TMap.lookup`
+/ `TMap.insert` (matching `Data.Map`), and `TDeferred.make`
+shipped as `Effect (TDeferred a)` rather than `STM (TDeferred a)`
+(it allocates a fresh `TVar`, which is `Effect` outside a
+transaction; a separate `STM`-valued allocator was not deemed
+necessary).
 
 **Problem (resolved).** Previously the STM surface had `TVar`,
 `TArray`, `TChan`, `TMVar`, and `TQueue` only. Missing was

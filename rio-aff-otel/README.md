@@ -5,7 +5,7 @@ service.
 
 ```purescript
 import RIO.Aff.Tracer (Tracer, addAttribute, withSpan)
-import RIO.Aff.Tracer.OTel (makeOTelTracer)
+import RIO.Aff.Tracer.OTel.Adapter (makeOTelTracer)
 
 main = launchAff_ do
   tracer <- liftEffect (makeOTelTracer "my-service")
