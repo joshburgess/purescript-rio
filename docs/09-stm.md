@@ -96,7 +96,7 @@ once any `TRef` it read has changed. `check b` is `retry` when
 ```purescript
 -- block until the counter goes positive, then decrement it
 takeOne :: TRef Int -> STM () Int
-takeOne counter = atomically' do
+takeOne counter = do
   n <- readTRef counter
   check (n > 0)
   writeTRef counter (n - 1)
