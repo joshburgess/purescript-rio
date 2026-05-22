@@ -1,6 +1,7 @@
 # rio-benchmarks
 
-Microbenchmarks for the rio-aff runtime. Four scenarios:
+Microbenchmarks for the rio-aff and rio-fiber runtimes. The
+default suite runs four scenarios against rio-aff:
 
 1. Monadic bind in a tight loop (100 binds and 10 000 binds).
 2. Service-lookup overhead (`ask` + `Record.get` in a tight loop).
@@ -8,7 +9,11 @@ Microbenchmarks for the rio-aff runtime. Four scenarios:
 4. Typed failure round-trip (`fail` + `catchTag`).
 
 Plus baselines for `runRIO' (pure unit)`, raw `Aff (pure unit)`,
-and a service-free pure loop.
+and a service-free pure loop. `Benchmarks.VsAff` and
+`Benchmarks.VsFiber` add head-to-head comparisons covering raw
+`Aff`, the rio-aff runtime, and the rio-fiber runtime on the
+same scenarios so the bind / fork / fan-out cost differences
+discussed in the rio-fiber README can be reproduced locally.
 
 ## Running
 

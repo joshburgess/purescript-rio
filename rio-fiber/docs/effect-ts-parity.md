@@ -13,16 +13,16 @@ they should be checked off in the relevant section, not deleted.
 
 | # | Item | Effort | Value | Status |
 |---|---|---|---|---|
-| 1 | `asyncAbortable` (AbortSignal-aware async) | S | High | open |
-| 2 | `onExit` / `ensuringWith` (finalizer receives `Cause`) | S | High | open |
-| 3 | `Mailbox` primitive (Queue + `end` / `fail` + `toStream`) | M | High | open |
-| 4 | Queue variants (`unbounded`, `dropping`, `sliding`) | S | Med-High | open |
-| 5 | `FiberHandle` / `FiberSet` (auto-supervised fiber collections) | M | High | open |
-| 6 | Stream JS interop (`fromAsyncIterable`, `from/toReadableStream`) | M | High | open |
+| 1 | `asyncAbortable` (AbortSignal-aware async) | S | High | done |
+| 2 | `onExit` / `ensuringWith` (finalizer receives `Cause`) | S | High | done |
+| 3 | `Mailbox` primitive (Queue + `end` / `fail` + `toStream`) | M | High | done |
+| 4 | Queue variants (`unbounded`, `dropping`, `sliding`) | S | Med-High | done |
+| 5 | `FiberHandle` / `FiberSet` (auto-supervised fiber collections) | M | High | done |
+| 6 | Stream JS interop (`fromAsyncIterable`, `from/toReadableStream`) | M | High | partial (`fromAsyncIterable` done; `ReadableStream` interop pending) |
 | 7 | Metrics labels + `Frequency` + `timer` shorthand | M | High | open |
-| 8 | `Pool.invalidate` + `Pool.makeWithTTL` | M | High | open |
+| 8 | `Pool.invalidate` + `Pool.makeWithTTL` | M | High | done |
 | 9 | Logger annotations + JSON formatter | M | High | open |
-| 10 | Stream `peel` / `transduce` / `changes` | S | Med | open |
+| 10 | Stream `peel` / `transduce` / `changes` | S | Med | done |
 
 ### #1 `asyncAbortable`
 
@@ -359,11 +359,11 @@ additional items, not covered above. Same ranking convention
 | 15 | `Stream.async` / `Stream.fromCallback` | S | High | done |
 | 16 | `FiberMap` (keyed) | S | Med | open |
 | 17 | `Queue.shutdown` / `isShutdown` / `takeAll` / `takeUpTo` | S | Med | open |
-| 18 | `SubscriptionRef` | S | Med | open |
+| 18 | `SubscriptionRef` | S | Med | done |
 | 19 | `Logger.batched` / `Logger.tagged` / `Logger.json` | S | Med | open |
 | 20 | `Stream.toQueue` / `Stream.toHub` / `Stream.groupAdjacent` | S | Med | open |
 | 21 | `Schedule.recurUpTo` / `Schedule.tap` | S | Low-Med | open |
-| 22 | `partition` (separate successes from typed failures) | S | Low-Med | open |
+| 22 | `partition` (separate successes from typed failures) | S | Low-Med | done |
 | 23 | `Config.array` / `Config.json` | S | Med | open |
 | 24 | `timed` / `never` / `disconnect` | S | Low | open |
 
