@@ -1,6 +1,6 @@
 # rio-benchmarks
 
-Phase 8.4 benchmark suite. Four scenarios:
+Microbenchmarks for the rio-aff runtime. Four scenarios:
 
 1. Monadic bind in a tight loop (100 binds and 10 000 binds).
 2. Service-lookup overhead (`ask` + `Record.get` in a tight loop).

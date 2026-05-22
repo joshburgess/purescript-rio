@@ -350,9 +350,10 @@ Programs are written against `RIO.Aff.*`.
   DSL and a refreshable cell.
 - `RIO.Aff.Schedule`: pure scheduling policies that sleep
   through `Clock` so the virtual-time test clock can drive them.
-- `RIO.Aff.STM` plus `STM.TQueue`, `STM.TMap`, `STM.TSemaphore`,
-  `STM.THub`: software-transactional memory derived from
-  single-event-loop atomicity.
+- `RIO.Aff.STM` plus `STM.TArray`, `STM.TChan`, `STM.TDeferred`,
+  `STM.THub`, `STM.TMap`, `STM.TMVar`, `STM.TQueue`,
+  `STM.TSemaphore`, `STM.TSet`: software-transactional memory
+  derived from single-event-loop atomicity.
 - `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
   `RIO.Aff.Stream.Concurrent`, `RIO.Aff.Stream.Resource`,
   `RIO.Aff.Stream.Timed`, `RIO.Aff.Sink`, `RIO.Aff.Channel`:

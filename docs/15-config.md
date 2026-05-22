@@ -1,6 +1,14 @@
 # Configuration
 
-`RIO.Config` is a typed configuration layer. A `Config a` is a
+> **Naming convention.** This guide uses `RIO.Aff.Config` for
+> all unqualified module references. The same surface exists
+> under `RIO.Fiber.Config` for the premier rio-fiber package;
+> the walkthrough applies to both with a mechanical prefix
+> swap. File-backed sources live in the per-runtime adapter
+> packages `rio-aff-config-file` and `rio-fiber-config-file`.
+
+`RIO.Aff.Config` (rio-fiber: `RIO.Fiber.Config`) is a typed
+configuration layer. A `Config a` is a
 value-level description of *how to read a typed `a` out of an
 untyped source of strings* (process env, a JSON blob, a `Map`).
 Primitive descriptors read one key; combinators decorate them
@@ -18,7 +26,8 @@ This doc covers:
 2. Combinators (`optional`, `withDefault`, `nested`,
    `Applicative` composition).
 3. Sources (`envSource`, `mapSource`, `mkSource`, plus the
-   file-backed sources in `rio-config-file`).
+   file-backed sources in `rio-aff-config-file` /
+   `rio-fiber-config-file`).
 4. The `Secret` type and how redaction works.
 5. Running a load (`load`, `ConfigError`, `prettyConfigError`).
 6. Refreshable configs (`RIO.Aff.Config.Rotating` /
@@ -159,7 +168,8 @@ at a well-defined point (typically startup); later mutations to
 `process.env` are not seen. `mapSource` is the test entry
 point; `mkSource` is the escape hatch for arbitrary lookups.
 
-The `rio-config-file` adapter package ships two more sources:
+The `rio-aff-config-file` / `rio-fiber-config-file` adapter
+packages ship two more sources:
 
 ```purescript
 dotenvFileSource :: String -> Aff Source
@@ -249,7 +259,8 @@ Configuration errors:
 ## Refreshable configs
 
 For values that change at runtime (most commonly rotating
-secrets), `RIO.Config.Rotating` provides a refreshable cell:
+secrets), `RIO.Aff.Config.Rotating` (rio-fiber:
+`RIO.Fiber.Config.Rotating`) provides a refreshable cell:
 
 ```purescript
 newtype Rotating a
@@ -290,10 +301,10 @@ service is just an atomic cell with a built-in loader hook.
 | Default                | `Config.withDefault`      | `Config.withDefault`      | `withDefault`          |
 | Namespace              | `Config.nested`           | `Config.nested`           | `nested`               |
 | Source from env        | `ConfigProvider.fromEnv`  | `ConfigProvider.fromEnv`  | `envSource`            |
-| Source from file       | `ConfigProvider.fromJson` | `ConfigProvider.fromJson` | `jsonFileSource` (in `rio-config-file`) |
+| Source from file       | `ConfigProvider.fromJson` | `ConfigProvider.fromJson` | `jsonFileSource` (in `rio-aff-config-file` / `rio-fiber-config-file`) |
 | Redacted string        | `Config.secret`           | `Config.secret`           | `secret` / `Secret`    |
 | Error accumulation     | `Multi`                   | `Cause.Parallel`          | `Multi`                |
-| Refreshable cell       | (manual via `Ref`)        | (manual via `Ref`)        | `RIO.Config.Rotating`  |
+| Refreshable cell       | (manual via `Ref`)        | (manual via `Ref`)        | `RIO.Aff.Config.Rotating` / `RIO.Fiber.Config.Rotating`  |
 
 The error-accumulation behavior matches Effect exactly; ZIO
 1.x used a slightly different shape that's since aligned with

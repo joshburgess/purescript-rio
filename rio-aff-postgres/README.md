@@ -1,4 +1,4 @@
-# rio-postgres
+# rio-aff-postgres
 
 Postgres adapter for [`rio`](../README.md), built on top of
 [`purescript-postgresql`](https://pursuit.purescript.org/packages/purescript-postgresql)
@@ -36,7 +36,7 @@ errors on a caller-chosen typed tag carrying `PgError`. A
 typical application wraps these once with its preferred tag
 the same way the
 [todo-api example](../examples/todo-api/) does with
-`rio-http`'s `requireAuth`.
+`rio-aff-http`'s `requireAuth`.
 
 ## What's wrapped
 
@@ -56,7 +56,7 @@ the same way the
 
 ## Testing
 
-Integration tests live under `rio-postgres/test/` and run
+Integration tests live under `rio-aff-postgres/test/` and run
 against a real Postgres reached via `PG_CONNECTION_STRING`.
 For local runs, bring up the workspace's `docker-compose.yml`
 service:
@@ -64,12 +64,12 @@ service:
 ```sh
 docker compose up -d postgres
 export PG_CONNECTION_STRING=postgres://rio:rio@localhost:5432/rio_test
-npx spago test -p rio-postgres
+npx spago test -p rio-aff-postgres
 ```
 
 CI runs the same suite in the `postgres-integration` job
-against a service container, alongside the `rio-postgres-json`,
-`rio-postgres-migrate`, and `rio-example-notify` integration
+against a service container, alongside the `rio-aff-postgres-json`,
+`rio-aff-postgres-migrate`, and `rio-example-notify` integration
 runs.
 
 If `PG_CONNECTION_STRING` is unset the suite is skipped (printed

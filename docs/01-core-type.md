@@ -1,15 +1,26 @@
 # The RIO Type, Explained
 
+> **Naming convention.** This guide uses `RIO.Aff.*` module
+> names in code samples. The same APIs exist under
+> `RIO.Fiber.*` for the premier rio-fiber package; the
+> walkthrough applies to both with a mechanical prefix swap.
+> The runtime details below (instruction tree, `Aff` boundary
+> form) describe the rio-aff interpreter; rio-fiber implements
+> the same observable surface with its own custom fiber
+> interpreter rather than going through `Aff`.
+
 RIO is a single monad that tracks three orthogonal concerns at once: a row
 of required services (the **R**eader environment), a row of typed failures
-(the error channel), and asynchronous **IO** running on top of `Aff`.
+(the error channel), and asynchronous **IO**. In rio-aff that IO runs
+on top of `Aff`; in rio-fiber it runs on a dedicated fiber interpreter.
 
 ```purescript
 newtype RIO r e a = RIO (Op r e a)
 ```
 
 `Op r e a` is an instruction tree run by a step / resume interpreter
-in `RIO.Internal`. Semantically a `RIO r e a` is the same as
+in `RIO.Aff.Internal` (rio-fiber: `RIO.Fiber.Internal`). For the
+rio-aff variant, semantically a `RIO r e a` is the same as
 `Record r -> Aff (Either (Variant e) a)`: given an environment of
 services in row `r`, it performs `Aff` work that either fails with a
 tagged error in row `e` or produces a value of type `a`. The
@@ -28,7 +39,7 @@ compares the shape to its closest cousins in ZIO (Scala) and Effect
 for one by name with `ask`:
 
 ```purescript
-import RIO.Core (RIO)
+import RIO.Aff.Core (RIO)
 import Type.Proxy (Proxy(..))
 
 -- The inferred type carries the requirement:
@@ -51,7 +62,7 @@ environment and can be handed to `runRIO` directly.
 `e` is a row of named, payloaded failure cases. You raise one with `fail`:
 
 ```purescript
-import RIO.Core (fail)
+import RIO.Aff.Core (fail)
 import Type.Proxy (Proxy(..))
 
 -- The inferred type carries the failure:
@@ -142,7 +153,7 @@ import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Type.Proxy (Proxy(..))
 
-import RIO.Core (RIO, fail, runRIO)
+import RIO.Aff.Core (RIO, fail, runRIO)
 
 -- A computation that may fail with a `notFound` tag.
 lookupUser

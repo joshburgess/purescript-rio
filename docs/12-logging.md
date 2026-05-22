@@ -1,6 +1,16 @@
 ## Structured logging
 
-`RIO.Logger` is the service for emitting structured log
+> **Naming convention.** This guide describes the **rio-aff**
+> `RIO.Aff.Logger` surface in detail. The premier **rio-fiber**
+> package ships `RIO.Fiber.Logger` with a parallel intent but a
+> different module surface: `LogLevel` constructors are
+> `Trace`/`Debug`/`Info`/`Warn`/`Error` (no `Log` prefix),
+> annotations are scoped via `annotateLogs` rather than
+> `withField`/`withFields`, and the active logger lives in a
+> module-level `FiberRef` rather than the env row. See
+> `rio-fiber/src/RIO/Fiber/Logger.purs` for that surface.
+
+`RIO.Aff.Logger` is the service for emitting structured log
 lines. A `Logger` value sits in the environment row at the
 `logger` field; the smart constructors (`logTrace`, `logDebug`,
 `logInfo`, `logWarn`, `logError`) pull it out, snapshot the
@@ -14,7 +24,7 @@ emission inside the block carries those fields; once the block
 exits the previous annotation set is restored.
 
 ```purescript
-import RIO.Logger
+import RIO.Aff.Logger
   ( Logger
   , logInfo
   , withField
@@ -66,8 +76,8 @@ entry per band:
 - `LogError`: failures that callers will see.
 
 There is intentionally no `LogFatal`. Unrecoverable failures
-belong on the defect channel (`die` in `RIO.Core`), not as a
-log level.
+belong on the defect channel (`die` in `RIO.Aff.Core`, rio-fiber:
+`RIO.Fiber.Core`), not as a log level.
 
 ## API
 
@@ -119,13 +129,13 @@ snapshot / restore dance without locking the service shape.
   trailing field block omitted when there are no fields.
   Suitable for local development; in production reach for a
   JSON or structured backend.
-- `RIO.Test.Logger.newRecordingLogger`: captures every emission
+- `RIO.Aff.Test.Logger.newRecordingLogger`: captures every emission
   with its merged annotation set into an in-memory buffer.
   Returns a `{ logger, snapshot }` pair; `snapshot` reads the
   buffer at any time. Use in tests that assert on log output.
 
 ```purescript
-import RIO.Test.Logger (newRecordingLogger)
+import RIO.Aff.Test.Logger (newRecordingLogger)
 
 it "logs what we expect" do
   rec <- liftAff newRecordingLogger
@@ -165,8 +175,10 @@ withFields [ Tuple "request.id" "outer", Tuple "tenant" "acme" ] do
 `withFields` restores the previous annotation set with
 `Aff.finally`, so the restore runs on every termination path:
 success, typed failure, defect, and fiber interruption
-mid-block. This is the same guarantee `RIO.Local` and
-`RIO.Tracer` make.
+mid-block. This is the same guarantee `RIO.Aff.Local` and
+`RIO.Aff.Tracer` make. (rio-fiber: `annotateLogs` runs through
+the fiber runtime's `ensuring` finalizer rather than
+`Aff.finally`, with the same observable semantics.)
 
 ## Concurrency and fork inheritance
 
@@ -189,7 +201,7 @@ the same:
 For genuinely independent log contexts across concurrent
 fibers, capture the relevant values explicitly at the fork
 point and pass them as arguments. See `docs/11-fiber-local.md`
-for the same discussion in the `RIO.Local` setting.
+for the same discussion in the `RIO.Aff.Local` setting.
 
 ## Comparison to ZIO and Effect
 
@@ -205,7 +217,10 @@ The single behavioural difference is the snapshot-vs-shared
 fork semantics for the annotation Ref. For the everyday
 "snapshot at the top, read everywhere below" pattern this is
 irrelevant; for fully isolated per-fiber log contexts it
-matters, and the workaround is the same as for `RIO.Local`.
+matters, and the workaround is the same as for `RIO.Aff.Local`.
+(rio-fiber's `RIO.Fiber.Logger` lives in a `FiberRef` and
+inherits per-fiber snapshot semantics for free; the rio-aff
+workaround is unnecessary on the fiber side.)
 
 ## Pointers
 

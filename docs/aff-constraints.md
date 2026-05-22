@@ -83,7 +83,7 @@ newtype RIO r e a = RIO (Op r e a)
 ```
 
 `RIO` wraps an opaque `Op`: an operation-list ADT interpreted
-by a hand-rolled step / resume machine in `RIO.Internal`. The
+by a hand-rolled step / resume machine in `RIO.Aff.Internal`. The
 interpreter drives synchronous binds entirely in a JS while
 loop and only crosses into `Aff` for true async work (FFI
 that completes on a callback, `Aff.delay`, fiber joins, and
@@ -123,7 +123,7 @@ These are good defaults and a large part of why building on
   `joinFiber` or `killFiber`. `rio-aff`'s `fork`, `join`, and
   `interrupt` are thin typed wrappers over these.
 - Synchronisation via `Effect.Aff.AVar` (single-slot blocking
-  variable). `RIO.Deferred` and most of `RIO.STM`'s blocking
+  variable). `RIO.Aff.Deferred` and most of `RIO.Aff.STM`'s blocking
   operators land on `AVar`.
 - Promise interop via `Aff.Promise`. Anything that returns a
   JS `Promise` can be lifted with one call.
@@ -171,7 +171,7 @@ death, every interrupt, every parallel join produces a `Cause`
 node without any user instrumentation. `Effect.Cause` is the
 same in Effect.
 
-`rio-aff`'s `RIO.Cause` is a userland reification. `attemptCause`,
+`rio-aff`'s `RIO.Aff.Cause` is a userland reification. `attemptCause`,
 `parTraverseCause`, `raceCause`, and friends manually walk the
 known failure shapes and produce a `Cause` tree. That works
 because the failure modes are enumerable (typed failure via
@@ -184,7 +184,7 @@ downsides:
   `Cause` data. Its failures become `Die` leaves with whatever
   the JS exception is.
 - The `Interrupt` leaf that ZIO produces on a fiber kill is not
-  a separate constructor in `RIO.Cause`. Kills propagate as
+  a separate constructor in `RIO.Aff.Cause`. Kills propagate as
   `Aff` cancellations through `bracket` finalisers; whether
   the caller can distinguish "killed" from "the bracketed
   computation returned" depends on how the finaliser was
@@ -233,13 +233,13 @@ name, or an inspectable parent / child relationship. You cannot:
 
 ZIO's `FiberId`, `Fiber.Runtime#dump`, and `Supervisor` API are
 the obvious comparison. None of those have an analogue in `Aff`,
-so none has one in `rio-aff` either. The closest thing is `RIO.Tracer`
+so none has one in `rio-aff` either. The closest thing is `RIO.Aff.Tracer`
 spans, but those are an observability concern attached to the
 *logical* call tree, not the runtime fiber tree.
 
 ### 5. `Local` is shared state, not per-fiber state
 
-`RIO.Local a` is implemented as an `Effect.Ref` carried in the
+`RIO.Aff.Local a` is implemented as an `Effect.Ref` carried in the
 environment. That gives you scoped overrides via `locally`, and
 the restore is guaranteed by `Aff.finally`.
 
@@ -284,8 +284,8 @@ above. `Aff` cannot, because it does not own the dispatch.
 test cannot virtualise `Aff.delay`.
 
 `rio-aff` works around this by routing every sleep through the
-`Clock` service. `RIO.Test.Clock.newTestClock` is a fake clock
-that advances on demand, and every `RIO.Schedule` runner sleeps
+`Clock` service. `RIO.Aff.Test.Clock.newTestClock` is a fake clock
+that advances on demand, and every `RIO.Aff.Schedule` runner sleeps
 through `Clock`, so the test clock can drive retries and
 backoffs deterministically.
 
@@ -301,7 +301,7 @@ user-level sleeps). `Aff` cannot give that to `rio-aff`.
 
 ### 8. STM atomicity depends on JS single-threadedness
 
-`RIO.STM` is implemented as "do the whole transaction inside one
+`RIO.Aff.STM` is implemented as "do the whole transaction inside one
 JS event-loop tick". That is sound on every host PureScript
 targets today (Node, the browser, Deno, Bun) because they are
 all single-threaded JavaScript event loops with cooperative
@@ -330,7 +330,7 @@ correct. The not-so-good news:
   one at a time as the scope unwinds.
 - The "is this release running because we succeeded, failed
   typed-ly, died, or were killed?" distinction is reconstructed
-  by `rio-aff` (via `RIO.Resource`'s `Exit`-aware variants) rather
+  by `rio-aff` (via `RIO.Aff.Resource`'s `Exit`-aware variants) rather
   than passed by `Aff`. It works, but the bookkeeping is in
   userland.
 
@@ -339,14 +339,14 @@ without reconstruction. `Aff` cannot.
 
 ### 10. The `Channel` primitive is bounded by `Aff`
 
-`RIO.Channel` is a minimal pull-based primitive that
+`RIO.Aff.Channel` is a minimal pull-based primitive that
 demonstrates the bedrock `Stream` and `Sink` specialise. It
 is deliberately small. A full ZIO-style `Channel` with native
 broadcasters, halt-when behaviour, and a parallel fan-out
 algebra would benefit enormously from a real scheduler and a
 native interrupt channel, both of which `Aff` lacks.
 
-So `RIO.Stream` and `RIO.Sink` remain the production-grade
+So `RIO.Aff.Stream` and `RIO.Aff.Sink` remain the production-grade
 specialisations and the recommended user-facing types. `Channel`
 is there to show the unified primitive exists; treat it as a
 proof of concept, not the load-bearing stream API.

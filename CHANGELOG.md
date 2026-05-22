@@ -11,26 +11,30 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Changed
 
-- Docstring drift cleanup across five modules whose module-level
-  comments still described pre-Phase-7 state:
-  - `RIO.STM`: removed the "not in this module: TQueue / TMap /
-    TSemaphore" paragraph and replaced it with a pointer to the
-    sibling modules where each derived structure now lives.
-  - `RIO.Stream`: dropped the "no sinks, no parallel combinators,
-    no resource-safe finalization" disclaimer; pointed readers
-    at `RIO.Sink`, `RIO.Stream.Par`, `RIO.Stream.Concurrent`,
-    and `RIO.Stream.Resource` for the fuller picture.
-  - `RIO.Sink`: the link to `docs/sink-design.md` now describes
-    "how `Sink` relates to `RIO.Channel`" instead of "why no
-    Channel" (Channel is shipped).
-  - `RIO.Test`: dropped the "Phase 2.6 / Phase 7" forward
-    reference and pointed at the shipped sibling modules
-    (`RIO.Test.Clock`, `RIO.Test.Random`, `RIO.Test.HTTP`,
-    `RIO.Test.WebSocket`, `RIO.Test.Property`, `RIO.Spec`).
-  - `RIO.Concurrency.Par`: replaced the dangling
+- Docstring drift cleanup across five rio-aff modules whose
+  module-level comments described an earlier shape of the
+  package:
+  - `RIO.Aff.STM`: removed the "not in this module: TQueue /
+    TMap / TSemaphore" paragraph and replaced it with a
+    pointer to the sibling modules where each derived
+    structure now lives.
+  - `RIO.Aff.Stream`: dropped the "no sinks, no parallel
+    combinators, no resource-safe finalization" disclaimer;
+    pointed readers at `RIO.Aff.Sink`, `RIO.Aff.Stream.Par`,
+    `RIO.Aff.Stream.Concurrent`, and `RIO.Aff.Stream.Resource`
+    for the fuller picture.
+  - `RIO.Aff.Sink`: the link to `docs/sink-design.md` now
+    describes "how `Sink` relates to `RIO.Aff.Channel`" instead
+    of "why no Channel" (Channel is shipped).
+  - `RIO.Aff.Test`: dropped the forward reference to unshipped
+    siblings and pointed at the shipped modules
+    (`RIO.Aff.Test.Clock`, `RIO.Aff.Test.Random`,
+    `RIO.Aff.Test.HttpClient`, `RIO.Aff.Test.WebSocket`,
+    `RIO.Aff.Test.Property`, `RIO.Aff.Spec`).
+  - `RIO.Aff.Concurrency.Par`: replaced the dangling
     `parPair` / `parTuple` reference with the actual
     short-circuiting fan-out combinators
-    (`RIO.Concurrency.zipPar` and `parTraverse`).
+    (`RIO.Aff.Concurrency.zipPar` and `parTraverse`).
 
 - `docs/aff-constraints.md`: the "core type, restated" section
   now reflects the Op-encoded interpreter. The old `RIO r e a =
@@ -38,7 +42,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
   separate rio interpreter" claim are replaced with an accurate
   description of `Op` and the synchronous-bind loop that skips
   `Aff` entirely. Also removed a stray "added recently"
-  qualifier from the `RIO.Channel` section.
+  qualifier from the `RIO.Aff.Channel` section.
 
 - `docs/performance.md`: rewrote the "`bind` over `Aff`" section
   to describe the Op interpreter (synchronous binds run in a JS
@@ -54,17 +58,19 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
-- Direct contract specs for two previously test-bare modules:
-  - `Test.RIO.WebSocketSpec` pins `RIO.WebSocket.Message`'s `Eq`,
-    `Ord`, and `Show` instances and exercises `mockWebSocket`
-    directly. The flow-level behaviour of connect / send /
-    receive / close was already covered by
-    `Test.RIO.Test.WebSocketSpec`, which exercises the
-    `RIO.Test.WebSocket` recorder.
-  - `Test.RIO.ConsoleSpec` smoke-tests the ten `RIO.Console`
-    functions (`log`, `logShow`, `warn`, `warnShow`, `error`,
-    `errorShow`, `info`, `infoShow`, `debug`, `debugShow`) by
-    round-tripping each through `runRIO'`.
+- Direct contract specs for two previously test-bare rio-aff
+  modules:
+  - `Test.RIO.Aff.WebSocketSpec` pins
+    `RIO.Aff.WebSocket.Message`'s `Eq`, `Ord`, and `Show`
+    instances and exercises `mockWebSocket` directly. The
+    flow-level behaviour of connect / send / receive / close
+    was already covered by `Test.RIO.Aff.Test.WebSocketSpec`,
+    which exercises the `RIO.Aff.Test.WebSocket` recorder.
+  - `Test.RIO.Aff.ConsoleSpec` smoke-tests the ten
+    `RIO.Aff.Console` functions (`log`, `logShow`, `warn`,
+    `warnShow`, `error`, `errorShow`, `info`, `infoShow`,
+    `debug`, `debugShow`) by round-tripping each through
+    `runRIO'`.
 
 ### Changed
 
@@ -73,22 +79,29 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
   `spago build` no longer fails with duplicate-module errors.
   Each adapter's `Test.Main` is now `Test.<Pkg>.Main` with a
   matching file path:
-  - `rio-http` -> `Test.RioHttp.Main`
-  - `rio-config-file` -> `Test.RioConfigFile.Main`
-  - `rio-otel` -> `Test.RioOtel.Main`
-  - `rio-postgres` -> `Test.RioPostgres.Main`
-  - `rio-postgres-migrate` -> `Test.RioPostgresMigrate.Main`
-  - `rio-postgres-json` -> `Test.RioPostgresJson.Main`
-  - `rio-node` -> `Test.RioNode.Main`
+  - `rio-aff-http` -> `Test.RioAffHttp.Main` (rio-fiber:
+    `Test.RioFiberHttp.Main`)
+  - `rio-aff-config-file` -> `Test.RioAffConfigFile.Main`
+    (rio-fiber: `Test.RioFiberConfigFile.Main`)
+  - `rio-aff-otel` -> `Test.RioAffOtel.Main` (rio-fiber:
+    `Test.RioFiberOtel.Main`)
+  - `rio-aff-postgres` -> `Test.RioAffPostgres.Main` (rio-fiber:
+    `Test.RioFiberPostgres.Main`)
+  - `rio-aff-postgres-migrate` -> `Test.RioAffPostgresMigrate.Main`
+    (rio-fiber: `Test.RioFiberPostgresMigrate.Main`)
+  - `rio-aff-postgres-json` -> `Test.RioAffPostgresJson.Main`
+    (rio-fiber: `Test.RioFiberPostgresJson.Main`)
+  - `rio-aff-node` -> `Test.RioAffNode.Main` (rio-fiber:
+    `Test.RioFiberNode.Main`)
   The `spago.yaml` `test.main` field for each adapter is
-  updated to match. The root `rio` package keeps `Test.Main`.
+  updated to match.
 
 ### Added
 
-- `RIO.STM` exports `TVar` as a type alias for `TRef`, with
-  matching `newTVar` / `readTVar` / `writeTVar` / `modifyTVar`
-  aliases. Same value, two spellings, for callers coming from
-  ZIO or Haskell `stm`.
+- `RIO.Aff.STM` (and `RIO.Fiber.STM`) exports `TVar` as a type
+  alias for `TRef`, with matching `newTVar` / `readTVar` /
+  `writeTVar` / `modifyTVar` aliases. Same value, two spellings,
+  for callers coming from ZIO or Haskell `stm`.
 - Three more `compile-fail` cases extending coverage to the
   Stream / Sink / STM / Channel surfaces:
   - **10** `stm-op-outside-atomically`: a `readTRef` bound
@@ -580,7 +593,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
   unchanged with `RIO.Test.Clock` for deterministic tests.
 - `rio-node`: new sibling package wrapping the Node.js standard
   library bindings as RIO services. First three modules shipped:
-  * `RIO.Node.FileSystem` — service exposing the full surface
+  * `RIO.Node.FileSystem`: service exposing the full surface
     of `Node.FS.Aff` (read / write / append / `stat` / `lstat` /
     `readdir` / `mkdir` / `mkdir'` / `rm` / `rm'` / `rmdir` /
     `rmdir'` / `mkdtemp` / `mkdtemp'` / `rename` / `unlink` /
@@ -589,11 +602,11 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `access'` / `copyFile` / `copyFile'` / `fdOpen` / `fdRead` /
     `fdWrite` / `fdNext` / `fdAppend` / `fdClose`) with a
     `liveFileSystem` implementation backed by `node-fs`.
-  * `RIO.Node.Path` — thin convenience wrappers around
+  * `RIO.Node.Path`: thin convenience wrappers around
     `Node.Path`. Pure functions are re-exported verbatim;
     `resolve` is lifted into `RIO` because `Node.Path.resolve`
     reads `process.cwd()`.
-  * `RIO.Node.OS` — service over the read-only and
+  * `RIO.Node.OS`: service over the read-only and
     priority-control surface of `Node.OS` (`arch`, `cpus`,
     `endianness`, `freemem`, `getPriority` /
     `setPriority` / `getCurrentProcessPriority` /
@@ -602,12 +615,12 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `release`, `tmpdir`, `totalmem`, `uptime`, `userInfo`,
     `version`) with a `liveOS` implementation. `eol`,
     `devNull`, and `constants` are re-exported as pure values.
-  * `RIO.Node.URL` — RIO-flavoured wrappers around `Node.URL`.
+  * `RIO.Node.URL`: RIO-flavoured wrappers around `Node.URL`.
     `Node.URL.URL` is a mutable handle whose accessors are
     `Effect`-valued, so every operation is lifted into `RIO`;
     `canParse` and `origin` (the only genuinely pure ones)
     stay pure.
-  * `RIO.Node.Process` — service over the practical subset of
+  * `RIO.Node.Process`: service over the practical subset of
     `Node.Process` (argv / cwd / chdir / env / pid / ppid /
     uptime / exit / `setExitCode` / signal kill / `nextTick` /
     resource and memory usage / process title). Pure fields
@@ -615,7 +628,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `debugPort`, the TTY-detection booleans) are re-exported
     as ordinary values. Event-handler bindings and the IPC
     `send` primitives are out of scope here.
-  * `RIO.Node.Buffer` — RIO-flavoured wrappers around
+  * `RIO.Node.Buffer`: RIO-flavoured wrappers around
     `Node.Buffer`. A `Buffer` is a mutable value rather than a
     capability, so every `Effect`-valued operation is lifted
     directly into `RIO` (`alloc` / `allocUnsafe` / `create` /
@@ -628,7 +641,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `setPoolSize` / `swap16` / `swap32` / `swap64` /
     `transcode`). `slice` stays pure because it is a view, not
     an allocation.
-  * `RIO.Node.EventEmitter` — RIO-flavoured wrappers around
+  * `RIO.Node.EventEmitter`: RIO-flavoured wrappers around
     `Node.EventEmitter`. `new`, `getMaxListeners`,
     `listenerCount`, `setMaxListeners`,
     `setUnlimitedListeners`, and all four listener-add
@@ -643,7 +656,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     the `EventHandle0`..`EventHandle7` arity helpers are
     re-exported so callers do not need to import
     `Node.EventEmitter.*` directly.
-  * `RIO.Node.ReadLine` — RIO-flavoured wrappers around
+  * `RIO.Node.ReadLine`: RIO-flavoured wrappers around
     `Node.ReadLine` and `Node.ReadLine.Aff`. `createInterface`,
     `createConsoleInterface`, `close`, `pause`, `resume`,
     `prompt` / `prompt'`, `setPrompt` / `getPrompt`,
@@ -662,7 +675,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `InterfaceOptions` constructors, and `AbortController` are
     re-exported so callers do not need to reach for
     `Node.ReadLine.*` directly.
-  * `RIO.Node.ChildProcess` — RIO-flavoured wrappers around
+  * `RIO.Node.ChildProcess`: RIO-flavoured wrappers around
     `Node.ChildProcess` and `Node.ChildProcess.Aff`. The full
     process-launching surface is lifted into `RIO`: `spawn` /
     `spawn'`, `spawnSync` / `spawnSync'`, `exec` / `exec'`,
@@ -690,7 +703,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     constructors) are re-exported so callers do not need to
     reach for `Node.ChildProcess.*` or `Node.ChildProcess.Types`
     directly.
-  * `RIO.Node.Stream` — RIO-flavoured wrappers around
+  * `RIO.Node.Stream`: RIO-flavoured wrappers around
     `Node.Stream` and `Node.Stream.Aff`. A `Stream rw` is a value
     (a readable / writable / duplex handle) rather than a
     capability, so every `Effect`-valued primitive is lifted
@@ -725,7 +738,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `Readable` / `Writable` / `Duplex` / `Read` / `Write` /
     `Chunk` types and `toEventEmitter` are re-exported so
     callers do not need to reach for `Node.Stream` directly.
-  * `RIO.Node.Net` — RIO-flavoured wrappers around `Node.Net`.
+  * `RIO.Node.Net`: RIO-flavoured wrappers around `Node.Net`.
     A `Server`, `Socket`, `SocketAddress`, and `BlockList` are
     each values (handles on a listening TCP / IPC server, a TCP
     / IPC connection, an immutable address record, and a list of
@@ -761,7 +774,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     `ref` / `unref`) and re-exports the event handles (`closeH` /
     `connectionH` / `errorH` / `listeningH` / `dropHandleTcp` /
     `dropHandleIpc`) plus `toEventEmitter`.
-  * `RIO.Node.HTTP` — RIO-flavoured wrappers around `Node.HTTP`.
+  * `RIO.Node.HTTP`: RIO-flavoured wrappers around `Node.HTTP`.
     An `HttpServer` and `ClientRequest` are each values (handles
     on an HTTP server and an in-flight HTTP request respectively)
     rather than capabilities, so the upstream surface is mirrored
@@ -821,7 +834,7 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
     pull in a direct dependency on `node-tls`; callers who need
     it can still reach for `Node.HTTP.Server.toTlsServer`
     directly).
-  * `RIO.Node.HTTP2` — RIO-flavoured wrappers around `Node.Http2`.
+  * `RIO.Node.HTTP2`: RIO-flavoured wrappers around `Node.Http2`.
     An `Http2SecureServer`, `Http2Session endpoint`, and
     `Http2Stream endpoint` are each values (handles on the
     underlying TLS / session / stream resources) rather than

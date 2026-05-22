@@ -1,7 +1,15 @@
 # Scheduling: retry and repeat
 
-`RIO.Schedule` is the policy layer for retrying failing actions and
-repeating successful ones. A `Schedule` is a pure description of
+> **Naming convention.** This guide uses `RIO.Aff.*` module
+> names in code samples. The same APIs exist under
+> `RIO.Fiber.*` for the premier rio-fiber package; the
+> walkthrough applies to both with a mechanical prefix swap.
+> Unqualified shorthand like `RIO.Schedule` in the prose
+> refers to whichever variant your package is using.
+
+`RIO.Aff.Schedule` (rio-fiber: `RIO.Fiber.Schedule`) is the
+policy layer for retrying failing actions and repeating
+successful ones. A `Schedule` is a pure description of
 *when* (delay) and *how many times* to fire, plus an output value at
 each step. You drive it with one of the runners:
 
@@ -15,7 +23,8 @@ each step. You drive it with one of the runners:
   with the final failure.
 
 All three sleep through the `Clock` service, so a virtual-time test
-clock (`RIO.Test.Clock.newTestClock`) drives scheduled programs
+clock (`RIO.Aff.Test.Clock.newTestClock`, rio-fiber:
+`RIO.Fiber.TestClock.newTestClock`) drives scheduled programs
 deterministically.
 
 ## The type
@@ -109,7 +118,7 @@ A typical "retry with capped exponential backoff and jitter":
 
 ```purescript
 import Data.Time.Duration (Milliseconds(..))
-import RIO.Schedule
+import RIO.Aff.Schedule
   ( exponential
   , intersect
   , jittered
@@ -189,7 +198,7 @@ For schedules that don't fire (a `jittered` band sample, say),
 delay distribution directly without running the action:
 
 ```purescript
-import RIO.Schedule (Schedule, Step(..), step)
+import RIO.Aff.Schedule (Schedule, Step(..), step)
 
 collectDelays
   :: forall o
