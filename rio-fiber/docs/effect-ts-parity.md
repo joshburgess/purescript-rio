@@ -649,6 +649,13 @@ FiberMap.size :: forall r e e' k a. FiberMap k e a -> RIO r e' Int
 
 ### #17 `Queue.shutdown` / `isShutdown` / `takeAll` / `takeUpTo`
 
+**Status:** Partial. `takeAll` and `takeUpTo` shipped in
+`RIO.Fiber.Queue`. The shipped `takeUpTo` signature is
+`Queue a -> Int -> RIO r e (Array a)` (Queue first, Int second);
+the Shape block below has the parameter order reversed.
+`shutdown` and `isShutdown` are not yet implemented; the
+original proposal is preserved below.
+
 **Problem.** A queue has no lifecycle signal: consumers
 `take`-ing from a finished producer block forever. Bulk takes
 are also missing, so batching consumers loop on `take` in

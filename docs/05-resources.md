@@ -82,7 +82,10 @@ When several resources share a lifetime, a `Scope` collects
 their finalizers and runs them all on exit:
 
 ```purescript
-newtype Scope = Scope (Ref (Array (Aff Unit)))
+newtype Scope = Scope
+  { finalizers :: Ref (Array (Aff Unit))
+  , pendingCause :: Ref (Maybe SomeCause)
+  }
 
 addFinalizer :: forall r e. Scope -> Aff Unit -> RIO r e Unit
 
@@ -115,11 +118,12 @@ future change could collect the exceptions into a `Cause` tree
 without changing the semantics for the success path.
 
 The `Scope` data constructor is exported for use inside the
-library (specifically `RIO.Layer.provideLayer`, which needs to
+library (specifically `RIO.Aff.Layer.provideLayer` in rio-aff,
+and `RIO.Fiber.Layer.provideScoped` in rio-fiber, which need to
 share one scope across a layer-build phase and a program-run
-phase). `RIO.Core` re-exports only the opaque type, so user
-code that reaches the library through that module cannot
-construct a `Scope` directly.
+phase). `RIO.Aff.Core` / `RIO.Fiber.Core` re-export only the
+opaque type, so user code that reaches the library through those
+modules cannot construct a `Scope` directly.
 
 ## `RIO.Resource.Do`: qualified-do sugar
 

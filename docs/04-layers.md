@@ -2,13 +2,16 @@
 
 > **Naming convention.** Code samples in this guide use the
 > `RIO.Aff.*` module names. The same concepts exist under
-> `RIO.Fiber.*` for the premier rio-fiber package, with two
+> `RIO.Fiber.*` for the premier rio-fiber package, with several
 > renames worth knowing: rio-aff's `fromRecord` is rio-fiber's
-> `fromValue`, and rio-aff's `buildLayer` / `provideLayer` are
+> `fromValue`; rio-aff's `buildLayer` / `provideLayer` are
 > rio-fiber's `provide` / `provideScoped` (the runners take a
-> `Scope` instead of returning one). Where the walkthrough
-> uses an rio-aff name, rio-fiber readers substitute the
-> matching rio-fiber name.
+> `Scope` instead of returning one); and rio-aff's composition
+> combinators `andThen` (infix `>>>`) and `combine` (infix
+> `<+>`) are rio-fiber's `chainLayer` and `mergeLayers` (rio-fiber
+> defines no infix-operator aliases for these). Where the
+> walkthrough uses an rio-aff name, rio-fiber readers substitute
+> the matching rio-fiber name.
 
 A `Layer rIn e rOut` is a recipe for constructing a record of
 services `rOut` from a record of services `rIn`, possibly
@@ -226,16 +229,16 @@ propagates. The matching mental model is the same as
 
 ## Comparison with ZIO / Effect
 
-| Concept                  | ZIO                     | Effect               | `purescript-rio`            |
-| ------------------------ | ----------------------- | ----------------------- | --------------------------- |
-| Layer type               | `ZLayer[RIn, E, ROut]`  | `Layer<RIn, E, ROut>`   | `Layer rIn e rOut`          |
-| Build from value         | `ZLayer.succeed`        | `Layer.succeed`         | `fromRecord`                |
-| Build from effect        | `ZLayer.fromZIO`        | `Layer.effect`          | `fromRIO`                   |
-| Sequential composition   | `>>>`                   | `Layer.provide`         | `>>>` (`andThen`)           |
-| Horizontal composition   | `++`                    | `Layer.merge`           | `<+>` (`combine`)           |
-| Carry inputs forward     | `>+>`                   | `Layer.provideMerge`    | `passthrough`               |
-| Run                      | `ZIO.provideLayer`      | `Effect.provide`        | `provideLayer`              |
-| Resource safety          | `ZLayer.scoped`         | `Layer.scoped`          | built-in via `Scope`        |
+| Concept                  | ZIO                     | Effect               | `rio-aff`                   | `rio-fiber`                 |
+| ------------------------ | ----------------------- | ----------------------- | --------------------------- | --------------------------- |
+| Layer type               | `ZLayer[RIn, E, ROut]`  | `Layer<RIn, E, ROut>`   | `Layer rIn e rOut`          | `Layer e rIn rOut`          |
+| Build from value         | `ZLayer.succeed`        | `Layer.succeed`         | `fromRecord`                | `fromValue`                 |
+| Build from effect        | `ZLayer.fromZIO`        | `Layer.effect`          | `fromRIO`                   | `fromRIO`                   |
+| Sequential composition   | `>>>`                   | `Layer.provide`         | `>>>` (`andThen`)           | `chainLayer`                |
+| Horizontal composition   | `++`                    | `Layer.merge`           | `<+>` (`combine`)           | `mergeLayers`               |
+| Carry inputs forward     | `>+>`                   | `Layer.provideMerge`    | `passthrough`               | `passthrough`               |
+| Run                      | `ZIO.provideLayer`      | `Effect.provide`        | `provideLayer`              | `provide` / `provideScoped` |
+| Resource safety          | `ZLayer.scoped`         | `Layer.scoped`          | built-in via `Scope`        | built-in via `Scope`        |
 
 The output-row union via `Union` is the row-polymorphism
 analogue of ZIO's `RIn` / `ROut` parameters; the `Variant` error

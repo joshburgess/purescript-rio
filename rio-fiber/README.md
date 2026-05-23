@@ -142,7 +142,8 @@ sibling fibers are left alone. On the workspace benchmarks
   plus `andThen` for end-to-end composition. Splice into a Stream
   with `Stream.via`.
 - **`RIO.Fiber.Layer`**, **`RIO.Fiber.Pool`**: layered service
-  composition (`>>>` and `<+>`) and a fixed-size object pool with
+  composition (`chainLayer` and `mergeLayers`; rio-fiber defines
+  no infix-operator aliases) and a fixed-size object pool with
   `withPooled` bracketing.
 - **`RIO.Fiber.Schedule`**: recursion policies (`recurs`,
   `spaced`, `exponential`, `jittered`, `intersect`, `andThen`,
