@@ -138,7 +138,7 @@ snapshot / restore dance without locking the service shape.
 import RIO.Aff.Test.Logger (newRecordingLogger)
 
 it "logs what we expect" do
-  rec <- liftAff newRecordingLogger
+  rec <- newRecordingLogger
   let
     program :: RIO (logger :: Logger) () Unit
     program = withField "request.id" "abc" (logInfo "ok")

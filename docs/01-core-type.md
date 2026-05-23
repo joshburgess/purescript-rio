@@ -122,6 +122,15 @@ is the raw inverse of the newtype. It is exported for advanced cases
 checks `runRIO` and `runRIO'` provide; reach for it only when neither of
 those fits.
 
+The runner row above is rio-aff's. rio-fiber's runners return
+`Effect` rather than `Aff`: `runRIO :: RIO () e a -> Effect
+(Either (Variant e) a)` and `runRIO' :: RIO () () a -> Effect
+a`. There is no `unsafeRunRIO` in rio-fiber; for async/callback
+entry points the fiber package exports `runRIOCallback :: RIO
+r e a -> Record r -> (Outcome e a -> Effect Unit) -> Effect
+(Effect Unit)` instead (the returned `Effect Unit` cancels the
+fiber).
+
 Two practical differences are worth flagging:
 
   * **PureScript has no intersection types.** RIO uses rows instead. The

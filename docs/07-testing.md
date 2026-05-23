@@ -57,11 +57,16 @@ it "sends three notifications in order" do
   calls `shouldEqual` [ "started", "midway", "done" ]
 ```
 
-`mockService` is an alias for `provide` that reads better in tests:
-"the program is run with `notifier` mocked out as `fake`". Use
-`provideAll` when the service set is fixed and you can supply the
-whole environment at once; use `mockService` when you want one
-specific service replaced and the rest threaded through.
+`mockService` reads better in tests: "the program is run with
+`notifier` mocked out as `fake`". In rio-aff it is an alias for
+`provide` (the field-at-a-time injector); in rio-fiber it
+aliases `provideAt` (because rio-fiber spells the field-at-a-
+time injector `provideAt`, reserving `provide` for the
+whole-layer runner). Either way the call shape is the same:
+`mockService (Proxy :: Proxy "notifier") fake program`. Use
+`provideAll` when the service set is fixed and you can supply
+the whole environment at once; use `mockService` when you want
+one specific service replaced and the rest threaded through.
 
 ## The `Clock` service
 
