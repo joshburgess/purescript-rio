@@ -122,10 +122,13 @@ info msg = do
   liftAff (l.info msg)
 ```
 
-Both designs check at the type level that the service is
-present somewhere upstream. Effect uses a `Context.Tag` and
-intersection in `R`; RIO uses a `Proxy` symbol and a row label.
-See `docs/02-services.md`.
+Code samples in this guide use rio-aff spellings; rio-fiber
+readers substitute `askAt` / `asksAt` / `provideAt` for the
+symbol-indexed forms (`ask` / `asks` / `provide` taking a
+`Proxy`). Both designs check at the type level that the
+service is present somewhere upstream. Effect uses a
+`Context.Tag` and intersection in `R`; RIO uses a `Proxy`
+symbol and a row label. See `docs/02-services.md`.
 
 ## Providing services
 

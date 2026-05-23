@@ -182,6 +182,7 @@ committed write at a time, with backpressure handled by the
 queue's bounded capacity.
 
 ```purescript
+import RIO.Fiber.Core (fork)
 import RIO.Fiber.STM as STM
 import RIO.Fiber.STM.TQueue as TQ
 import RIO.Fiber.Stream as Stream
@@ -191,7 +192,7 @@ example = do
   q <- STM.atomically (TQ.newSTM 16)
 
   -- Producer fiber.
-  _ <- F.fork do
+  _ <- fork do
     for_ (Array.range 1 100) \n ->
       STM.atomically (TQ.writeTQueue q n)
 

@@ -11,7 +11,13 @@
 > `<+>`) are rio-fiber's `chainLayer` and `mergeLayers` (rio-fiber
 > defines no infix-operator aliases for these). Where the
 > walkthrough uses an rio-aff name, rio-fiber readers substitute
-> the matching rio-fiber name.
+> the matching rio-fiber name. The symbol-indexed reader
+> `ask (Proxy ..)` inside layer bodies is `askAt (Proxy ..)` in
+> rio-fiber, and the `fromRIO` examples that pull a scope via
+> `ask (Proxy :: Proxy "scope")` should be read against
+> rio-aff's `scoped`-injects-env-row shape; rio-fiber's `scoped`
+> hands the `Scope` to the body as a lambda argument instead
+> (see `docs/05-resources.md`).
 
 A `Layer rIn e rOut` is a recipe for constructing a record of
 services `rOut` from a record of services `rIn`, possibly

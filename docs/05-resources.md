@@ -1,5 +1,21 @@
 # Resources
 
+> **Naming convention.** Code samples in this guide use the
+> `RIO.Aff.*` module names. `acquireRelease`, `ensuring`, and
+> `addFinalizer` match in both packages. Two structural
+> divergences are worth knowing up front: rio-aff's `Scope` is
+> a two-field record (the constructor is exported under
+> `RIO.Aff.Resource`); rio-fiber's `Scope` is opaque (`foreign
+> import data Scope :: Type` in `RIO.Fiber.Internal`). And
+> rio-aff's `scoped :: RIO (scope :: Scope | r) e a -> RIO r e
+> a` injects the scope as a `scope` field on the environment
+> row (the body reaches for it with `ask (Proxy :: Proxy
+> "scope")`); rio-fiber's `scoped :: (Scope -> RIO r e a) ->
+> RIO r e a` passes the scope as a lambda argument and does
+> not touch the env row. The qualified-do sugar
+> `RIO.Aff.Resource.Do` / `RIO.Fiber.Resource.Do` is the same
+> in both.
+
 RIO's resource-safety primitives are `acquireRelease`, `ensuring`,
 and `Scope` / `scoped`. In rio-aff these all build on `Aff.bracket`,
 whose release phase is uninterruptible by default (verified in

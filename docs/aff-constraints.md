@@ -407,8 +407,9 @@ a forward roadmap; everything in it now ships in
   parked on a deadline `<= now + n` and resumes it. No more
   Clock-discipline workaround.
 - **Structured `Exit` (`Cause`) to finalisers.** Releases see
-  the failure cause; `acquireReleaseCause` is the cause-tracking
-  variant.
+  the failure cause; `addFinalizerExit` (rio-fiber) or
+  `Cause.acquireReleaseCause` (rio-aff's bracket variant) is
+  the cause-tracking surface.
 - **STM with `retry`-on-`TVar`-change.** Transactions park on
   the set of `TVar`s they read and wake only when one of them
   changes; no rerunning loop.
@@ -472,7 +473,7 @@ If you are evaluating the workspace for production use:
   cancellation model is structured: every interrupt is observed
   at the next safe point and every finaliser runs in LIFO
   order, with the failure cause visible to each finaliser via
-  `acquireReleaseCause`.
+  `addFinalizerExit`.
 
 In short: `rio-aff` is `Aff` with a typed-services-and-errors
 front end and a structured-concurrency vocabulary; the runtime
