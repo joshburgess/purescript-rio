@@ -135,7 +135,8 @@ sibling fibers are left alone. On the workspace benchmarks
 - **`RIO.Fiber.Sink`**: dual to Stream. Composable terminating
   consumers (`drain`, `head`, `last`, `count`, `sum`,
   `collectAll`, `foreach`, `fold`, `foldRIO`, `foldUntil`,
-  `takeN`) with `map` and `contramap`. Runs via `Stream.runSink`.
+  `takeN`, `takeWhile`, `dropWhile`, `mkString`, `findRIO`) with
+  `map` and `contramap`. Runs via `Stream.runSink`.
 - **`RIO.Fiber.Pipe`**: stream-to-stream transducers.
   `identity`, `map`, `filter`, `mapAccum`, `take`, `chunked`,
   plus `andThen` for end-to-end composition. Splice into a Stream

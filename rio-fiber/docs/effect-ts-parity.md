@@ -417,13 +417,19 @@ additional items, not covered above. Same ranking convention
 | 17 | `Queue.shutdown` / `isShutdown` / `takeAll` / `takeUpTo` | S | Med | open |
 | 18 | `SubscriptionRef` | S | Med | done |
 | 19 | `Logger.batched` / `Logger.tagged` / `Logger.json` | S | Med | open |
-| 20 | `Stream.toQueue` / `Stream.toHub` / `Stream.groupAdjacent` | S | Med | open |
+| 20 | `Stream.toQueue` / `Stream.toHub` / `Stream.groupAdjacent` | S | Med | done |
 | 21 | `Schedule.recurUpTo` / `Schedule.tap` | S | Low-Med | open |
 | 22 | `partition` (separate successes from typed failures) | S | Low-Med | done |
 | 23 | `Config.array` / `Config.json` | S | Med | open |
-| 24 | `timed` / `never` / `disconnect` | S | Low | open |
+| 24 | `timed` / `never` / `disconnect` | S | Low | partial |
 
 ### #11 Bounded-concurrency `forEachParN` / `parTraverseN`
+
+**Status:** Shipped in `RIO.Fiber.Semaphore` and re-exported via
+`RIO.Fiber.Concurrency` as `parTraverseN`. Only the
+`parTraverseN` name shipped; `forEachParN` was not added (the
+two were proposed as aliases). The original proposal is
+preserved below.
 
 **Problem.** `Core.parTraverse` runs every element in parallel
 with no cap. Real workloads doing fan-out (HTTP, DB queries,
@@ -457,6 +463,15 @@ than a deadlock.
 
 ### #12 `Stream.aggregate` / `aggregateWithin`
 
+**Status:** Shipped in `RIO.Fiber.Stream`. Shipped shape diverges
+from the proposal: `aggregateWithin` takes a `Milliseconds`
+timeout as its first parameter rather than a full `Schedule a c`.
+The shipped signature is
+`Milliseconds -> Sink r e a b -> Stream r e a -> Stream r e b`
+(no `c` type variable; fixed-interval window only). A
+schedule-driven variant could be added later if a use case
+appears. The original proposal is preserved below.
+
 **Problem.** Micro-batching is the dominant pattern in log
 shippers, metric exporters, and event bridges: emit a batch
 when N items have arrived OR after T elapsed. We have `Sink`
@@ -489,10 +504,13 @@ emitting whichever completes first.
 
 **Status.** Done. `Span` now carries `addEvent`, `addLink`,
 `setStatus`, and the recording / OTel adapters forward each
-through. `withSpan` defaults to `Internal`; `withSpanWith`
-takes an explicit `SpanKind`. A stable `spanId :: SpanId`
-field is exposed on `Span` itself so external integrations
-can correlate spans by id.
+through. `withSpan` defaults to `Internal`; the smart constructor
+that takes an explicit `SpanKind` shipped as `withSpanWith` (the
+Implementation paragraph below calls it `withSpanKind`, which was
+the proposed name). A stable `spanId :: SpanId` field is exposed
+on `Span` itself so external integrations can correlate spans by
+id; it is the first field of the shipped record (the Shape block
+below preserves the original proposal, which omitted it).
 
 **Problem (resolved).** Previously `RIO.Fiber.Tracer.Span`
 exposed only `addAttribute :: String -> String -> Effect Unit`
@@ -533,6 +551,16 @@ old shape.
 
 ### #14 `Histogram` with configurable bucket boundaries
 
+**Status:** Shipped in `RIO.Fiber.Metrics`. Shipped names diverge
+from the proposal: the type is `BucketHistogram` (not
+`Histogram`), the constructor is `newBucketHistogram`
+(not `newHistogramWithBoundaries`), the snapshot function is
+`bucketSnapshot` (not `histogramSnapshot`), and the snapshot is
+`RIO r e BucketSnapshot` (not `Effect _`) where
+`type BucketSnapshot = { count :: Int, sum :: Number, buckets ::
+Array Bucket }` and `type Bucket = { le :: Number, count :: Int }`.
+The original proposal is preserved below.
+
 **Problem.** `Metrics.Histogram` keeps a rolling `Array Number`
 of samples and computes p50/p95 in-process. Prometheus and OTel
 histogram exporters need bucket counts (`le=0.1, le=0.25, ...`),
@@ -565,6 +593,15 @@ summary-based variant stays as `newHistogram` for in-process
 use; the new bucket-based variant is what exporters consume.
 
 ### #15 `Stream.async` / `Stream.fromCallback`
+
+**Status:** Shipped in `RIO.Fiber.Stream`. Shipped shape diverges
+from the proposal: `async` takes a leading `Scope` parameter
+(for finalizer registration) and the user-supplied callback
+receives `Emit e a -> Effect Unit` rather than `a -> Effect Unit`,
+where `Emit e a` carries typed-error signalling alongside the
+value. The shipped signature is
+`Scope -> ((Emit e a -> Effect Unit) -> Effect (Effect Unit)) ->
+Stream r e a`. The original proposal is preserved below.
 
 **Problem.** Lifting a callback-style API (websocket
 `onMessage`, `EventEmitter`, message-port, Node IPC) into a
@@ -697,6 +734,11 @@ interrupted on shutdown.
 
 ### #20 `Stream.toQueue` / `Stream.toHub` / `Stream.groupAdjacent`
 
+**Status:** Shipped in `RIO.Fiber.Stream`. `toQueue` and `toHub`
+shipped with the proposed signatures; `groupAdjacent` shipped
+under the name `groupBy` with the same signature. The original
+proposal is preserved below.
+
 **Problem.** We have `Stream.fromQueue` and `Stream.fromTQueue`
 but no inverse. Common case: a stream-shaped producer needs to
 hand off to a fan-out via `Hub`, or to a bounded backlog via
@@ -786,6 +828,10 @@ string and applies a user-provided decoder.
 
 ### #24 `timed` / `never` / `disconnect`
 
+**Status:** Partial. `timed` and `never` shipped in
+`RIO.Fiber.Core` with the proposed signatures; `disconnect` is
+not yet implemented. The original proposal is preserved below.
+
 Tiny convenience trio.
 
 ```purescript
@@ -808,11 +854,11 @@ the bounded-concurrency footgun, the micro-batching gap, the
 OTel-span fidelity gap, the histogram-export gap, and the
 stream-async constructor gap.
 
-**Batch 2 (#3 done; #6 partial; #20 still open).** Item #3
-(`Mailbox`) shipped; item #6 partially shipped
-(`fromAsyncIterable` done, `ReadableStream` interop pending);
-item #20 (stream-queue / hub adapters) still open. #15 already
-landed in Batch 1.5.
+**Batch 2 (#3 and #20 done; #6 partial).** Item #3
+(`Mailbox`) shipped; item #20 (stream-queue / hub adapters)
+shipped (`groupAdjacent` shipped under the name `groupBy`); item
+#6 partially shipped (`fromAsyncIterable` done, `ReadableStream`
+interop pending). #15 already landed in Batch 1.5.
 
 **Batch 3 (#8 and #18 done; the rest still open).** Item #8
 (`Pool.invalidate` / `Pool.makeWithTTL`) and item #18
@@ -1118,6 +1164,13 @@ the first schedule into the input of the second for `compose`;
 `elapsed` accumulates the `Milliseconds` of each `Step`.
 
 ### #34 Conditional execution + `Stream.partitioned`
+
+**Status:** Shipped in `RIO.Fiber.Core` (`whenRIO` / `unlessRIO` /
+`iterate` / `loop`) and `RIO.Fiber.Stream` (`partitioned`).
+Shipped shape diverges for `partitioned`: the return type is
+`RIO r e { yes :: Stream r e a, no :: Stream r e a }` (not a bare
+record), because it allocates two queues and forks a producer.
+The original proposal is preserved below.
 
 **Problem.** `when`/`unless` lifted to take an RIO-valued
 condition, explicit looping combinators (`iterate`, `loop`)
