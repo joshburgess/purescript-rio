@@ -901,7 +901,7 @@ improves day-to-day code. Same ranking convention.
 | 32 | `Sink.takeWhile` / `dropWhile` / `mkString` / `findRIO` | S | Med | done |
 | 33 | `Schedule.compose` / `mapInput` / `passthrough` / `elapsed` / `delays` | S | Low-Med | done |
 | 34 | `whenRIO` / `unlessRIO` / `iterate` / `loop` / `Stream.partitioned` | S | Low | done |
-| 35 | `Cause.annotate` / `find` / `contains` | S | Low | done |
+| 35 | `Cause.find` / `contains` (annotate deferred) | S | Low | done (partial) |
 | 36 | `Fiber.poll` (non-blocking outcome check) | S | Low | done |
 
 ### #25 RIO ergonomic combinators

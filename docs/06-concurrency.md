@@ -337,5 +337,6 @@ pub/sub hubs. Both are part of the current surface.
 - Worked example:
   [`examples/worker-pool/`](../examples/worker-pool/) fans work
   out over a fixed `Semaphore`-bounded pool, drives it with
-  `parTraverseCause` for fail-fast accumulation, and demonstrates
+  `parTraverseCause` for multi-failure (cause-collecting)
+  accumulation, and demonstrates
   `forkScoped` plus a `Deferred`-gated shutdown signal.

@@ -6,9 +6,14 @@
 > shapes in `RIO.Fiber.*`. The defect surface diverges:
 > rio-aff's `sandbox :: RIO r e a -> RIO r e (Either Error a)`
 > and `unsandbox :: RIO r e (Either Error a) -> RIO r e a` are
-> rio-fiber's `causeOf :: RIO r e a -> RIO r () (Either (Cause
+> rio-fiber's `causeOf :: RIO r e a -> RIO r e' (Either (Cause
 > e) a)` and `unsandbox :: RIO r () (Either (Cause e) a) -> RIO
-> r e a`. rio-fiber materialises defects as `Die` constructors
+> r e a`. `causeOf` is polymorphic in the outer error row so a
+> sandboxed action can sit inside a program that already
+> carries failures; `unsandbox` takes a closed `RIO r ()`
+> because it raises the original cause back onto whatever row
+> the caller is in. rio-fiber materialises defects as `Die`
+> constructors
 > inside a structured `Cause`, where rio-aff hands back a bare
 > `Error`. See `docs/14-causes.md` for the fiber-side cause
 > algebra.
