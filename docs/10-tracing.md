@@ -151,10 +151,13 @@ environment).
 ### Backends
 
 - `RIO.Fiber.Test.Metrics.newRecordingMetrics`: returns a
-  recorder plus a `snapshot :: Effect (Array MetricRecord)`
-  action that returns every emission in order. Each record
-  carries the kind (`Counter` / `Gauge` / `Histogram`), the
-  name, and the value.
+  `RecordingMetrics` record (`recordCounter`, `recordGauge`,
+  `recordHistogram`, and a `snapshot :: Effect (Array
+  MetricRecord)` action). Tests call the `record*` actions at
+  the same sites that production code calls `incr` / `set` /
+  `record` on the `RIO.Fiber.Metrics` primitives. Each captured
+  record carries the kind (`Counter` / `Gauge` / `Histogram`),
+  the name, and the value.
 - `RIO.Fiber.Metric.OTel.exportMetrics` / `renderOTLP`: pure
   shaping into an OTLP/JSON metrics document. Counters sum
   per name, gauges keep last-value-wins, histograms aggregate

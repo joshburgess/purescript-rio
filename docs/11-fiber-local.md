@@ -34,12 +34,14 @@ handleRequest
   :: forall e
    . Request
   -> RIO Env e Response
-handleRequest req = locally (asRequestId env) req.id do
-  -- everything inside this block sees req.id as the
-  -- request ID; after the block exits, the previous value
-  -- (typically a placeholder set at startup) is restored.
-  logSomething
-  callDownstream
+handleRequest req = do
+  requestId <- asks _.requestId
+  locally requestId req.id do
+    -- everything inside this block sees req.id as the
+    -- request ID; after the block exits, the previous value
+    -- (typically a placeholder set at startup) is restored.
+    logSomething
+    callDownstream
 ```
 
 The shape mirrors ZIO's `FiberRef` and the `Context`-based

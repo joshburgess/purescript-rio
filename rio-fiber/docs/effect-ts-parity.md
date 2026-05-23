@@ -936,6 +936,15 @@ interpreter changes.
 
 ### #26 `Layer.scoped` / `Layer.memoize` / `Layer.fresh`
 
+**Status:** Shipped in `RIO.Fiber.Layer`. One shape note:
+`fresh` is literally `identity` (source: `rio-fiber/src/RIO/Fiber/
+Layer.purs:232`). Layers in the current model are already
+rebuilt on every `provide`, so there is no implicit sharing
+for `fresh` to defeat; the combinator is kept for compositional
+symmetry with `memoize` and as a forward-compatible marker if
+implicit sharing is ever added. The original proposal is
+preserved below.
+
 **Problem.** Our `Layer` surface (`fromValue`, `fromRIO`,
 `chainLayer`, `mergeLayers`, `provide`, `provideScoped`)
 handles flat composition but not resource lifecycle or
