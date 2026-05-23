@@ -1,5 +1,17 @@
 # Services and the Environment Row
 
+> **Naming convention.** Code samples in this guide use the
+> `RIO.Aff.*` module names and the rio-aff symbol-indexed
+> spellings (`ask` / `asks` / `provide` plus `provideAll`).
+> rio-fiber spells the symbol-indexed forms `askAt` / `asksAt`
+> / `provideAt` so they can coexist with `RIO.Fiber.Core`'s
+> whole-record `ask` / `asks` (which return the entire `Record
+> r` without taking a `Proxy`). `provideAll` matches in both
+> packages. The `main` snippet below also uses `launchAff_`
+> because rio-aff's `runRIO` returns `Aff`; rio-fiber's
+> `runRIO` returns `Effect` and is run directly (no
+> `launchAff_` wrapper).
+
 RIO uses `ask` / `asks` for reading a service out of the
 environment, and `provide` / `provideAll` for supplying one. This
 document covers:

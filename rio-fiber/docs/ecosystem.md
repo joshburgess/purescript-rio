@@ -95,6 +95,8 @@ fan out to a queue and stand up multiple consumers manually.
 The pattern looks like:
 
 ```purescript
+import RIO.Fiber.Core (fork)
+import RIO.Fiber.Pipe as Pipe
 import RIO.Fiber.Queue as Q
 import RIO.Fiber.Stream as Stream
 
@@ -103,7 +105,7 @@ watchAndReport = do
   q <- liftEffect (Q.make 64)
 
   -- Producer fiber: push every event into the queue.
-  _ <- F.fork (forever (push q))
+  _ <- fork (forever (push q))
 
   -- Consumer: drain into a sink as a stream.
   Stream.run (Stream.via (Stream.fromQueue q) (Pipe.map render))

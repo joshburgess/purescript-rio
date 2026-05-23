@@ -414,7 +414,7 @@ additional items, not covered above. Same ranking convention
 | 14 | `Histogram` with configurable bucket boundaries | M | High | done |
 | 15 | `Stream.async` / `Stream.fromCallback` | S | High | done |
 | 16 | `FiberMap` (keyed) | S | Med | open |
-| 17 | `Queue.shutdown` / `isShutdown` / `takeAll` / `takeUpTo` | S | Med | open |
+| 17 | `Queue.shutdown` / `isShutdown` / `takeAll` / `takeUpTo` | S | Med | partial |
 | 18 | `SubscriptionRef` | S | Med | done |
 | 19 | `Logger.batched` / `Logger.tagged` / `Logger.json` | S | Med | open |
 | 20 | `Stream.toQueue` / `Stream.toHub` / `Stream.groupAdjacent` | S | Med | done |
@@ -867,12 +867,13 @@ shipped (`groupAdjacent` shipped under the name `groupBy`); item
 #6 partially shipped (`fromAsyncIterable` done, `ReadableStream`
 interop pending). #15 already landed in Batch 1.5.
 
-**Batch 3 (#8 and #18 done; the rest still open).** Item #8
-(`Pool.invalidate` / `Pool.makeWithTTL`) and item #18
-(`SubscriptionRef`) shipped. Items #7 (metrics labels /
-`Frequency` / `timer`), #9 (logger JSON formatter),
-#17 (`Queue.shutdown` / `takeUpTo`), and #19 (`Logger.batched`
-/ `tagged` / `json`) still open.
+**Batch 3 (#8 and #18 done; #17 partial; the rest still open).**
+Item #8 (`Pool.invalidate` / `Pool.makeWithTTL`) and item #18
+(`SubscriptionRef`) shipped. Item #17's `takeAll` and `takeUpTo`
+landed; `shutdown` / `isShutdown` are still open. Items #7
+(metrics labels / `Frequency` / `timer`), #9 (logger JSON
+formatter), and #19 (`Logger.batched` / `tagged` / `json`) still
+open.
 
 **Batch 4 (separate effort).** Runtime-level items
 (`uninterruptibleMask`, `forkDaemon`).

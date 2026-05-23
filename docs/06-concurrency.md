@@ -3,11 +3,20 @@
 > **Naming convention.** This guide uses `RIO.Aff.*` module
 > names in code samples. The same APIs exist under
 > `RIO.Fiber.*` for the premier rio-fiber package, mostly with
-> a mechanical prefix swap. One rename worth flagging:
+> a mechanical prefix swap. Two renames worth flagging:
 > `RIO.Aff.Deferred` spells its operations `makeDeferred` /
 > `succeedDeferred` / `failDeferred` / `awaitDeferred` /
 > `pollDeferred`; `RIO.Fiber.Deferred` drops the suffix and
-> uses `make` / `succeed` / `fail` / `await` / `poll`.
+> uses `make` / `succeed` / `fail` / `await` / `poll`. The
+> symbol-indexed reader `ask (Proxy ..)` in rio-aff is
+> `askAt (Proxy ..)` in rio-fiber (which reserves unqualified
+> `ask` for the whole-record form).
+> One API-shape divergence: rio-aff's `scoped` injects a
+> `Scope` into the environment row, so the body reaches for it
+> with `ask (Proxy :: Proxy "scope")`; rio-fiber's `scoped ::
+> (Scope -> RIO r e a) -> RIO r e a` passes the `Scope` as a
+> lambda argument and does not touch the env row. The
+> `forkScoped` snippet below uses the rio-aff shape.
 > The `Aff`-specific guarantees (cooperative cancellation,
 > `Effect.Aff.bracket`-backed resource safety) are documented
 > here against the rio-aff implementation; rio-fiber provides

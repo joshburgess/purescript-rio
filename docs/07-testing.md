@@ -7,7 +7,11 @@
 > premier rio-fiber package (with the rio-fiber test clock at
 > the top-level `RIO.Fiber.TestClock` rather than under a
 > `Test/` subdir). The walkthrough applies to both runtimes
-> with a mechanical prefix swap.
+> with a mechanical prefix swap, with one symbol rename worth
+> knowing: rio-aff's `ask (Proxy ..)` is rio-fiber's `askAt
+> (Proxy ..)` (rio-fiber reserves unqualified `ask` for the
+> whole-record form). The `provide`/`provideAt` story is
+> covered inline at the `mockService` paragraph below.
 
 RIO's testing surface covers:
 

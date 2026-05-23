@@ -3,7 +3,12 @@
 > **Naming convention.** This guide uses `RIO.Aff.*` module
 > names in code samples. The same APIs exist under
 > `RIO.Fiber.*` for the premier rio-fiber package; the
-> walkthrough applies to both with a mechanical prefix swap.
+> walkthrough applies to both with a mechanical prefix swap,
+> with one rename worth knowing: rio-aff's `ask (Proxy ..)` /
+> `asks (Proxy ..)` / `provide (Proxy ..)` (the symbol-indexed
+> reader and injector) are rio-fiber's `askAt` / `asksAt` /
+> `provideAt`. rio-fiber reserves unqualified `ask` / `asks`
+> for the whole-record forms exported by `RIO.Fiber.Core`.
 > The runtime details below (instruction tree, `Aff` boundary
 > form) describe the rio-aff interpreter; rio-fiber implements
 > the same observable surface with its own custom fiber
