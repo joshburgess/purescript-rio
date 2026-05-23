@@ -974,6 +974,12 @@ where `await` retries while empty.
 
 ### #28 Stream constructors
 
+**Status.** Shipped in `RIO.Fiber.Stream`. Shipped shape diverges
+from the proposal: `haltWhen` accepts any `RIO r e x` sentinel
+(not specifically a `Deferred () Unit`), which lets it compose
+with arbitrary async signals (a `Deferred` await, a queue take,
+a fiber join, etc.). The original proposal is preserved below.
+
 **Problem.** Common stream generators are missing. `Stream.tick`
 is the canonical "every D milliseconds, emit unit" used by
 metric exporters and health-check loops. `range`, `iterate`,

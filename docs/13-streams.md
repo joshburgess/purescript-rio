@@ -24,12 +24,14 @@ from it.
 > The combinator names are mostly the same in both, with a few
 > consistent renames worth knowing about. rio-aff spells the
 > effectful-callback variants with an `M` suffix; rio-fiber
-> spells them with a `RIO` suffix: `mapM` / `foldM` / `findM`
-> in rio-aff become `mapRIO` / `foldRIO` / `findRIO` in
-> rio-fiber. Two stream runners also diverge in name: rio-aff's
-> `runDrain` and `runFold` are rio-fiber's `run` and `fold`
-> (`runFoldM` keeps the same name in both). A handful of
-> `RIO.Sink` primitives also diverge: rio-aff's `collect`,
+> spells them with a `RIO` suffix: `mapM` / `foldM` / `findM` /
+> `unfoldM` / `repeatM` in rio-aff become `mapRIO` / `foldRIO` /
+> `findRIO` / `unfoldRIO` / `repeatRIO` in rio-fiber. The
+> single-element constructor is also renamed: rio-aff's `single`
+> is rio-fiber's `emit`. Two stream runners also diverge in
+> name: rio-aff's `runDrain` and `runFold` are rio-fiber's `run`
+> and `fold` (`runFoldM` keeps the same name in both). A handful
+> of `RIO.Sink` primitives also diverge: rio-aff's `collect`,
 > `foldL`, `mapResult`, and `zipParWith` are rio-fiber's
 > `collectAll`, `fold`, `map`, and `zipWithPar`. Where a code
 > sample below uses an rio-aff name, rio-fiber readers should

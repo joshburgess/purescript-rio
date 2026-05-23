@@ -243,8 +243,9 @@ example = do
   atomically (readTQueue q)  -- blocks until producer commits
 ```
 
-Surface: `newTQueue`, `writeTQueue`, `readTQueue`,
-`tryReadTQueue`, `peekTQueue`, `isEmptyTQueue`, `lengthTQueue`.
+Surface: `newTQueue`, `writeTQueue`, `writeAllTQueue`,
+`readTQueue`, `tryReadTQueue`, `peekTQueue`, `tryPeekTQueue`,
+`flushTQueue`, `isEmptyTQueue`, `lengthTQueue`.
 
 Implementation note: the backing store is a single `Array a`
 read via `Array.uncons` and extended via `Array.snoc`. Both are
@@ -267,7 +268,9 @@ example = do
 ```
 
 Surface: `newTMap`, `insertTMap`, `lookupTMap`, `deleteTMap`,
-`memberTMap`, `sizeTMap`, `awaitKey`. Wakeups are not key-indexed:
+`memberTMap`, `sizeTMap`, `keysTMap`, `valuesTMap`,
+`entriesTMap`, `clearTMap`, `awaitKey`. Wakeups are not
+key-indexed:
 any write to the underlying `TRef` re-checks the predicate. This
 is fine for typical "wait on handler registration" or "wait on
 configuration ready" patterns; if you have a hot map where many
@@ -292,8 +295,8 @@ example = do
 ```
 
 Surface: `newTSemaphore`, `acquireTSemaphore`, `acquireN`,
-`releaseTSemaphore`, `releaseN`, `availableTSemaphore`,
-`withTSemaphore`.
+`tryAcquireTSemaphore`, `tryAcquireN`, `releaseTSemaphore`,
+`releaseN`, `availableTSemaphore`, `withTSemaphore`.
 
 Note that `parTraverseN n` already bounds concurrency for the
 common case of "run at most n fibers in parallel." Reach for a
@@ -357,10 +360,10 @@ subscription is released on every termination path.
 
 Surface: `Strategy(..)`, `THub`, `Subscription`, `newTHub`,
 `newBoundedTHub`, `newSlidingTHub`, `newDroppingTHub`,
-`newUnboundedTHub`, `publishTHub`, `subscribeTHub`,
-`unsubscribeTHub`, `takeSubscription`, `tryTakeSubscription`,
-`isEmptySubscription`, `lengthSubscription`, `subscriberCount`,
-`withSubscription`.
+`newUnboundedTHub`, `publishTHub`, `tryPublishTHub`,
+`subscribeTHub`, `unsubscribeTHub`, `takeSubscription`,
+`tryTakeSubscription`, `isEmptySubscription`,
+`lengthSubscription`, `subscriberCount`, `withSubscription`.
 
 Implementation note: each subscriber's buffer is a `TRef (Array
 a)`. Publish iterates all current subscribers in one
@@ -387,8 +390,9 @@ example = do
   atomically (readTArray 2 arr)  -- Just 1
 ```
 
-Surface: `newTArray`, `lengthTArray`, `readTArray`,
-`writeTArray`, `modifyTArray`. The backing store is a single
+Surface: `newTArray`, `fromArrayTArray`, `replicateTArray`,
+`lengthTArray`, `readTArray`, `writeTArray`, `modifyTArray`,
+`swapTArray`, `toArrayTArray`. The backing store is a single
 `TRef (Array a)`; out-of-range indices return `Nothing` / `false`
 rather than retrying.
 
