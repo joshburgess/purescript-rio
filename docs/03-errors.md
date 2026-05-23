@@ -1,5 +1,18 @@
 # Errors and Error Narrowing
 
+> **Naming convention.** Code samples in this guide use the
+> `RIO.Aff.*` module names. The typed-error handlers (`fail`,
+> `catchTag`, `catchAll`, `mapError`, `rethrow`) have identical
+> shapes in `RIO.Fiber.*`. The defect surface diverges:
+> rio-aff's `sandbox :: RIO r e a -> RIO r e (Either Error a)`
+> and `unsandbox :: RIO r e (Either Error a) -> RIO r e a` are
+> rio-fiber's `causeOf :: RIO r e a -> RIO r () (Either (Cause
+> e) a)` and `unsandbox :: RIO r () (Either (Cause e) a) -> RIO
+> r e a`. rio-fiber materialises defects as `Die` constructors
+> inside a structured `Cause`, where rio-aff hands back a bare
+> `Error`. See `docs/14-causes.md` for the fiber-side cause
+> algebra.
+
 `fail` is the raising side of the typed-error channel;
 `catchTag` / `catchAll` / `mapError` / `rethrow` are the handling
 side. This document covers:

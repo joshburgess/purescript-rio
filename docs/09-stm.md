@@ -35,6 +35,19 @@ either commits every staged write at once or applies none.
 >   and `TPubSub` in rio-fiber (`RIO.Fiber.STM.TPubSub`, with a
 >   single `make` constructor plus `publish` / `subscribe`
 >   operations).
+> - **TChan.** `newTChan` (rio-aff) is `new` in rio-fiber; the
+>   per-op names (`readTChan`, `writeTChan`, `peekTChan`,
+>   `tryReadTChan`, `isEmptyTChan`) match in both packages.
+> - **TMVar.** `newTMVar` / `newEmptyTMVar` / `takeTMVar` /
+>   `tryTakeTMVar` / `putTMVar` / `tryPutTMVar` / `readTMVar` /
+>   `tryReadTMVar` / `isEmptyTMVar` (rio-aff) are `new` /
+>   `newEmpty` / `take` / `tryTake` / `put` / `tryPut` / `read` /
+>   `tryRead` / `isEmpty` in rio-fiber.
+> - **TSet.** `newTSet` / `insertTSet` / `deleteTSet` /
+>   `memberTSet` / `sizeTSet` / `nullTSet` / `toArrayTSet`
+>   (rio-aff) are `empty` / `insert` / `delete` / `member` /
+>   `size` / `null` / `toArray` in rio-fiber, with `empty` being
+>   `Effect`-valued.
 >
 > Where a code sample below uses an rio-aff name, rio-fiber
 > readers substitute the matching name from this list.
