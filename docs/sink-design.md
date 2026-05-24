@@ -48,6 +48,10 @@ read an effect, raise on the error row). The only escape was
 arbitrary `a`. The result was a foreign import smell for what
 should be a tidy combinator.
 
+(The aff names `count`, `foldL`, `find`, `take` used in this
+paragraph are spelled `count`, `fold`, `find`, `take` in
+rio-fiber.)
+
 Switching `finish` from `a` to `RIO r e a` removes the problem
 entirely: end-of-stream handling is itself effectful. `andThen`
 now reads as "if the first sink is still consuming, run its
@@ -144,15 +148,17 @@ its own design pass rather than be retro-fitted onto this one.
 ## What's deliberately not shipped (yet)
 
 - `Sink.fromQueue` / `Sink.fromHub` family. Once `Sink` exists,
-  these are 5-line aliases over `Sink.foldM` pointing at the
-  `RIO.Aff.Queue` / `RIO.Aff.Hub` (rio-fiber: `RIO.Fiber.Queue`
-  / `RIO.Fiber.Hub`) modules. Ship them in a follow-up when an
-  example actually needs them; until then they add surface area
-  without earning their keep.
-- Sink-side fusion / rewriting. Today every `mapResult`,
-  `mapInput`, and `filterIn` allocates a fresh wrapper per
-  step. A real workload that shows up in a profile is the
-  right driver for a fusion pass, not a speculative one.
+  these are 5-line aliases over `Sink.foldM` (rio-fiber:
+  `Sink.foldRIO`) pointing at the `RIO.Aff.Queue` /
+  `RIO.Aff.Hub` (rio-fiber: `RIO.Fiber.Queue` / `RIO.Fiber.Hub`)
+  modules. Ship them in a follow-up when an example actually
+  needs them; until then they add surface area without earning
+  their keep.
+- Sink-side fusion / rewriting. Today every `mapResult`
+  (rio-fiber: `map`), `mapInput` (rio-fiber: `contramap`), and
+  `filterIn` allocates a fresh wrapper per step. A real workload
+  that shows up in a profile is the right driver for a fusion
+  pass, not a speculative one.
 - The full ZIO `ZChannel` surface (broadcasters, halt-when,
   resource-safe finalisation, multi-source fan-out). The
   pieces that benefit from being expressed as a transducer

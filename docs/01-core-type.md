@@ -118,7 +118,7 @@ a tight loop rather than thread through `Aff`'s callback chain.
 | Composition over services  | row union, inferred                    | type-level intersection   | type-level intersection     |
 | Composition over errors    | row union, inferred                    | unification or `Throwable`| union                       |
 | Empty services / errors    | `r = ()` / `e = ()`                    | `Any` / `Nothing`         | `never` / `never`           |
-| IO base                    | `Aff`                                  | runtime fibers            | runtime fibers              |
+| IO base                    | `Aff` (rio-aff) / custom fibers (rio-fiber) | runtime fibers       | runtime fibers              |
 | Run with full discharge    | `runRIO' :: RIO () () a -> Aff a`      | `unsafeRun(io)`           | `Effect.runPromise(eff)`    |
 
 A third runner, `unsafeRunRIO :: RIO r e a -> Record r -> Aff (Either (Variant e) a)`,

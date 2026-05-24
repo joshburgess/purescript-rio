@@ -2,11 +2,29 @@
 
 `RIO.Fiber.Tracer` / `RIO.Fiber.Metrics` (and their `RIO.Aff.*`
 siblings) are the observability hooks. Tracing is wired through
-a per-fiber `FiberRef` so the currently-active span follows the
-fiber across nesting and forks; metrics are a record of
+a per-fiber `FiberRef` in rio-fiber so the currently-active
+span follows the fiber across nesting and forks (with copy-on-
+fork inheritance), while rio-aff threads the currently-active
+span through an environment-record swap over a private `Ref`,
+so sibling forked fibers share the underlying cell rather than
+each getting an independent copy. Metrics are a record of
 operations that backends fill in, with a recording backend for
 tests. Production OTel / StatsD / Prometheus backends plug into
 the same surface without touching call sites.
+
+> **Naming convention.** The tracing walkthrough below uses
+> rio-fiber-shaped code samples: the `Span` is passed
+> explicitly to `addAttribute` / `addEvent` / `addLink`, and
+> the parent / child story is described in `FiberRef` terms.
+> rio-aff's tracer surface differs in two ways worth knowing
+> up front: (1) `addAttribute :: String -> String -> RIO
+> (tracer :: Tracer | r) e Unit` takes no explicit `Span`
+> argument and operates on the currently-active span via the
+> `tracer` service in the row; (2) inheritance across forks
+> uses a shared `Ref` rather than a copy-on-fork `FiberRef`,
+> so a `withSpan` inside one forked fiber does not affect a
+> sibling fiber only because the swap is scoped to the body,
+> not because the two fibers see independent cells.
 
 ## Tracing
 
