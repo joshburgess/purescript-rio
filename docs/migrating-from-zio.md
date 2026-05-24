@@ -120,7 +120,9 @@ info msg = do
 Code samples in this guide use rio-aff spellings; rio-fiber
 readers substitute `askAt` / `asksAt` / `provideAt` for the
 symbol-indexed forms (`ask` / `asks` / `provide` taking a
-`Proxy`). The row-typed `ask` gives you the same "I need a
+`Proxy`), and `fromAff` (from `RIO.Fiber.Aff`) for `liftAff`
+since rio-fiber does not implement `MonadAff` directly. The
+row-typed `ask` gives you the same "I need a
 `Logger` somewhere upstream" guarantee ZIO's `ZIO.serviceWith`
 does, checked at the type level. See `docs/02-services.md`.
 

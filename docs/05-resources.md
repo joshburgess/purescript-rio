@@ -1,20 +1,33 @@
 # Resources
 
 > **Naming convention.** Code samples in this guide use the
-> `RIO.Aff.*` module names. `acquireRelease`, `ensuring`, and
-> `addFinalizer` match in both packages. Two structural
-> divergences are worth knowing up front: rio-aff's `Scope` is
-> a two-field record (the constructor is exported under
-> `RIO.Aff.Resource`); rio-fiber's `Scope` is opaque (`foreign
-> import data Scope :: Type` in `RIO.Fiber.Internal`). And
-> rio-aff's `scoped :: RIO (scope :: Scope | r) e a -> RIO r e
-> a` injects the scope as a `scope` field on the environment
-> row (the body reaches for it with `ask (Proxy :: Proxy
-> "scope")`); rio-fiber's `scoped :: (Scope -> RIO r e a) ->
-> RIO r e a` passes the scope as a lambda argument and does
-> not touch the env row. The qualified-do sugar
-> `RIO.Aff.Resource.Do` / `RIO.Fiber.Resource.Do` is the same
-> in both.
+> `RIO.Aff.*` module names. `acquireRelease` matches in both
+> packages; the other primitives diverge in shape:
+>
+> - `ensuring` is `RIO r e a -> RIO r () Unit -> RIO r e a` in
+>   rio-aff (action first, finalizer second, finalizer row
+>   `()`). In rio-fiber it is `RIO r e Unit -> RIO r e a ->
+>   RIO r e a` (finalizer first, action second, finalizer row
+>   `e`). The usage example `ensuring serveRequests drainPool`
+>   below is rio-aff-shaped; the rio-fiber equivalent is
+>   `ensuring drainPool serveRequests`.
+> - `addFinalizer` takes an `Aff Unit` finalizer in rio-aff and
+>   an `Effect Unit` finalizer in rio-fiber. rio-fiber callers
+>   that have a `RIO r () Unit` finalizer use `addFinalizerRIO`
+>   instead.
+> - `Scope` is a two-field record in rio-aff (the constructor
+>   is exported under `RIO.Aff.Resource`); in rio-fiber it is
+>   opaque (`foreign import data Scope :: Type` in
+>   `RIO.Fiber.Internal`).
+> - `scoped :: RIO (scope :: Scope | r) e a -> RIO r e a` in
+>   rio-aff injects the scope as a `scope` field on the
+>   environment row (the body reaches for it with `ask (Proxy
+>   :: Proxy "scope")`); rio-fiber's `scoped :: (Scope -> RIO
+>   r e a) -> RIO r e a` passes the scope as a lambda argument
+>   and does not touch the env row.
+>
+> The qualified-do sugar `RIO.Aff.Resource.Do` /
+> `RIO.Fiber.Resource.Do` is the same in both.
 
 RIO's resource-safety primitives are `acquireRelease`, `ensuring`,
 and `Scope` / `scoped`. In rio-aff these all build on `Aff.bracket`,
