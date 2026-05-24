@@ -73,7 +73,7 @@ the summary:
   event-loop atomicity, but `retry` cannot park on the set of
   `TVar`s a transaction read and wake only when one of them
   changes; rerunning is the only option.
-- **Slower bind hot path.** About 33 ns per `bind` versus
+- **Slower bind hot path.** About 90 ns per `bind` versus
   about 10 ns in `rio-fiber` on the workspace benchmarks.
 
 If any of those items is on your hot path or your correctness

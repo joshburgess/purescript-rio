@@ -189,9 +189,14 @@ JSON sources without modification:
 ```purescript
 -- All three loads use the same `appConfig` descriptor.
 src1 <- liftEffect envSource
-src2 <- liftAff (dotenvFileSource ".env")
-src3 <- liftAff (jsonFileSource "config.json")
+src2 <- liftAff (dotenvFileSource ".env")    -- rio-fiber: fromAff (dotenvFileSource ".env")
+src3 <- liftAff (jsonFileSource "config.json") -- rio-fiber: fromAff (jsonFileSource "config.json")
 ```
+
+`dotenvFileSource` and `jsonFileSource` return `Aff Source` in
+both adapter packages. rio-aff lifts that via its `MonadAff`
+instance (`liftAff`); rio-fiber has no `MonadAff` instance, so
+fiber callers use `fromAff` from `RIO.Fiber.Aff` instead.
 
 A `Source` is just a function; you can build one over a
 process-env snapshot at startup, then overlay a file with

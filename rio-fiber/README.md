@@ -14,9 +14,9 @@ sleeping fibers, structured concurrency via `Scope` / `forkScoped`
 and an interruption model that distinguishes typed failure from
 defect from interrupt at every node of the cause tree.
 
-The bind hot path is roughly 4x faster than the `Aff`-backed
+The bind hot path is roughly 9x faster than the `Aff`-backed
 [`rio-aff`](../rio-aff/) on the workspace benchmarks (about 10 ns
-per `bind` versus 33 ns); `fork x16 + join each` sits at parity
+per `bind` versus ~90 ns); `fork x16 + join each` sits at parity
 with `forkAff` once V8's JIT is warm; and the specialised
 `forkAll x16 + joinAll` array fan-out runs at roughly 5x the
 speed of `forkAff x16 + joinFiber` (it walks the array in a
@@ -174,7 +174,7 @@ sibling fibers are left alone. On the workspace benchmarks
 | Failure model | First-class `Cause e` everywhere (Then / Both / Interrupt) | Single `Variant e` or `Cause` reified at boundaries |
 | Virtual time | `TestClock` wakes sleeping fibers directly | `RIO.Aff.Test.Clock` simulated via `Clock` discipline |
 | STM atomicity | One commit per event-loop turn, plus `retry` parks on `TVar` change without spinning | Same atomicity model, no `TVar`-park retry |
-| Bind hot path | About 10 ns per `bind` (BIND fuses common leaf ops in the step loop) | About 33 ns per `bind` in the workspace bench |
+| Bind hot path | About 10 ns per `bind` (BIND fuses common leaf ops in the step loop) | About 90 ns per `bind` in the workspace bench |
 | Fork hot path | At parity with `forkAff` on `fork x16 + join each` once V8 is warm | About the same as `forkAff` |
 | Array fan-out | `forkAll` / `joinAll` are specialised ops; `forkAll x16 + joinAll` runs at roughly 5x the speed of `forkAff x16 + joinFiber` | `traverse forkAff` builds a per-element bind chain |
 

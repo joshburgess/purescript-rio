@@ -30,7 +30,7 @@ differs is how `RIO r e a` is interpreted at the bottom.
 | Failure model | First-class `Cause e` everywhere | Single `Variant e` (or `Cause` reified at boundaries) |
 | Virtual time | `TestClock` wakes sleeping fibers directly | Discipline-based via `Clock` service |
 | STM semantics | Event-loop atomicity plus `retry` parks on `TVar` change | Same atomicity model, no `TVar`-park retry |
-| Bind hot path | ~10 ns per `bind` (BIND fuses common leaf ops) | ~33 ns per `bind` |
+| Bind hot path | ~10 ns per `bind` (BIND fuses common leaf ops) | ~90 ns per `bind` |
 | Array fan-out | `forkAll x16 + joinAll` runs ~5x faster than `forkAff x16 + joinFiber` | Same as `Aff` |
 
 `rio-fiber` is the default because it owns the runtime end-to-end

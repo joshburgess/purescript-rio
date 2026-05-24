@@ -6,7 +6,7 @@ it is to make the cost model legible so users can reason about
 hot paths and so changes can spot regressions.
 
 The premier **rio-fiber** runtime is faster than rio-aff on the
-bind hot path (about 10 ns per `bind` versus 33 ns) and on
+bind hot path (about 10 ns per `bind` versus ~90 ns) and on
 fork-heavy fan-out (`forkAll x16 + joinAll` runs at roughly 5x
 the speed of `forkAff x16 + joinFiber`); see the rio-fiber
 README for the headline rio-fiber numbers and the

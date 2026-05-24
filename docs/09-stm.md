@@ -107,12 +107,17 @@ from separate `newTRef` calls are distinct, and writes do not
 clash. `modifyTRef` is `readTRef` then `writeTRef`; pulling it
 out as a primitive is just for readability.
 
-Both `RIO.Aff.STM` and `RIO.Fiber.STM` also export `TVar` as
-a type alias for `TRef`, with
-matching `newTVar` / `readTVar` / `writeTVar` / `modifyTVar`
-aliases. This is for muscle memory only: callers coming from
-ZIO or Haskell `stm` can spell the type either way, and both
-names point at the same value. There is no semantic difference.
+The `TVar` / `TRef` naming differs between the two packages.
+In `RIO.Aff.STM`, `TRef` is the primary newtype and `TVar` is
+a type alias for it (`type TVar = TRef`); both names point at
+the same value and `newTVar` / `readTVar` / `writeTVar` /
+`modifyTVar` exist alongside their `TRef`-suffixed siblings as
+muscle-memory aliases. In `RIO.Fiber.STM` the relationship is
+reversed: `TVar` is the primary newtype and there is no
+`TRef` alias, so the body sections below that talk about
+`TRef` (the structural details of cells, the identity story)
+should be read as describing rio-fiber's `TVar` under a
+different name when consulting the fiber source.
 
 `atomically` runs one transaction:
 

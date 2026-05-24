@@ -54,8 +54,9 @@ non-goals for the "is this real" milestone.
 - Kafka / Redis / MongoDB adapters
 - Deeper transactional STM features beyond what's already shipped
   (`atomically`, `retry`, `check`, `orElse`, `failSTM`), e.g.
-  nested transactions. (`TVar` ships as an alias for `TRef` for
-  muscle memory; there is no separate distinct type.)
+  nested transactions. (In rio-aff `TVar` ships as a type
+  alias for `TRef`, the primary newtype; in rio-fiber the
+  primary newtype is `TVar` and no `TRef` alias exists.)
 - A web framework on top of `rio-fiber-http` / `rio-aff-http`
   (HTTPurple is enough for the examples)
 - Cron / scheduled-job adapter (Schedule covers backoff; cron is a
