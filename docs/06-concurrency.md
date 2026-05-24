@@ -127,10 +127,14 @@ continuation on the macrotask queue, which gives any pending kill a
 chance to run first. The spike's S2b shows the kill lands within
 ~50 yield points when yielding every 100 iterations.
 
-There is no `RIO.yield` primitive because
-`liftAff (delay (Milliseconds 0.0))` is short, explicit, and exposes
-exactly what's happening at the `Aff` layer. A named helper can be
-introduced later if the ergonomic case for one emerges.
+rio-aff has no named yield primitive: `liftAff (delay
+(Milliseconds 0.0))` is short, explicit, and exposes exactly
+what's happening at the `Aff` layer. rio-fiber does ship a
+named helper for the same purpose: `RIO.Fiber.Core.yieldNow ::
+forall r e. RIO r e Unit` registers the continuation on the
+runtime's run queue so any pending interrupt has a chance to
+land. Inside rio-fiber code, prefer `yieldNow` to the
+delay-zero idiom (no `Effect.Aff` import needed).
 
 ## How `race` interacts with resources
 
@@ -347,5 +351,5 @@ pub/sub hubs. Both are part of the current surface.
   [`examples/worker-pool/`](../examples/worker-pool/) fans work
   out over a fixed `Semaphore`-bounded pool, drives it with
   `parTraverseCause` for multi-failure (cause-collecting)
-  accumulation, and demonstrates
-  `forkScoped` plus a `Deferred`-gated shutdown signal.
+  accumulation, and pairs a `fork`/`join` producer fiber with
+  a `Queue.shutdown` end-of-input signal.

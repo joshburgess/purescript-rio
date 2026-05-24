@@ -30,10 +30,16 @@ from it.
 > single-element constructor is also renamed: rio-aff's `single`
 > is rio-fiber's `emit`. Two stream runners also diverge in
 > name: rio-aff's `runDrain` and `runFold` are rio-fiber's `run`
-> and `fold` (`runFoldM` keeps the same name in both). A handful
-> of `RIO.Sink` primitives also diverge: rio-aff's `collect`,
-> `foldL`, `mapResult`, and `zipParWith` are rio-fiber's
-> `collectAll`, `fold`, `map`, and `zipWithPar`. Where a code
+> and `fold` (`runFoldM` keeps the same name in both). The
+> `runFold` / `fold` rename also flips argument order: rio-aff
+> takes `seed` first and `step` second (`runFold seed step
+> stream`), rio-fiber takes `step` first and `seed` second
+> (`fold step seed stream`). A handful of `RIO.Sink` primitives
+> also diverge: rio-aff's `collect`, `foldL`, `foldM`,
+> `mapResult`, and `zipParWith` are rio-fiber's `collectAll`,
+> `fold`, `foldRIO`, `map`, and `zipWithPar`; the `foldM` /
+> `foldRIO` Sink rename has the same `seed`-first vs `step`-
+> first argument flip as the stream-runner pair. Where a code
 > sample below uses an rio-aff name, rio-fiber readers should
 > substitute the matching name from this list.
 

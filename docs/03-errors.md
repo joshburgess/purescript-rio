@@ -1,9 +1,17 @@
 # Errors and Error Narrowing
 
 > **Naming convention.** Code samples in this guide use the
-> `RIO.Aff.*` module names. The typed-error handlers (`fail`,
-> `catchTag`, `catchAll`, `mapError`, `rethrow`) have identical
-> shapes in `RIO.Fiber.*`. The defect surface diverges:
+> `RIO.Aff.*` module names. The typed-error handlers
+> `catchTag`, `catchAll`, `mapError`, and `rethrow` have
+> identical shapes in `RIO.Fiber.*`. `fail` diverges: rio-aff
+> exposes `fail :: IsSymbol sym => Row.Cons sym a e' e => Proxy
+> sym -> a -> RIO r e b` (a `Proxy` tag plus a payload, with
+> the `Variant.inj` call hidden inside), while rio-fiber's
+> `fail :: Variant e -> RIO r e a` takes an already-constructed
+> `Variant`. The rio-fiber-equivalent of rio-aff's
+> `fail (Proxy :: Proxy "notFound") payload` is therefore
+> `fail (Variant.inj (Proxy :: Proxy "notFound") payload)`.
+> The defect surface diverges:
 > rio-aff's `sandbox :: RIO r e a -> RIO r e (Either Error a)`
 > and `unsandbox :: RIO r e (Either Error a) -> RIO r e a` are
 > rio-fiber's `causeOf :: RIO r e a -> RIO r e' (Either (Cause
