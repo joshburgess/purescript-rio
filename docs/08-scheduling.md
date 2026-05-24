@@ -14,7 +14,10 @@
 > rio-aff exports `mapSchedule` (with `mapOutput` as an alias);
 > rio-fiber exports only `mapOutput`. `once` returns
 > `Schedule r i Unit` in rio-aff but `Schedule a Int` in
-> rio-fiber (the integer is the step count). Two type-level
+> rio-fiber (the integer is the step count). `exponential` and
+> `fibonacci` have the same output-channel split: rio-aff
+> yields the current delay as `Milliseconds`, rio-fiber yields
+> the 1-indexed step count as `Int`. Two type-level
 > divergences: the rio-fiber `Schedule` is
 > `Schedule input output = Schedule (input -> Effect (Decision
 > input output))` (no env row; uses `Effect` rather than

@@ -121,7 +121,14 @@ Code samples in this guide use rio-aff spellings; rio-fiber
 readers substitute `askAt` / `asksAt` / `provideAt` for the
 symbol-indexed forms (`ask` / `asks` / `provide` taking a
 `Proxy`), and `fromAff` (from `RIO.Fiber.Aff`) for `liftAff`
-since rio-fiber does not implement `MonadAff` directly. The
+since rio-fiber does not implement `MonadAff` directly. A few
+more rio-fiber substitutions worth knowing up front:
+`scoped do ...` in code samples below is rio-aff's env-row
+form; rio-fiber's `scoped` takes the `Scope` as a lambda
+argument (`scoped \scope -> ...`). The layer combinators
+`>>>` (`andThen`) and `<+>` (`combine`) used in the Layers
+section are rio-aff infix aliases; rio-fiber spells them
+`chainLayer` and `mergeLayers` with no infix forms. The
 row-typed `ask` gives you the same "I need a
 `Logger` somewhere upstream" guarantee ZIO's `ZIO.serviceWith`
 does, checked at the type level. See `docs/02-services.md`.

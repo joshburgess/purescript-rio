@@ -11,8 +11,12 @@ either commits every staged write at once or applies none.
 > `RIO.Fiber.STM.*` (rio-fiber). The names mostly line up, but
 > a few categories of rename are worth knowing up front:
 >
-> - **TQueue.** `newTQueue` (rio-aff, unbounded) is `newSTM n`
->   in rio-fiber (bounded, takes capacity).
+> - **TQueue.** `newTQueue` (rio-aff, unbounded, STM-valued) is
+>   `new n` in rio-fiber (bounded, takes capacity, `Effect`-
+>   valued). rio-fiber also exports `newSTM n` for the STM-
+>   valued form, and adds `capacityTQueue` / `isFullTQueue` /
+>   `tryWriteTQueue` operations that have no rio-aff
+>   counterpart.
 > - **TMap.** `newTMap` / `insertTMap` / `lookupTMap` /
 >   `deleteTMap` / `memberTMap` / `sizeTMap` (rio-aff,
 >   STM-valued allocator) are `empty` / `insert` / `lookup` /
@@ -242,9 +246,11 @@ sketched at the end with surface-only summaries.
 
 ### `RIO.STM.TQueue`
 
-An unbounded FIFO queue. Producers `writeTQueue`; consumers
-`readTQueue`, which retries when the queue is empty and wakes
-up automatically the next time a producer commits.
+An unbounded FIFO queue (rio-fiber: bounded, constructed with
+`new capacity`; `writeTQueue` retries when the queue is full).
+Producers `writeTQueue`; consumers `readTQueue`, which retries
+when the queue is empty and wakes up automatically the next
+time a producer commits.
 
 ```purescript
 import RIO.STM (atomically)
