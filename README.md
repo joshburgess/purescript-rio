@@ -369,9 +369,9 @@ Programs are written against `RIO.Aff.*`.
 - `RIO.Aff.Tracer`, `RIO.Aff.Metrics`, `RIO.Aff.Logger`:
   observability services (each with noop, live, and recording
   backends).
-- `RIO.Aff.Local`: ambient state with scoped overrides. The
-  `RIO.Aff` analogue of ZIO `FiberRef`, but process-global
-  rather than per-fiber.
+- `RIO.Aff.Local`: ambient state with scoped overrides
+  (process-global, not per-fiber). For true per-fiber
+  snapshot-on-fork state see `RIO.Aff.FiberRef`.
 - `RIO.Aff.Spec`, `RIO.Aff.Test.*`: `itRIO` / `itRIO_` adapters
   for `purescript-spec`, plus recording test backends.
 

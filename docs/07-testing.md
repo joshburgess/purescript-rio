@@ -77,7 +77,8 @@ one specific service replaced and the rest threaded through.
 
 ## The `Clock` service
 
-`RIO.Clock` defines a service with two operations:
+In **rio-aff**, `RIO.Aff.Clock` defines a service with two
+operations:
 
 ```purescript
 type Clock =
@@ -89,8 +90,33 @@ type Clock =
 Smart constructors `now` and `sleep` read the record out of the
 environment and lift the chosen operation into `RIO`. Production
 code uses `liveClock` (`Effect.Now.now` plus `Effect.Aff.delay`);
-tests use `newTestClock` from `RIO.Test.Clock`, which returns the
-clock to inject plus an `advance` controller:
+tests use `newTestClock` from `RIO.Aff.Test.Clock`, which returns
+the clock to inject plus an `advance` controller.
+
+In **rio-fiber**, `RIO.Fiber.Clock` is shaped a little differently
+because it lives in a module-level `FiberRef` rather than the
+environment row:
+
+```purescript
+newtype Clock = Clock
+  { instant :: Effect Instant
+  , epoch   :: Effect Milliseconds
+  , sleep   :: Milliseconds -> Effect Unit -> Effect (Effect Unit)
+  }
+```
+
+The smart constructors are `currentTime`, `currentEpoch`, and
+`sleep`; the production constructor is `defaultClock`; the test
+clock comes from `RIO.Fiber.TestClock.make :: Milliseconds ->
+Effect TestClock`. The active clock is installed with
+`withClock` (which scopes the override to a block) rather than
+provided via `provideAll`, and the call site never carries
+`clock` on its env row.
+
+The walkthrough below uses the rio-aff shape; rio-fiber readers
+substitute `withClock (TestClock.clock tc)` for the
+`provideAll { clock: tc.clock }` line and `TestClock.make
+(Milliseconds 0.0)` for `newTestClock`:
 
 ```purescript
 import RIO.Test.Clock (newTestClock)
@@ -202,9 +228,9 @@ whether the layer is mocked or live.
 
 - `rio-aff/src/RIO/Aff/Clock.purs` and
   `rio-fiber/src/RIO/Fiber/Clock.purs`: the production service.
-- `rio-aff/src/RIO/Aff/Test/Clock.purs` and
-  `rio-fiber/src/RIO/Fiber/TestClock.purs`: `newTestClock` and
-  `advance`.
+- `rio-aff/src/RIO/Aff/Test/Clock.purs` (`newTestClock`,
+  `advance`) and `rio-fiber/src/RIO/Fiber/TestClock.purs`
+  (`make`, `clock`, `advance`).
 - `rio-aff/src/RIO/Aff/Spec.purs`: `itRIO`, `itRIO_`,
   `runSpecRIO`.
 - `rio-aff/src/RIO/Aff/Test.purs`: `mockService`, `recording`.

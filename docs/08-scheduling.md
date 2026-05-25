@@ -21,8 +21,11 @@
 > divergences: the rio-fiber `Schedule` is
 > `Schedule input output = Schedule (input -> Effect (Decision
 > input output))` (no env row; uses `Effect` rather than
-> `RIO r ()`), and the step ADT is `Decision` (`Halt` / `Step`)
-> rather than `Step` (`Done` / `Continue`).
+> `RIO r ()`), and the step ADT is `Decision`
+> (`Halt output` / `Step output Milliseconds next`) rather than
+> `Step` (`Done` / `Continue output Milliseconds next`). Note
+> that rio-fiber's `Halt` carries the final output value, while
+> rio-aff's `Done` is nullary.
 > Unqualified shorthand like `RIO.Schedule` in the prose
 > refers to whichever variant your package is using.
 
@@ -41,10 +44,10 @@ each step. You drive it with one of the runners:
 - `retryOrElse`: like `retry`, but on exhaustion a fallback runs
   with the final failure.
 
-All three sleep through the `Clock` service, so a virtual-time test
-clock (`RIO.Aff.Test.Clock.newTestClock`, rio-fiber:
-`RIO.Fiber.TestClock.newTestClock`) drives scheduled programs
-deterministically.
+All three sleep through the `Clock` service, so a virtual-time
+test clock (`RIO.Aff.Test.Clock.newTestClock`, rio-fiber:
+`RIO.Fiber.TestClock.make` plus `RIO.Fiber.Clock.withClock`)
+drives scheduled programs deterministically.
 
 ## The type
 
@@ -166,7 +169,12 @@ The two runners differ in *which channel feeds the schedule*:
 - `repeat` feeds the action's success value as input to the
   schedule. The schedule stops on `Done`; the runner returns the
   action's last value. Typed failures from the action short-circuit
-  the loop and surface on the parent's row.
+  the loop and surface on the parent's row. (rio-fiber:
+  `repeat :: Schedule a b -> RIO r e a -> RIO r e b` returns the
+  schedule's final output `b`, not the action's value `a`, since
+  rio-fiber's `Halt`/`Step` constructors carry the output. So
+  `repeat (recurs 3) action` returns the `Int` step count under
+  rio-fiber and the action's value under rio-aff.)
 - `retry` feeds the action's *failure* as input. The runner keeps
   retrying until the action succeeds or the schedule says `Done`.
   On exhaustion, the most recent failure surfaces; on success, the
