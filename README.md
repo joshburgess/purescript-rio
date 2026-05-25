@@ -29,7 +29,7 @@ differs is how `RIO r e a` is interpreted at the bottom.
 | Per-fiber state | `FiberRef` with copy-on-write to children | Shared `Effect.Ref` cells |
 | Failure model | First-class `Cause e` everywhere | Single `Variant e` (or `Cause` reified at boundaries) |
 | Virtual time | `TestClock` wakes sleeping fibers directly | Discipline-based via `Clock` service |
-| STM semantics | Event-loop atomicity plus `retry` parks on `TVar` change | Same atomicity model, no `TVar`-park retry |
+| STM semantics | Event-loop atomicity; `retry` parks on `TVar` change via the fiber scheduler | Same atomicity model; `retry` parks on `TRef` change via an `AVar` waiter (same observable semantics, different mechanism) |
 | Bind hot path | ~10 ns per `bind` (BIND fuses common leaf ops) | ~90 ns per `bind` |
 | Array fan-out | `forkAll x16 + joinAll` runs ~5x faster than `forkAff x16 + joinFiber` | Same as `Aff` |
 

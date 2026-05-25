@@ -173,7 +173,7 @@ sibling fibers are left alone. On the workspace benchmarks
 | Per-fiber state | `FiberRef` with copy-on-write to children | Shared `RIO.Aff.Local` cells (process-global) |
 | Failure model | First-class `Cause e` everywhere (Then / Both / Interrupt) | Single `Variant e` or `Cause` reified at boundaries |
 | Virtual time | `TestClock` wakes sleeping fibers directly | `RIO.Aff.Test.Clock` simulated via `Clock` discipline |
-| STM atomicity | One commit per event-loop turn, plus `retry` parks on `TVar` change without spinning | Same atomicity model, no `TVar`-park retry |
+| STM atomicity | One commit per event-loop turn; `retry` parks on `TVar` change via the fiber scheduler (no busy loop, no `AVar` hop) | Same atomicity and `retry`-on-`TRef`-change semantics, but parking is simulated via an `AVar` waiter against each read `TRef` rather than scheduler-native park |
 | Bind hot path | About 10 ns per `bind` (BIND fuses common leaf ops in the step loop) | About 90 ns per `bind` in the workspace bench |
 | Fork hot path | At parity with `forkAff` on `fork x16 + join each` once V8 is warm | About the same as `forkAff` |
 | Array fan-out | `forkAll` / `joinAll` are specialised ops; `forkAll x16 + joinAll` runs at roughly 5x the speed of `forkAff x16 + joinFiber` | `traverse forkAff` builds a per-element bind chain |

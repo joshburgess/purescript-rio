@@ -69,10 +69,15 @@ the summary:
   this with `forkScoped`, but the underlying fiber is not
   cancellable by closing a parent scope without explicit
   cancellation plumbing.
-- **No `TVar`-park retry in STM.** `RIO.Aff.STM` provides
-  event-loop atomicity, but `retry` cannot park on the set of
-  `TVar`s a transaction read and wake only when one of them
-  changes; rerunning is the only option.
+- **STM `retry` parks on an `AVar`, not the native scheduler.**
+  `RIO.Aff.STM`'s `retry` registers an `AVar` waiter against
+  every `TRef` the transaction read and blocks on `AVar.read`
+  until a writer signals one of them. The observable semantics
+  match `rio-fiber`'s scheduler-native park (no busy loop, wake
+  on `TRef` change), but the implementation goes through `Aff`'s
+  `AVar` primitive rather than parking the fiber directly. On
+  large contention or many-reader workloads the extra `AVar`
+  hop costs a few hundred nanoseconds per wake.
 - **Slower bind hot path.** About 90 ns per `bind` versus
   about 10 ns in `rio-fiber` on the workspace benchmarks.
 

@@ -257,7 +257,7 @@ propagates. The matching mental model is the same as
 | Build from value         | `ZLayer.succeed`        | `Layer.succeed`         | `fromRecord`                | `fromValue`                 |
 | Build from effect        | `ZLayer.fromZIO`        | `Layer.effect`          | `fromRIO`                   | `fromRIO`                   |
 | Sequential composition   | `>>>`                   | `Layer.provide`         | `>>>` (`andThen`)           | `chainLayer`                |
-| Horizontal composition   | `++`                    | `Layer.merge`           | `<+>` (`combine`)           | `mergeLayers`               |
+| Horizontal composition   | `++`                    | `Layer.merge`           | `<+>` (`combine`, also exported as `mergeLayers`) | `mergeLayers`               |
 | Carry inputs forward     | `>+>`                   | `Layer.provideMerge`    | `passthrough`               | `passthrough`               |
 | Run                      | `ZIO.provideLayer`      | `Effect.provide`        | `provideLayer`              | `provide` / `provideScoped` |
 | Resource safety          | `ZLayer.scoped`         | `Layer.scoped`          | built-in via `Scope`        | built-in via `Scope`        |
