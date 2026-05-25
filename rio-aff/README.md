@@ -47,11 +47,19 @@ the summary:
 - **No fiber identity.** `Aff` has no stable id per fiber, so
   tracing, metrics, and structured logging cannot correlate a
   span to "the fiber it ran on".
-- **No `FiberRef`.** Per-fiber state with copy-on-write fork
-  semantics requires the runtime to track which fiber is
-  currently stepping. `Aff` does not expose that. `RIO.Aff.Local`
-  uses `Effect.Ref` cells which are process-global; forked
-  fibers share them whether you wanted that or not.
+- **`FiberRef` is opt-in, not native.** `RIO.Aff.FiberRef`
+  provides true per-fiber state (snapshot-on-fork: the child
+  inherits a full eager copy at fork time, and subsequent
+  writes on either side stay local). It works without
+  scheduler-level fork hooks by carrying a per-fiber storage
+  map in the environment row under a `fiberRefs` service and
+  cloning the map inside `forkFiber` / `forkFiberScoped`
+  before delegating to `forkAff`. The cost is that callers
+  must use `forkFiber` (not plain `forkAff`) and the env row
+  must include `fiberRefs :: FiberRefs`; `RIO.Fiber.FiberRef`
+  bakes both into the runtime and needs neither. `RIO.Aff.Local`
+  remains the shared-`Effect.Ref` model (no per-fiber
+  isolation) for the simpler "ambient context" use case.
 - **No first-class `Cause` tree.** `Aff` collapses everything
   into one error channel. `rio-aff` reifies `Cause` at
   boundaries (`attemptCause`, `parTraverseCause`, `raceCause`,

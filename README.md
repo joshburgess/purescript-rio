@@ -26,7 +26,7 @@ differs is how `RIO r e a` is interpreted at the bottom.
 | Runtime | Custom hand-rolled fiber interpreter | Sits on top of `Effect.Aff` |
 | Module prefix | `RIO.Fiber.*` | `RIO.Aff.*` |
 | Fiber identity | Numeric id with supervisor hooks | None |
-| Per-fiber state | `FiberRef` with copy-on-write to children | Shared `Effect.Ref` cells |
+| Per-fiber state | `FiberRef` baked into the runtime; eager snapshot-on-fork | `RIO.Aff.FiberRef` with the same snapshot-on-fork semantics, opt-in via a `fiberRefs` env service and `forkFiber`; `RIO.Aff.Local` is the simpler shared-`Effect.Ref` model |
 | Failure model | First-class `Cause e` everywhere | Single `Variant e` (or `Cause` reified at boundaries) |
 | Virtual time | `TestClock` wakes sleeping fibers directly | Discipline-based via `Clock` service |
 | STM semantics | Event-loop atomicity; `retry` parks on `TVar` change via the fiber scheduler | Same atomicity model; `retry` parks on `TRef` change via an `AVar` waiter (same observable semantics, different mechanism) |
@@ -35,8 +35,9 @@ differs is how `RIO r e a` is interpreted at the bottom.
 
 `rio-fiber` is the default because it owns the runtime end-to-end
 and unlocks behaviour the `Aff` foundation structurally cannot
-give us (fiber identity, FiberRef, full `Cause` tree, a TestClock
-that actually wakes parked fibers, and structured concurrency in
+give us (fiber identity, native FiberRef baked into every fork,
+full `Cause` tree, a TestClock that actually wakes parked
+fibers, and structured concurrency in
 the proper sense). `rio-aff` exists for codebases that want the
 three-channel design without leaving the `Effect.Aff` ecosystem,
 and for the interop story: an `Aff` program can call into a
@@ -139,13 +140,19 @@ inside `Aff`'s canceler protocol.
   Tracing, metrics, and structured logging are built on this.
   `Aff` has no fiber id at all; you cannot correlate a span to
   a fiber.
-- **`FiberRef` with copy-on-write fork semantics.** Per-fiber
-  state that is copied to children on `fork` and shared until
-  either side mutates. This is what makes scoped log
+- **`FiberRef` with snapshot-on-fork semantics, baked into
+  every fork.** Per-fiber state that is eagerly cloned into the
+  child at fork time; subsequent writes on either side stay
+  local to that fiber. This is what makes scoped log
   annotations, span context inheritance, and trace propagation
-  work without threading them through every signature. The
-  `Aff`-backed equivalent (`Effect.Ref` cells) is process-global;
-  forked fibers share it whether you wanted that or not.
+  work without threading them through every signature.
+  `rio-aff` ships the same semantics via `RIO.Aff.FiberRef`,
+  but each fork must use `forkFiber` (or `forkFiberScoped`)
+  and the env row must carry a `fiberRefs` service for the
+  storage map; `rio-fiber`'s version is native, so plain
+  `fork` already snapshots correctly. `RIO.Aff.Local` is the
+  separate shared-`Effect.Ref` model for the simple
+  "ambient context" use case.
 - **Structured concurrency via `Scope`.** `forkScoped` ties a
   child's lifetime to a scope; `forkSupervised` ties it to the
   nearest `supervised` block via an ambient `FiberRef`. When the

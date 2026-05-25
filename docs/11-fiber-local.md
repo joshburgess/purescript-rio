@@ -135,8 +135,16 @@ locally requestId req.id do
 ```
 
 Or, if you need true per-fiber isolation throughout the
-program, switch to the rio-fiber package and use
-`RIO.Fiber.Local`.
+program, reach for `RIO.Aff.FiberRef`: it provides eager
+snapshot-on-fork state on `Aff` (the child gets a full copy of
+the parent's view at fork time; subsequent writes on either
+side stay local). The cost is opt-in plumbing: callers must
+use `forkFiber` rather than `forkAff`, and the env row must
+include `fiberRefs :: FiberRefs`. The rio-fiber package bakes
+the same semantics into the runtime and exposes them via
+`RIO.Fiber.FiberRef` without that plumbing; `RIO.Fiber.Local`
+is the fiber-side mirror of `RIO.Aff.Local`'s ambient-context
+shape.
 
 **Writes from any fiber are visible everywhere.** `set` and
 `update` write to the shared `Ref`. A sibling fiber that reads
@@ -149,10 +157,14 @@ for `RIO.Aff.STM` or a `RIO.Aff.Deferred` instead of a `Local`.
 
 This trade-off is the same one `RIO.Aff.Tracer` makes for its
 implicit parent / child context. The PureScript runtime here is
-`Aff`, and `Aff` does not expose fork hooks we could use to
-instrument per-fiber snapshotting. rio-fiber's custom
-interpreter does provide those hooks, which is why
-`RIO.Fiber.Local` can offer the strict per-fiber model.
+`Aff`, and `Aff` exposes no fork hooks we could use to
+instrument per-fiber snapshotting transparently underneath a
+plain `Ref`. `RIO.Aff.FiberRef` works around that by doing the
+snapshot explicitly inside its own `forkFiber` wrapper, but it
+trades the transparency of `Local` for opt-in plumbing.
+rio-fiber's custom interpreter snapshots on every fork at the
+scheduler level, so `RIO.Fiber.FiberRef` offers the strict
+per-fiber model without either compromise.
 
 ## Nesting
 

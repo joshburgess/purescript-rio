@@ -170,7 +170,7 @@ sibling fibers are left alone. On the workspace benchmarks
 |---|---|---|
 | Cancellation | Structured: interrupt request observed at safe points; finalizers always run | `Aff` canceler protocol; interruption is cooperative |
 | Fiber identity | Numeric id, supervisor hooks, observe | None |
-| Per-fiber state | `FiberRef` with copy-on-write to children | Shared `RIO.Aff.Local` cells (process-global) |
+| Per-fiber state | `FiberRef` baked into the runtime; eager snapshot-on-fork | `RIO.Aff.FiberRef` with the same snapshot-on-fork semantics, opt-in via a `fiberRefs` env service and `forkFiber`; `RIO.Aff.Local` is the simpler shared-`Effect.Ref` model |
 | Failure model | First-class `Cause e` everywhere (Then / Both / Interrupt) | Single `Variant e` or `Cause` reified at boundaries |
 | Virtual time | `TestClock` wakes sleeping fibers directly | `RIO.Aff.Test.Clock` simulated via `Clock` discipline |
 | STM atomicity | One commit per event-loop turn; `retry` parks on `TVar` change via the fiber scheduler (no busy loop, no `AVar` hop) | Same atomicity and `retry`-on-`TRef`-change semantics, but parking is simulated via an `AVar` waiter against each read `TRef` rather than scheduler-native park |

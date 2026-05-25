@@ -251,10 +251,16 @@ current value at read time, and a child's writes are visible
 to the parent.
 
 This is documented in [`docs/11-fiber-local.md`](./11-fiber-local.md)
-and is intentional for the `Aff` model, but it does mean code
-that assumes ZIO-style fork isolation will break in surprising
-ways. A custom runtime is the only way to provide both
-semantics; with `Aff` you pick one.
+and is intentional for the `Aff` model. When the per-fiber
+isolation semantic is what you actually want, reach for
+`RIO.Aff.FiberRef` instead: it provides eager snapshot-on-fork
+state on top of `Aff` by carrying a per-fiber storage map under
+a `fiberRefs` env service and cloning that map inside
+`forkFiber` before delegating to `forkAff`. The cost is opt-in
+plumbing (callers must use `forkFiber` rather than `forkAff`,
+and the env row must include `fiberRefs :: FiberRefs`);
+`RIO.Fiber.FiberRef` bakes the same semantics into the runtime
+and needs neither.
 
 ### 6. The scheduler is the JS event loop
 
@@ -392,10 +398,15 @@ a forward roadmap; everything in it now ships in
 - **First-class `Interrupted` leaf.** Kills propagate as
   `Cause.Interrupt FiberId` rather than as `Aff` cancellation
   that finalisers reconstruct.
-- **`FiberRef` with copy-on-fork semantics.** Per-fiber state
-  that is shared until either side mutates and then forks
-  copy-on-write. `RIO.Fiber.Ref` is the primitive; `Local`-style
-  ambient state is one use of it.
+- **`FiberRef` baked into every fork.** Per-fiber state with
+  eager snapshot-on-fork: the child gets a full copy of the
+  parent's view at fork time, and subsequent writes on either
+  side stay local. `RIO.Fiber.FiberRef` is the primitive;
+  `Local`-style ambient state is one use of it. The same
+  semantics are available on `Aff` via `RIO.Aff.FiberRef`, but
+  there they cost an explicit `fiberRefs` env service and a
+  `forkFiber` wrapper around `forkAff`; on the fiber runtime
+  every fork already snapshots, so the plumbing disappears.
 - **Interrupt masking with restoration.** `uninterruptible`
   with a `restore` block, nested correctly, the way ZIO does it.
 - **Fiber identity and supervision.** A real `FiberId`, parent /
