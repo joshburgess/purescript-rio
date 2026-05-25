@@ -407,9 +407,11 @@ a forward roadmap; everything in it now ships in
   parked on a deadline `<= now + n` and resumes it. No more
   Clock-discipline workaround.
 - **Structured `Exit` (`Cause`) to finalisers.** Releases see
-  the failure cause; `addFinalizerExit` (rio-fiber) or
-  `Cause.acquireReleaseCause` (rio-aff's bracket variant) is
-  the cause-tracking surface.
+  the failure cause via `addFinalizerExit`, which both packages
+  ship with the same signature. rio-aff additionally offers
+  `Cause.acquireReleaseCause` as a bracket-scoped variant for
+  cases where you want the release callback to receive the cause
+  inline rather than registering it against a `Scope`.
 - **Native STM retry parking.** Both packages give you the
   same `retry`-on-`TVar`-change semantics at the user level
   (transactions wake when a read `TVar` / `TRef` changes, no

@@ -25,9 +25,10 @@
 > hands the `Scope` to the body as a lambda argument instead
 > (see `docs/05-resources.md`). The `addFinalizer scope
 > closeFoo` calls in the layer-body examples take an `Aff Unit`
-> finalizer in rio-aff but `Effect Unit` in rio-fiber; the
-> rio-fiber-side `addFinalizerRIO` is the equivalent for a
-> `RIO r () Unit` finalizer.
+> finalizer in rio-aff but `Effect Unit` in rio-fiber; both
+> packages also export `addFinalizerRIO` for a
+> `RIO r () Unit` finalizer and `addFinalizerExit` for a
+> cause-aware finalizer.
 
 A `Layer rIn e rOut` is a recipe for constructing a record of
 services `rOut` from a record of services `rIn`, possibly

@@ -12,9 +12,11 @@
 >   below is rio-aff-shaped; the rio-fiber equivalent is
 >   `ensuring drainPool serveRequests`.
 > - `addFinalizer` takes an `Aff Unit` finalizer in rio-aff and
->   an `Effect Unit` finalizer in rio-fiber. rio-fiber callers
->   that have a `RIO r () Unit` finalizer use `addFinalizerRIO`
->   instead.
+>   an `Effect Unit` finalizer in rio-fiber. Both packages also
+>   export `addFinalizerRIO` for a `RIO r () Unit` finalizer
+>   and `addFinalizerExit` for a cause-aware finalizer
+>   (`Maybe (Cause e) -> Effect Unit`); only the payload type of
+>   the plain `addFinalizer` itself differs between packages.
 > - `Scope` is a two-field record in rio-aff (the constructor
 >   is exported under `RIO.Aff.Resource`); in rio-fiber it is
 >   opaque (`foreign import data Scope :: Type` in
