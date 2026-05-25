@@ -7,10 +7,15 @@
 > / `provideAt` so they can coexist with `RIO.Fiber.Core`'s
 > whole-record `ask` / `asks` (which return the entire `Record
 > r` without taking a `Proxy`). `provideAll` matches in both
-> packages. The `main` snippet below also uses `launchAff_`
-> because rio-aff's `runRIO` returns `Aff`; rio-fiber's
-> `runRIO` returns `Effect` and is run directly (no
-> `launchAff_` wrapper).
+> packages. The `liftAff` calls in the code samples below
+> rely on rio-aff's `MonadAff` instance; rio-fiber does not
+> implement `MonadAff`, so fiber callers substitute `fromAff`
+> (from `RIO.Fiber.Aff`). The `LogLevel` constructor `LogInfo`
+> below is rio-aff's spelling; rio-fiber spells the same
+> constructor `Info` (no `Log` prefix). The `main` snippet
+> below also uses `launchAff_` because rio-aff's `runRIO`
+> returns `Aff`; rio-fiber's `runRIO` returns `Effect` and is
+> run directly (no `launchAff_` wrapper).
 
 RIO uses `ask` / `asks` for reading a service out of the
 environment, and `provide` / `provideAll` for supplying one. This
@@ -43,12 +48,12 @@ operation back into `RIO`:
 info :: forall r e. String -> RIO (logger :: Logger | r) e Unit
 info msg = do
   logger <- ask (Proxy :: Proxy "logger")
-  liftAff (logger.log Info msg)
+  liftAff (logger.log LogInfo msg)
 ```
 
 The split (concrete operations on the record, smart constructors in
 `RIO`) is what makes the service ergonomic to consume. Callers write
-`info "hello"`; they do not write `do l <- ask _; liftAff (l.log Info "hello")`.
+`info "hello"`; they do not write `do l <- ask _; liftAff (l.log LogInfo "hello")`.
 
 ## Wiring it up
 
@@ -109,7 +114,7 @@ type Logger =
 The intention is "any caller in any `MonadAff` can call it". The reality
 is that PureScript's row solver cannot project a rank-N field out of a
 record at a concrete instantiation, and the call site
-`logger.log Info "hello"` fails to infer `m`. The error is verbose and
+`logger.log LogInfo "hello"` fails to infer `m`. The error is verbose and
 points at the wrong place.
 
 Keep operations at concrete `Aff` (or `Effect`) and lift them in the

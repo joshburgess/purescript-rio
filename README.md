@@ -195,7 +195,7 @@ inside `Aff`'s canceler protocol.
   the resulting `Cause.Then`. `Aff`'s canceler protocol cannot
   represent a finalizer-failed-while-cleaning-up scenario.
 
-On the workspace benchmarks the bind hot path is roughly 4x
+On the workspace benchmarks the bind hot path is roughly 9x
 faster than `Aff`; `fork x16 + join each` is at parity with
 `forkAff` once V8's JIT is warm; and the specialised
 `forkAll x16 + joinAll` array fan-out runs at roughly 5x the
@@ -232,7 +232,7 @@ short version is the column on the right of the table at the
 top of this README. Specifically: no fiber identity, no
 per-fiber state, no full `Cause` tree, no test clock that wakes
 sleeping fibers, no first-class structured concurrency, and a
-~3x bind hot path overhead relative to `rio-fiber`.
+~9x bind hot path overhead relative to `rio-fiber`.
 
 Note that `rio-aff` still ships its own `Cause` reifier
 (`attemptCause`, `parTraverseCause`, `prettyCauseWithStack`) and
