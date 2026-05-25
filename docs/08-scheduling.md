@@ -73,8 +73,9 @@ depend on them.
 recurs      :: Int -> Schedule r i Int               -- up to n times
 spaced      :: Milliseconds -> Schedule r i Int      -- fixed gap, forever
 exponential :: Milliseconds -> Number -> Schedule r i Milliseconds
+                                                     -- rio-fiber: Schedule i Int
 forever     :: Schedule r i Int                      -- spaced 0
-once        :: Schedule r i Unit
+once        :: Schedule r i Unit                     -- rio-fiber: Schedule i Int
 ```
 
 A few examples:

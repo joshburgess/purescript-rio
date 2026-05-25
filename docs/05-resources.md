@@ -146,13 +146,19 @@ This trades aggregated error reporting for guaranteed release; a
 future change could collect the exceptions into a `Cause` tree
 without changing the semantics for the success path.
 
-The `Scope` data constructor is exported for use inside the
-library (specifically `RIO.Aff.Layer.provideLayer` in rio-aff,
-and `RIO.Fiber.Layer.provideScoped` in rio-fiber, which need to
-share one scope across a layer-build phase and a program-run
-phase). `RIO.Aff.Core` / `RIO.Fiber.Core` re-export only the
-opaque type, so user code that reaches the library through those
-modules cannot construct a `Scope` directly.
+In rio-aff, `Scope` is a `newtype` and its data constructor is
+exported for use inside the library (specifically
+`RIO.Aff.Layer.provideLayer`, which needs to share one scope
+across a layer-build phase and a program-run phase). In rio-fiber,
+`Scope` is a foreign type (`foreign import data Scope :: Type`)
+with no PureScript data constructor; the scope-owning entry point
+in `RIO.Fiber.Layer` is `provide`, which opens a fresh scope via
+`RIO.Fiber.Scope.scoped` and threads it through layer build and
+program execution (`provideScoped` is a thin alias for
+`provide (scoped build)`, not itself a separate scope owner).
+`RIO.Aff.Core` / `RIO.Fiber.Core` re-export only the opaque type,
+so user code that reaches the library through those modules cannot
+construct a `Scope` directly.
 
 ## `RIO.Resource.Do`: qualified-do sugar
 

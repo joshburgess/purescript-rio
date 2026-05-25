@@ -77,9 +77,15 @@ counterStoreLayer = fromRIO do
 ```
 
 The `RIO` action inside `fromRIO` runs in
-`(scope :: Scope | rIn)`: it can `ask` for upstream services,
-lift `Aff`, and register finalizers with the surrounding scope.
-What it returns is the produced record.
+`(scope :: Scope | rIn)` in rio-aff: it can `ask` for upstream
+services, lift `Aff`, and register finalizers with the
+surrounding scope. In rio-fiber, `fromRIO` discards the scope
+(its definition is `fromRIO build = Layer (\_ -> build)`), so
+the body runs in plain `rIn` and cannot register finalizers
+on the build scope; use rio-fiber's `scoped` constructor
+(which takes the scope as an argument) when you need to attach
+finalizers to a layer's resources. What `fromRIO` returns in
+either package is the produced record.
 
 ## Sequential composition: `andThen` / `>>>`
 

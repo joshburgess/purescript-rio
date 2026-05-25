@@ -53,10 +53,12 @@ non-goals for the "is this real" milestone.
   `Channel` already cover)
 - Kafka / Redis / MongoDB adapters
 - Deeper transactional STM features beyond what's already shipped
-  (`atomically`, `retry`, `check`, `orElse`, `failSTM`), e.g.
-  nested transactions. (In rio-aff `TVar` ships as a type
-  alias for `TRef`, the primary newtype; in rio-fiber the
-  primary newtype is `TVar` and no `TRef` alias exists.)
+  (`atomically`, `retry`, `check`, `orElse`, plus `failSTM` in
+  rio-aff only), e.g. nested transactions. (In rio-aff `TVar`
+  ships as a type alias for `TRef`, the primary newtype; in
+  rio-fiber the primary newtype is `TVar`, no `TRef` alias
+  exists, and `STM` carries no error row, so `failSTM` has no
+  rio-fiber counterpart.)
 - A web framework on top of `rio-fiber-http` / `rio-aff-http`
   (HTTPurple is enough for the examples)
 - Cron / scheduled-job adapter (Schedule covers backoff; cron is a

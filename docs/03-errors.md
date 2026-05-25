@@ -137,11 +137,13 @@ runStep3 = runRIO' step3
 Inferred type:
 
 ```
-Aff Int
+Aff Int          -- rio-aff
+Effect Int       -- rio-fiber: runRIO' :: RIO () () a -> Effect a
 ```
 
-`runRIO'` accepts only `RIO () () a` and produces `Aff a`, no `Either`
-wrapper, because the error row is uninhabited.
+`runRIO'` accepts only `RIO () () a` and produces `Aff a` (rio-aff)
+or `Effect a` (rio-fiber), no `Either` wrapper, because the error row
+is uninhabited.
 
 ## What `catchAll` and `mapError` add
 
