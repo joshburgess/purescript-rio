@@ -4,9 +4,15 @@
 > `RIO.Aff.*` module names. The same concepts exist under
 > `RIO.Fiber.*` for the premier rio-fiber package, with several
 > renames worth knowing: rio-aff's `fromRecord` is rio-fiber's
-> `fromValue`; rio-aff's `buildLayer` / `provideLayer` are
-> rio-fiber's `provide` / `provideScoped` (the runners take a
-> `Scope` instead of returning one); and rio-aff's composition
+> `fromValue`; rio-aff's `provideLayer` is rio-fiber's
+> `provide` (both open a fresh scope internally and keep it
+> open for the inner program), and rio-fiber's `provideScoped`
+> is a convenience alias for `provide (scoped build)` for
+> inline scope-consuming build functions. rio-fiber has no
+> direct counterpart to rio-aff's `buildLayer` (the "build the
+> record once, close the scope, return the record" runner);
+> use `provide` with a thin program if you need that shape.
+> rio-aff's composition
 > combinators `andThen` (infix `>>>`) and `combine` (infix
 > `<+>`) are rio-fiber's `chainLayer` and `mergeLayers` (rio-fiber
 > defines no infix-operator aliases for these). Where the

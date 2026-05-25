@@ -220,16 +220,24 @@ returned `Aff` (or by `sandbox`).
 sandbox :: forall r e a. RIO r e a -> RIO r e (Either Error a)
 ```
 
-`sandbox` runs the inner program and:
+`sandbox` runs the inner program and produces an `Either Error a`
+inside the same `RIO r e` (the success channel; the error row is
+unchanged). When you bind `result <- sandbox action`:
 
-- **Success → `Right (Right a)`.** Normal path.
-- **Defect → `Right (Left err)`.** The defect is now a value, visible
-  to the rest of the program.
-- **Typed failure → `Left v`.** Typed failures are **not** absorbed;
-  they continue to propagate. `sandbox` is for defects only.
+- **Success → `result = Right a`.** Normal path; the wrapped value
+  is `Right a :: Either Error a`.
+- **Defect → `result = Left err`.** The defect has been reified
+  into a value; the bind succeeds with `Left err :: Either Error a`.
+- **Typed failure → propagates.** Typed failures are **not**
+  absorbed; they continue to short-circuit through the error row
+  exactly as they would without `sandbox`. `sandbox` is for
+  defects only.
 
 Note the error row is unchanged: `sandbox` doesn't lie about typed
-failures, only adds visibility for defects.
+failures, only adds visibility for defects. The extra outer
+`Right` / `Left` you see at the top level comes from `runRIO`'s
+`Either (Variant e)` wrapper, not from `sandbox` itself; e.g.
+`runRIO (sandbox program) :: Aff (Either (Variant e) (Either Error a))`.
 
 ### `unsandbox` to put a defect back
 

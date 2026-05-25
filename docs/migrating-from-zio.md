@@ -55,12 +55,16 @@ ZIO.attempt { computeInt() }
 ```purescript
 pure 42
 fail (Proxy :: Proxy "oops") unit
+-- rio-fiber: fail (Variant.inj (Proxy :: Proxy "oops") unit)
 liftEffect computeInt
 ```
 
-`ZIO.fail` takes a value; RIO's `fail` takes a `Proxy` tag plus
-a payload, which adds the tag to the inferred error row. See
-`docs/03-errors.md` for the rationale (it lets multiple
+`ZIO.fail` takes a value; rio-aff's `fail` takes a `Proxy` tag
+plus a payload, which adds the tag to the inferred error row.
+rio-fiber's `fail :: Variant e -> RIO r e a` takes an
+already-constructed `Variant` directly, so the rio-fiber
+equivalent of the line above is `fail (Variant.inj (Proxy :: _ "oops") unit)`.
+See `docs/03-errors.md` for the full split (it lets multiple
 failures coexist in the row without a sealed hierarchy).
 
 `ZIO.attempt` captures any thrown exception. RIO splits this

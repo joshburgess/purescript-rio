@@ -129,8 +129,9 @@ without changing the shape of the policy:
 jittered 0.8 1.2 (exponential (Milliseconds 100.0) 2.0)
 ```
 
-`mapSchedule` transforms the output value. The cadence is
-preserved; only the output side changes.
+`mapSchedule` (rio-fiber: `mapOutput`; rio-aff also exports
+`mapOutput` as a thin alias) transforms the output value. The
+cadence is preserved; only the output side changes.
 
 ## Putting it together
 
