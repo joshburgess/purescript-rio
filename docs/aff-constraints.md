@@ -410,9 +410,14 @@ a forward roadmap; everything in it now ships in
   the failure cause; `addFinalizerExit` (rio-fiber) or
   `Cause.acquireReleaseCause` (rio-aff's bracket variant) is
   the cause-tracking surface.
-- **STM with `retry`-on-`TVar`-change.** Transactions park on
-  the set of `TVar`s they read and wake only when one of them
-  changes; no rerunning loop.
+- **Native STM retry parking.** Both packages give you the
+  same `retry`-on-`TVar`-change semantics at the user level
+  (transactions wake when a read `TVar` / `TRef` changes, no
+  busy loop); the difference is implementation. `rio-fiber`'s
+  STM parks fibers directly on the runtime scheduler;
+  `rio-aff`'s `atomically` simulates the same behaviour by
+  registering an `AVar` waiter on every read `TRef` and
+  blocking on `AVar.read` until a writer signals one of them.
 - **Higher fork throughput.** `forkAll x16 + joinAll` runs at
   roughly 5x the speed of `forkAff x16 + joinFiber` (a single
   specialised op vs. a per-element bind chain).

@@ -66,8 +66,10 @@ failures coexist in the row without a sealed hierarchy).
 `ZIO.attempt` captures any thrown exception. RIO splits this
 into two: `liftEffect` for a synchronous `Effect`, `liftAff`
 for an `Aff`. Neither catches; thrown exceptions land in the
-defect channel, recoverable via `sandbox` (mirroring ZIO's
-`sandbox` / `catchAllCause` distinction).
+defect channel, recoverable via `sandbox` in rio-aff or
+`causeOf` in rio-fiber (both mirror ZIO's `sandbox` /
+`catchAllCause` distinction; see `docs/14-causes.md` for the
+spelling split).
 
 ## Composing
 
@@ -129,7 +131,11 @@ argument (`scoped \scope -> ...`). The layer combinators
 `>>>` (`andThen`) and `<+>` (`combine`) used in the Layers
 section are rio-aff infix aliases; rio-fiber spells them
 `chainLayer` and `mergeLayers` with no infix forms. The
-row-typed `ask` gives you the same "I need a
+defect-recovery primitive `sandbox` used in the "Lifting
+values" section is rio-aff-only; rio-fiber spells the
+equivalent `causeOf` (it returns `Either (Cause e) a` rather
+than `Either Error a`). The row-typed `ask` gives you the
+same "I need a
 `Logger` somewhere upstream" guarantee ZIO's `ZIO.serviceWith`
 does, checked at the type level. See `docs/02-services.md`.
 

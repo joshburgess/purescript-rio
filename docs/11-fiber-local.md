@@ -22,8 +22,10 @@ The classic use cases are:
   own ambient values.
 
 ```purescript
+import RIO.Aff.Env (ask)
 import RIO.Aff.Local (Local, get, locally, newLocal)
 -- rio-fiber: import RIO.Fiber.Local (Local, get, locally, newLocal)
+-- rio-fiber: (no ask import needed; use the record-accessor `asks` below)
 
 type Env =
   { logger :: Logger
@@ -35,7 +37,8 @@ handleRequest
    . Request
   -> RIO Env e Response
 handleRequest req = do
-  requestId <- asks _.requestId
+  requestId <- ask (Proxy :: Proxy "requestId")
+  -- rio-fiber: requestId <- asks _.requestId
   locally requestId req.id do
     -- everything inside this block sees req.id as the
     -- request ID; after the block exits, the previous value

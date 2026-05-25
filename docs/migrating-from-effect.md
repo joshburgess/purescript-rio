@@ -71,8 +71,10 @@ failures coexist in the row without a sealed union type).
 `Effect.try` captures any thrown exception. RIO splits this
 into two: `liftEffect` for a synchronous `Effect`, `liftAff`
 for an `Aff`. Neither catches; thrown exceptions land in the
-defect channel, recoverable via `sandbox` (mirroring
-Effect's `Effect.sandbox` / `Effect.catchAllCause`).
+defect channel, recoverable via `sandbox` in rio-aff or
+`causeOf` in rio-fiber (both mirror Effect's
+`Effect.sandbox` / `Effect.catchAllCause`; see
+`docs/14-causes.md` for the spelling split).
 
 ## Composing
 
@@ -133,7 +135,11 @@ form; rio-fiber's `scoped` takes the `Scope` as a lambda
 argument (`scoped \scope -> ...`). The layer combinators
 `>>>` (`andThen`) and `<+>` (`combine`) used in the Layers
 section are rio-aff infix aliases; rio-fiber spells them
-`chainLayer` and `mergeLayers` with no infix forms. Both
+`chainLayer` and `mergeLayers` with no infix forms. The
+defect-recovery primitive `sandbox` used in the "Lifting
+values" section is rio-aff-only; rio-fiber spells the
+equivalent `causeOf` (it returns `Either (Cause e) a` rather
+than `Either Error a`). Both
 designs check at the type level that the
 service is present somewhere upstream. Effect uses a
 `Context.Tag` and intersection in `R`; RIO uses a `Proxy`
