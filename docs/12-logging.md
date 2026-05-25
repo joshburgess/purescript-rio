@@ -172,46 +172,65 @@ withFields [ Tuple "request.id" "outer", Tuple "tenant" "acme" ] do
 
 ## Restoration and termination
 
-`withFields` restores the previous annotation set with
-`Aff.finally`, so the restore runs on every termination path:
-success, typed failure, defect, and fiber interruption
-mid-block. This is the same guarantee `RIO.Aff.Local` and
-`RIO.Aff.Tracer` make. (rio-fiber: `annotateLogs` runs through
-the fiber runtime's `ensuring` finalizer rather than
-`Aff.finally`, with the same observable semantics.)
+`withFields` does not mutate the active logger's annotation
+ref. Instead it allocates a fresh private `Ref` initialised to
+the merged annotation set, swaps in a scoped `Logger` record
+whose `getAnnotations` / `setAnnotations` point at that private
+`Ref`, and runs `action` against the swapped record. The
+caller's logger value is never written. When `action` exits on
+any path (success, typed failure, defect, fiber interruption
+mid-block) the swapped record simply falls out of scope and the
+caller continues to see the original logger; no `Aff.finally`
+or finaliser is involved. (rio-fiber: `annotateLogs` swaps the
+active logger via the `FiberRef`-backed `withLogger`, which
+uses `locally` with an `ensuring` finaliser; the observable
+"annotations are restored on every termination path" behaviour
+is the same, but the mechanism is different.)
 
 ## Concurrency and fork inheritance
 
-The annotation set is stored in a `Ref` inside the `Logger`
-record. A forked fiber that emits a log line reads whatever
-annotations are current at emission time; writes from any
-fiber are visible to every fiber. This is the implicit-context
-model `RIO.Aff.Tracer` and `RIO.Aff.Local` use, and the trade-off
-is the same:
+The analysis below applies to **rio-aff** only. rio-fiber's
+`annotateLogs` stores the active logger in a module-level
+`FiberRef`, so forks get a copy-on-fork snapshot and sibling
+fibers cannot overwrite each other's annotations; per-fiber
+isolation is real.
+
+In rio-aff, each `withFields` call swaps in a scoped `Logger`
+whose annotation `Ref` is a fresh per-block private cell. A
+child fiber forked inside the block captures that swapped
+logger in its environment, so it reads the *block-scoped*
+private `Ref` (not the outermost logger's ref). Writes from
+any fiber holding the same scoped logger are visible to every
+sibling sharing it. This is the implicit-context model
+`RIO.Aff.Tracer` and `RIO.Aff.Local` use, and the trade-off is
+the same:
 
 - works correctly for the common pattern: snapshot annotations
   at the top of a request with `withFields`, fork child fibers
   inside the block, and `join` them before the block exits;
 - does not give per-fiber isolation. A sibling fiber that
-  installs its own annotations via `withFields` will overwrite
-  the shared cell for the duration of its block; if a parent
-  emits in that window the parent will see the sibling's
-  fields.
+  installs its own annotations inside the same `withFields`
+  block (without a further nested `withFields`) will overwrite
+  the shared per-block cell; if another fiber sharing the same
+  scoped logger emits in that window it will see those fields.
 
 For genuinely independent log contexts across concurrent
 fibers, capture the relevant values explicitly at the fork
-point and pass them as arguments. See `docs/11-fiber-local.md`
-for the same discussion in the `RIO.Aff.Local` setting.
+point and pass them as arguments, nest each fiber's work in
+its own `withFields` block (which gives that fiber its own
+private cell), or move to rio-fiber's `annotateLogs`. See
+`docs/11-fiber-local.md` for the same discussion in the
+`RIO.Aff.Local` setting.
 
 ## Comparison to ZIO and Effect
 
-| Concept                | RIO                                 | ZIO                                  | Effect                          |
-| ---------------------- | ----------------------------------- | ------------------------------------ | ---------------------------------- |
-| Emit at a level        | `logInfo "msg"`                     | `ZIO.logInfo("msg")`                 | `Effect.logInfo("msg")`            |
-| Scoped fields          | `withFields [ ... ] action`         | `ZIO.logAnnotate("k", "v") *> ...`   | `Effect.annotateLogs("k", "v")`    |
-| Backend                | a `Logger` value in the env row     | a `ZLogger` registered on the runtime| a `Logger` layer                   |
-| In-memory capture      | `newRecordingLogger`                | `ZTestLogger`                        | `Logger.test`                      |
-| Per-fiber isolation    | *no* (shared `Ref` of annotations)  | yes                                  | yes                                |
+| Concept                | rio-aff                             | rio-fiber                                  | ZIO                                  | Effect                          |
+| ---------------------- | ----------------------------------- | ------------------------------------------ | ------------------------------------ | ---------------------------------- |
+| Emit at a level        | `logInfo "msg"`                     | `info "msg"` (or `logInfo`, an alias)      | `ZIO.logInfo("msg")`                 | `Effect.logInfo("msg")`            |
+| Scoped fields          | `withFields [ ... ] action`         | `annotateLogs [ ... ] action`              | `ZIO.logAnnotate("k", "v") *> ...`   | `Effect.annotateLogs("k", "v")`    |
+| Backend                | a `Logger` value in the env row     | a `Logger` value in a module-level `FiberRef` | a `ZLogger` registered on the runtime | a `Logger` layer                |
+| In-memory capture      | `newRecordingLogger`                | `newRecordingLogger`                       | `ZTestLogger`                        | `Logger.test`                      |
+| Per-fiber isolation    | *no* (shared per-block `Ref`)       | yes (`FiberRef`, copy-on-fork)             | yes                                  | yes                                |
 
 The single behavioural difference is the snapshot-vs-shared
 fork semantics for the annotation Ref. For the everyday

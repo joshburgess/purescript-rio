@@ -55,6 +55,17 @@ either commits every staged write at once or applies none.
 >
 > Where a code sample below uses an rio-aff name, rio-fiber
 > readers substitute the matching name from this list.
+>
+> - **STM error row.** Code samples below use rio-aff's
+>   `STM e a` shape (an error row carried by the transaction
+>   monad, surfaced via `failSTM`). rio-fiber's `STM` has no
+>   error parameter: the type is `newtype STM a`, `failSTM` is
+>   not exported, and operations like `orElse` are
+>   correspondingly `forall a. STM a -> STM a -> STM a`. To
+>   raise a typed failure from a fiber transaction, complete the
+>   `atomically` block successfully with an `Either`-like value
+>   and surface the error with `fail` (or a `Variant.inj`) in
+>   `RIO` once the transaction commits.
 
 The shape mirrors ZIO `STM` / Effect `STM`:
 
@@ -158,6 +169,12 @@ is the caller's responsibility.
 
 ## Typed failures inside a transaction
 
+> **rio-aff only.** This section describes the `failSTM`
+> primitive, which exists only in rio-aff (where `STM` carries
+> an error row). rio-fiber's `STM a` has no error row and no
+> `failSTM`; see the preamble at the top of this doc for the
+> recommended rio-fiber pattern.
+
 `failSTM` raises a typed failure on the STM's error row:
 
 ```purescript
@@ -198,6 +215,7 @@ withdraw account amount = atomically do
 
 ```purescript
 orElse :: forall e a. STM e a -> STM e a -> STM e a
+-- rio-fiber: orElse :: forall a. STM a -> STM a -> STM a
 ```
 
 The classic use case is "take from queue A, or from queue B, or
