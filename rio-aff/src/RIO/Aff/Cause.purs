@@ -933,7 +933,7 @@ matchCauseRIO = foldCauseRIO
 -- |
 -- | ```purescript
 -- | -- log every outcome with full cause detail
--- | runJob # ensuringWith \case
+-- | ensuringWith runJob \case
 -- |   Right a -> logSuccess a
 -- |   Left c -> logFailure (prettyCause renderTag c)
 -- | ```
@@ -967,7 +967,7 @@ ensuringWith action k = do
 -- |
 -- | ```purescript
 -- | -- emit a single failure metric on any non-success exit
--- | runQuery # onExit \c -> incrementCounter "query.failure"
+-- | onExit runQuery \c -> incrementCounter "query.failure"
 -- | ```
 onExit
   :: forall r e a

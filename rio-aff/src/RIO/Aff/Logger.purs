@@ -202,7 +202,7 @@ combineLoggers a b =
 -- | `LogTrace < LogDebug < LogInfo < LogWarn < LogError`.
 -- |
 -- | ```purescript
--- | infoOnly = filterLevel LogInfo consoleLogger
+-- | infoOnly = filterLevel LogInfo <$> consoleLogger
 -- | ```
 filterLevel :: LogLevel -> Logger -> Logger
 filterLevel minLevel logger =
