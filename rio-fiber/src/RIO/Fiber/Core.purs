@@ -6,7 +6,7 @@
 -- | `catchAll`, structured concurrency (`fork` / `join` /
 -- | `interrupt` / `race*` / `parTraverse` / `validatePar`),
 -- | resources (`bracket` / `ensuring` / `acquireRelease`), and
--- | runners (`runRIO'`, callback-style `runAsync`, and Aff bridges
+-- | runners (`runRIO'`, callback-style `runRIOCallback`, and Aff bridges
 -- | exposed via `RIO.Fiber.Aff`).
 module RIO.Fiber.Core
   ( module Exports
