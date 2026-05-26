@@ -25,7 +25,7 @@ differs is how `RIO r e a` is interpreted at the bottom.
 |---|---|---|
 | Runtime | Custom hand-rolled fiber interpreter | Sits on top of `Effect.Aff` |
 | Module prefix | `RIO.Fiber.*` | `RIO.Aff.*` |
-| Fiber identity | Numeric id with supervisor hooks | None |
+| Fiber identity | Numeric id with `Supervisor` registration hooks (every fork notifies listeners) | Numeric id only (no supervisor surface; can't observe arbitrary forks from outside) |
 | Per-fiber state | `FiberRef` baked into the runtime; eager snapshot-on-fork | `RIO.Aff.FiberRef` with the same snapshot-on-fork semantics, opt-in via a `fiberRefs` env service and `forkFiber`; `RIO.Aff.Local` is the simpler shared-`Effect.Ref` model |
 | Failure model | First-class `Cause e` everywhere | Single `Variant e` (or `Cause` reified at boundaries) |
 | Virtual time | `TestClock` wakes sleeping fibers directly | Discipline-based via `Clock` service |
@@ -134,12 +134,14 @@ inside `Aff`'s canceler protocol.
   `Aff` collapses everything into one error channel; you cannot
   ask "was this failure also accompanied by an interrupt?" or
   "did both branches of a `race` fail?".
-- **Numeric fiber identity and supervisor hooks.** Every fiber
-  has a stable id, and the runtime exposes a registration point
-  so an observer can see every fiber start, end, and link.
-  Tracing, metrics, and structured logging are built on this.
-  `Aff` has no fiber id at all; you cannot correlate a span to
-  a fiber.
+- **Supervisor registration hooks.** Both packages give every
+  fiber a stable numeric `FiberId`, but `rio-fiber` additionally
+  exposes a `Supervisor` registration point so an observer can
+  see every fiber start, end, and link without instrumenting
+  call sites. Cross-cutting tracing, metrics, and structured
+  logging hook into that surface. `rio-aff` has the id but no
+  registration surface; you can correlate a span to a known
+  fiber, but you cannot watch arbitrary forks from outside.
 - **`FiberRef` with snapshot-on-fork semantics, baked into
   every fork.** Per-fiber state that is eagerly cloned into the
   child at fork time; subsequent writes on either side stay

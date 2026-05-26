@@ -94,10 +94,11 @@ implicit-context model OTel uses.
 `addAttribute span key value` attaches a single string
 key/value pair to the given span. `addEvent span name attrs`
 records a timestamped event on the span (e.g. `"cache.miss"`
-with `{ key: "user:42" }`). `addLink span target` adds a
-non-parent reference to another span (used for cross-trace
-correlation, e.g. a batch span linking to the producer spans
-of the records it consumed).
+with `[ { key: "user.id", value: "42" } ]`); each `attrs`
+entry is `{ key :: String, value :: String }`. `addLink span
+target` adds a non-parent reference to another span (used for
+cross-trace correlation, e.g. a batch span linking to the
+producer spans of the records it consumed).
 
 ```purescript
 withSpan "checkout" [] \span -> do
