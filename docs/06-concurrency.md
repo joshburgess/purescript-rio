@@ -24,9 +24,11 @@
 > interpreter.
 
 `RIO`'s fork-based concurrency surface is a `Fiber` type, the
-`fork` / `join` / `interrupt` primitives, parallel combinators
-(`parTraverse`, `parSequence`, `zipPar`), and racing (`race`,
-`raceAll`). In rio-aff everything is built directly on
+`fork` / `join` / `interrupt` primitives (plus batch-fork
+helpers `forkAll` / `joinAll`), parallel combinators
+(`parTraverse`, `parSequence`, `zipPar`), racing (`race`,
+`raceAll`), and the structured-supervision pair `supervised` /
+`forkSupervised`. In rio-aff everything is built directly on
 `Effect.Aff`; rio-fiber ships its own custom fiber interpreter
 with the same observable surface. This document describes:
 
@@ -312,10 +314,15 @@ Use `pollDeferred` for the non-blocking probe.
 
 For honesty, here is what `RIO` does *not* do:
 
-- **Implicit structured concurrency.** Plain `fork` returns a
-  fiber whose lifetime is unbounded; if you want
-  "killed-when-parent-dies" semantics, reach for `forkScoped` and
-  hand it a `Scope`. There is no automatic supervisor tree.
+- **Implicit *global* structured concurrency.** Plain `fork`
+  returns a fiber whose lifetime is unbounded. For
+  "killed-when-parent-dies" semantics there are two options:
+  `forkScoped` (caller threads an explicit `Scope` argument
+  obtained from `scoped`) and `supervised` + `forkSupervised`
+  (the `supervised` block opens an implicit scope; every
+  `forkSupervised` child inside the block is interrupted when
+  the block exits — no `Scope` plumbing at the call site).
+  There is no automatic *global* supervisor tree.
 - **Interrupt-with-cause (rio-aff only).** In rio-aff, kill
   exceptions are `Aff` errors carrying a message; ZIO's richer
   notion (interrupted-by-whom, interrupted-due-to-failure-elsewhere,

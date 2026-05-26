@@ -116,16 +116,22 @@ when you want the active span without naming it.
 - `RIO.Fiber.Tracer.defaultTracer`: discards everything; every
   span carries the empty `SpanId`. The default.
 - `RIO.Fiber.Test.Tracer.newRecordingTracer`: returns a
-  `Tracer` plus a `snapshot :: Effect (Array RecordedSpan)`
-  action. Each `RecordedSpan` carries id, parent id (if any),
+  `RecordingTracer` record `{ tracer :: Tracer, snapshot ::
+  Effect (Array RecordedSpan) }`. Pass `rec.tracer` to
+  `withTracer`; call `rec.snapshot` to read the captured span
+  list. Each `RecordedSpan` carries id, parent id (if any),
   name, kind, virtual `startTick` / `endTick`, attributes,
   events, link target ids, and status. Virtual time starts at
   `0` and advances by `1` on every `startSpan` / `finish`.
 - `RIO.Fiber.Tracer.OTel.exportSpans` / `renderOTLP`: pure
   helpers that shape a `RecordedSpan` snapshot into an
   OTLP/JSON document (emits `parentSpanId` and a `links`
-  array). Pair with `RIO.Fiber.HttpClient.send` to ship to
-  an OTel collector.
+  array). `exportSpans :: ExportConfig -> SpanIdMap -> Array
+  RecordedSpan -> Json` takes a `SpanIdMap = Map SpanId String`
+  that maps in-process `SpanId`s to W3C 16-hex external ids;
+  spans absent from the map are dropped from the output. Pair
+  with `RIO.Fiber.HttpClient.send` to ship to an OTel
+  collector.
 - `RIO.Fiber.Tracer.OTel.Adapter.makeOTelTracer` (from the
   `rio-fiber-otel` package): forwards every span lifecycle,
   attribute, event, link, and status write to an

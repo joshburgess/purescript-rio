@@ -288,17 +288,23 @@ itRIO_ "greets" { greeter: mockGreeter, console: testConsole } do
 `itRIO` and `itRIO_` are `purescript-spec` adapters that run
 an `RIO` program as a test body. `RIO.Test.recording` is a
 small "record every call into a `Ref`" helper for assertions
-on service interactions. `RIO.Test.Clock.newTestClock` is the
-direct counterpart of ZIO's `TestClock`: virtual time, an
-explicit `advance` controller, deterministic across forks. See
+on service interactions. The virtual-time test clock is
+`RIO.Aff.Test.Clock.newTestClock` (rio-aff) or
+`RIO.Fiber.TestClock.make initial` (rio-fiber, takes an
+initial `Milliseconds` timestamp). Both are the direct
+counterpart of ZIO's `TestClock`: virtual time, an explicit
+`advance` controller, deterministic across forks. See
 `docs/07-testing.md` for the full surface.
 
 ## Things ZIO has that RIO does not (yet)
 
-- **`Fiber.children`, `ZIO.descriptor`, full supervisor model.**
-  Out of scope; `docs/06-concurrency.md` calls these out under
-  "what RIO does not give you". `forkScoped` covers the
-  common "fiber bounded by enclosing scope" case.
+- **`Fiber.children`, `ZIO.descriptor`, and a fully implicit
+  *global* supervisor tree.** Out of scope. `forkScoped`
+  covers explicit-scope lifetime binding (the caller threads a
+  `Scope`); `supervised` + `forkSupervised` covers the common
+  "all forked children die when the supervised block exits"
+  pattern without `Scope` plumbing at the call site.
+  `docs/06-concurrency.md` walks through both.
 - **Full interrupt-with-cause distinguishing interrupter
   identity.** ZIO carries a structured `Cause` through
   interruption that records *who* did the interrupting and
