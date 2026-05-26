@@ -39,11 +39,11 @@ from it.
 > `RIO.Sink` primitives also diverge: rio-aff's `collect`,
 > `foldL`, `foldM`, `findM`, `mapResult`, and `zipParWith` are
 > rio-fiber's `collectAll`, `fold`, `foldRIO`, `findRIO`,
-> `map`, and `zipWithPar`; the `foldM` / `foldRIO` Sink rename
-> has the same `seed`-first vs `step`-first argument flip as
-> the stream-runner pair. Where a code sample below uses an
-> rio-aff name, rio-fiber readers should substitute the
-> matching name from this list.
+> `map`, and `zipWithPar`; both the `foldL` / `fold` and
+> `foldM` / `foldRIO` Sink renames carry the same `seed`-first
+> vs `step`-first argument flip as the stream-runner pair.
+> Where a code sample below uses an rio-aff name, rio-fiber
+> readers should substitute the matching name from this list.
 
 ```purescript
 data Step r e a
@@ -338,7 +338,7 @@ count    :: Sink r e i Int
 collect  :: Sink r e i (Array i)         -- rio-fiber: collectAll
 foldL    :: a -> (a -> i -> a) -> Sink r e i a   -- rio-fiber: fold
 foldM    :: a -> (a -> i -> RIO r e a) -> Sink r e i a   -- rio-fiber: foldRIO
-take     :: Int -> Sink r e i (Array i)   -- rio-fiber: takeN
+take     :: Int -> Sink r e i (Array i)   -- rio-fiber: takeN only (rio-aff exports both)
 find     :: (i -> Boolean) -> Sink r e i (Maybe i)
 any      :: (i -> Boolean) -> Sink r e i Boolean
 all      :: (i -> Boolean) -> Sink r e i Boolean
