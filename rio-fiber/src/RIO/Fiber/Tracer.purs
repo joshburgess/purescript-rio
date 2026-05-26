@@ -17,8 +17,8 @@
 -- |   * `addLink` adds a non-parent reference to another span,
 -- |     used for cross-trace correlation (e.g. a batch span that
 -- |     links to the spans of the records it consumed).
--- |   * `setStatus` reports the span's outcome as `Ok`, `Error msg`,
--- |     or leaves it `Unset` (the default).
+-- |   * `setStatus` reports the span's outcome as `StatusOk`, `StatusError msg`,
+-- |     or leaves it `StatusUnset` (the default).
 -- |   * `finish` ends the span. Idempotent at the adapter's
 -- |     discretion.
 -- |

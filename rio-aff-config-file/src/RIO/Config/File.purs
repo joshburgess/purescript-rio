@@ -22,7 +22,7 @@
 -- |
 -- | main = launchAff_ do
 -- |   src <- jsonFileSource "config.json"
--- |   runRIO' (load (Proxy :: _ "config") src appConfig program)
+-- |   runRIO' (load (Proxy :: _ "config") src appConfig)
 -- | ```
 module RIO.Aff.Config.File
   ( dotenvFileSource

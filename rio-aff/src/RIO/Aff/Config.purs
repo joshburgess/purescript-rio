@@ -27,7 +27,7 @@
 -- |
 -- | main = launchAff_ do
 -- |   src <- liftEffect envSource
--- |   runRIO' (load (Proxy :: _ "config") src appConfig program)
+-- |   runRIO' (load (Proxy :: _ "config") src appConfig)
 -- | ```
 -- |
 -- | Errors collect rather than short-circuit: if both `PORT` is

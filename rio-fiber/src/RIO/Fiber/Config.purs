@@ -27,7 +27,7 @@
 -- |
 -- | main = launchAff_ do
 -- |   src <- liftEffect envSource
--- |   runAffThrow (load (Proxy :: _ "config") src appConfig program)
+-- |   runAffThrow (load (Proxy :: _ "config") src appConfig)
 -- | ```
 -- |
 -- | Errors collect rather than short-circuit: if both `PORT` is
