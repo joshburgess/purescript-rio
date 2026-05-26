@@ -169,7 +169,7 @@ sibling fibers are left alone. On the workspace benchmarks
 | | `rio-fiber` (default) | `rio-aff` (Aff-backed alternative) |
 |---|---|---|
 | Cancellation | Structured: interrupt request observed at safe points; finalizers always run | `Aff` canceler protocol; interruption is cooperative |
-| Fiber identity | Numeric id, supervisor hooks, observe | None |
+| Fiber identity | Numeric id with `Supervisor` registration hooks (every fork notifies listeners) | Numeric id only (no supervisor surface; can't observe arbitrary forks from outside) |
 | Per-fiber state | `FiberRef` baked into the runtime; eager snapshot-on-fork | `RIO.Aff.FiberRef` with the same snapshot-on-fork semantics, opt-in via a `fiberRefs` env service and `forkFiber`; `RIO.Aff.Local` is the simpler shared-`Effect.Ref` model |
 | Failure model | First-class `Cause e` everywhere (Then / Both / Interrupt) | Single `Variant e` or `Cause` reified at boundaries |
 | Virtual time | `TestClock` wakes sleeping fibers directly | `RIO.Aff.Test.Clock` simulated via `Clock` discipline |

@@ -330,7 +330,7 @@ Combinators (rio-aff names; rio-fiber renames in parentheses):
 
 ```purescript
 mapResult  :: (a -> b) -> Sink r e i a -> Sink r e i b   -- rio-fiber: map
-mapInput   :: (j -> i) -> Sink r e i a -> Sink r e j a
+mapInput   :: (j -> i) -> Sink r e i a -> Sink r e j a   -- rio-fiber: contramap
 filterIn   :: (i -> Boolean) -> Sink r e i a -> Sink r e i a
 andThen    :: Sink r e i a -> (a -> Sink r e i b) -> Sink r e i b
 zipPar     :: Sink r e i a -> Sink r e i b -> Sink r e i (Tuple a b)
