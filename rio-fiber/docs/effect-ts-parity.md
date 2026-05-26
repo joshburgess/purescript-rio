@@ -332,18 +332,20 @@ is `peel` in a loop, emitting each result. `changes` is `scan`
 
 These need interpreter changes, not just library additions.
 
-- **`uninterruptibleMask` with `restore`.** Medium effort,
-  high value. Currently `uninterruptible` is all-or-nothing.
-  Without `restore` you can't write the standard "hold lock,
-  release safely, *then* allow interrupt" pattern.
-  Implementation: interruptibility-mask stack on the fiber +
-  per-frame restore op.
+- **`uninterruptibleMask` with `restore`.** **Status: shipped**
+  in `RIO.Fiber.Core`, re-exported via `RIO.Fiber.Concurrency`.
+  The shipped interpreter matches the original plan below.
+  Rationale: `uninterruptible` alone is all-or-nothing; without
+  `restore` you can't write the standard "hold lock, release
+  safely, *then* allow interrupt" pattern. Implementation:
+  interruptibility-mask stack on the fiber + per-frame restore
+  op.
 - **`forkDaemon`.** Small effort. Needs a module-level root
   scope; then it's `forkScoped rootScope`. Useful for
   background services that must outlive the parent.
-- **`yieldNow`.** Small effort, low value. Cooperative yielding
-  is already automatic via the tick budget. Occasionally useful
-  for long pure loops.
+- **`yieldNow`.** **Status: shipped** in `RIO.Fiber.Core`.
+  Cooperative yielding is already automatic via the tick budget;
+  `yieldNow` is occasionally useful for long pure loops.
 
 ## Things we already do better than Effect-TS
 
@@ -397,7 +399,7 @@ interop pending).
 (logger annotations / JSON formatter, still open).
 
 **Batch 4 (separate effort).** Runtime-level items
-(`uninterruptibleMask`, `forkDaemon`).
+(`forkDaemon`).
 
 ## Second pass: additional gaps surfaced by a deeper audit
 
@@ -876,7 +878,7 @@ formatter), and #19 (`Logger.batched` / `tagged` / `json`) still
 open.
 
 **Batch 4 (separate effort).** Runtime-level items
-(`uninterruptibleMask`, `forkDaemon`).
+(`forkDaemon`).
 
 **Backlog.** Items #16, #21, #23, #24. (Item #22 `partition`
 shipped.)
