@@ -8,7 +8,7 @@
 -- |
 -- | The MVP ships the standard library: `recurs`, `spaced`,
 -- | `exponential`, `forever`, plus the obvious combinators
--- | `andThen`, `bothS`, `eitherS`. Apply them with `repeat` (drive a
+-- | `andThen` and `bothS`. Apply them with `repeat` (drive a
 -- | successful action) or `retry` (re-run a failing action).
 module RIO.Fiber.Schedule
   ( Schedule(..)

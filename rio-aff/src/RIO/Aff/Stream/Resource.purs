@@ -92,7 +92,8 @@ bracketStream acquire release = Stream do
 -- | release is not registered and the failure propagates unchanged.
 -- |
 -- | ```purescript
--- | scoped \scope -> do
+-- | scoped do
+-- |   scope <- ask (Proxy :: Proxy "scope")
 -- |   let s = acquireReleaseStream scope openFile closeFile linesOf
 -- |   runCollect (take 100 s)
 -- | ```
@@ -144,7 +145,8 @@ data Emit e a
 -- | DOM event handler into a `Stream`:
 -- |
 -- | ```purescript
--- | scoped \scope -> do
+-- | scoped do
+-- |   scope <- ask (Proxy :: Proxy "scope")
 -- |   let
 -- |     events :: Stream r e Message
 -- |     events = async scope \emit -> do
