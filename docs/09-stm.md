@@ -18,10 +18,24 @@ either commits every staged write at once or applies none.
 >   `tryWriteTQueue` operations that have no rio-aff
 >   counterpart.
 > - **TMap.** `newTMap` / `insertTMap` / `lookupTMap` /
->   `deleteTMap` / `memberTMap` / `sizeTMap` (rio-aff,
->   STM-valued allocator) are `empty` / `insert` / `lookup` /
->   `delete` / `member` / `size` in rio-fiber, with `empty`
->   being `Effect`-valued rather than `STM`-valued.
+>   `deleteTMap` / `memberTMap` / `sizeTMap` / `modifyTMap` /
+>   `updateTMap` (rio-aff, STM-valued allocator) are `empty` /
+>   `insert` / `lookup` / `delete` / `member` / `size` /
+>   `modify` / `update` in rio-fiber, with `empty` being
+>   `Effect`-valued rather than `STM`-valued.
+> - **TArray.** `newTArray n v` / `replicateTArray` /
+>   `lengthTArray` / `readTArray i arr` / `writeTArray i v arr` /
+>   `modifyTArray i f arr` / `swapTArray i j arr` /
+>   `toArrayTArray` (rio-aff, STM-valued allocators, single
+>   `TRef (Array a)` backing, `writeTArray` / `modifyTArray`
+>   return `Boolean`) are `replicate n v` / N/A / `length` (a
+>   pure `Int`, not `STM`) / `read arr i` / `write arr i v` /
+>   `modify arr i f` / `swap arr i j` / `freeze` in rio-fiber
+>   (`make` / `replicate` are `Effect`-valued, one `TVar a`
+>   backs each cell, `write` / `modify` return `Unit` with
+>   out-of-bounds as a silent no-op, `swap` returns `Boolean`).
+>   Argument order also diverges: aff's element-level ops take
+>   the array last; fiber's take it first.
 > - **TSemaphore.** `newTSemaphore` / `acquireTSemaphore` /
 >   `releaseTSemaphore` / `availableTSemaphore` /
 >   `withTSemaphore` (rio-aff, STM-valued allocator) are `make`
@@ -35,10 +49,17 @@ either commits every staged write at once or applies none.
 >   have rio-fiber counterparts.
 > - **Pub/sub.** The primitive is `THub` in rio-aff
 >   (`RIO.Aff.STM.THub`, with `newBoundedTHub` /
->   `newSlidingTHub` / `newDroppingTHub` / `newUnboundedTHub`)
->   and `TPubSub` in rio-fiber (`RIO.Fiber.STM.TPubSub`, with a
->   single `make` constructor plus `publish` / `subscribe`
->   operations).
+>   `newSlidingTHub` / `newDroppingTHub` / `newUnboundedTHub`
+>   strategy constructors) and `TPubSub` in rio-fiber
+>   (`RIO.Fiber.STM.TPubSub`, with `make n` taking a per-
+>   subscriber buffer capacity, plus `publish` / `tryPublish` /
+>   `subscribe` / `unsubscribe` / `take` / `tryTake` /
+>   `withSubscription` / `subscribers` /
+>   `isEmptySubscription` / `lengthSubscription`). Each
+>   subscriber's buffer in rio-aff is a `TRef (Array a)`; in
+>   rio-fiber it is a bounded `TQueue` per subscriber, which
+>   gives the rio-fiber form a single fixed back-pressure
+>   shape rather than the four-strategy split aff exposes.
 > - **TChan.** `newTChan` (rio-aff) is `new` in rio-fiber; the
 >   per-op names (`readTChan`, `writeTChan`, `peekTChan`,
 >   `tryReadTChan`, `isEmptyTChan`) match in both packages.
@@ -310,8 +331,9 @@ example = do
 ```
 
 Surface: `newTMap`, `insertTMap`, `lookupTMap`, `deleteTMap`,
-`memberTMap`, `sizeTMap`, `keysTMap`, `valuesTMap`,
-`entriesTMap`, `clearTMap`, `awaitKey`. Wakeups are not
+`memberTMap`, `sizeTMap`, `modifyTMap`, `updateTMap`,
+`keysTMap`, `valuesTMap`, `entriesTMap`, `clearTMap`,
+`awaitKey`. Wakeups are not
 key-indexed:
 any write to the underlying `TRef` re-checks the predicate. This
 is fine for typical "wait on handler registration" or "wait on
@@ -407,8 +429,8 @@ Surface: `Strategy(..)`, `THub`, `Subscription`, `newTHub`,
 `tryTakeSubscription`, `isEmptySubscription`,
 `lengthSubscription`, `subscriberCount`, `withSubscription`.
 
-Implementation note: each subscriber's buffer is a `TRef (Array
-a)`. Publish iterates all current subscribers in one
+Implementation note (rio-aff): each subscriber's buffer is a
+`TRef (Array a)`. Publish iterates all current subscribers in one
 transaction, so either every subscriber accepts the value or
 the whole publish retries (`Bounded`) / records a drop
 (`Dropping`). There is no per-subscriber back-pressure on a
@@ -423,20 +445,42 @@ A fixed-length transactional array. Reads and writes are
 indexed and stay atomic at the per-cell granularity.
 
 ```purescript
-import RIO.STM (atomically)
-import RIO.STM.TArray (modifyTArray, newTArray, readTArray)
+-- rio-aff:
+import RIO.Aff.STM (atomically)
+import RIO.Aff.STM.TArray (modifyTArray, newTArray, readTArray)
 
 example = do
   arr <- atomically (newTArray 4 0)
   _ <- atomically (modifyTArray 2 (_ + 1) arr)
   atomically (readTArray 2 arr)  -- Just 1
+
+-- rio-fiber (allocator lives in Effect, element ops take arr first,
+-- and write/modify return Unit):
+import RIO.Fiber.STM (atomically)
+import RIO.Fiber.STM.TArray (modify, read, replicate) as TArray
+
+example = do
+  arr <- liftEffect (TArray.replicate 4 0)
+  atomically (TArray.modify arr 2 (_ + 1))
+  atomically (TArray.read arr 2)  -- Just 1
 ```
 
-Surface: `newTArray`, `fromArrayTArray`, `replicateTArray`,
-`lengthTArray`, `readTArray`, `writeTArray`, `modifyTArray`,
-`swapTArray`, `toArrayTArray`. The backing store is a single
-`TRef (Array a)`; out-of-range indices return `Nothing` / `false`
-rather than retrying.
+Surface (rio-aff): `newTArray`, `fromArrayTArray`,
+`replicateTArray`, `lengthTArray`, `readTArray`, `writeTArray`,
+`modifyTArray`, `swapTArray`, `toArrayTArray`. The backing
+store is a single `TRef (Array a)`; out-of-range indices return
+`Nothing` / `false` rather than retrying; `writeTArray` and
+`modifyTArray` return `Boolean` indicating whether the index
+was in bounds.
+
+Surface (rio-fiber): `make` (from an existing `Array a`),
+`replicate n v`, `length` (pure `Int`, not `STM`), `read arr i`,
+`write arr i v`, `modify arr i f`, `swap arr i j` (returns
+`Boolean`), `freeze`. Allocators are `Effect`-valued; each cell
+is its own `TVar a`, so two concurrent writes to disjoint
+indices commit independently. Out-of-range `write` / `modify`
+are silent no-ops returning `Unit`; out-of-range `read` returns
+`Nothing`.
 
 ### `RIO.STM.TDeferred`
 
@@ -456,10 +500,12 @@ example = do
   atomically (awaitTDeferred ready)  -- retries until succeed
 ```
 
-Surface: `makeTDeferred`, `succeedTDeferred`, `failTDeferred`,
-`awaitTDeferred`, `tryAwaitTDeferred`, `pollTDeferred`. Like
-the plain `Deferred`, fills after the first are no-ops; awaits
-after the fill see the same value.
+Surface: `makeTDeferred`, `succeedTDeferred`, `failTDeferred`
+*(aff only)*, `awaitTDeferred`, `tryAwaitTDeferred` *(aff
+only)*, `pollTDeferred`. The rio-fiber surface drops the two
+aff-only entries and is just `make` / `complete` / `await` /
+`poll`. Like the plain `Deferred`, fills after the first are
+no-ops; awaits after the fill see the same value.
 
 ### `RIO.STM.TChan`
 

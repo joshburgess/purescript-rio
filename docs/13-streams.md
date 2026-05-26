@@ -270,7 +270,9 @@ The shape is intentionally smaller than ZIO's `ZStream`:
 
 `RIO.Sink` ships first-class terminating consumers. A
 `Sink r e i a` consumes some prefix of `i`s from a `Stream` and
-produces an `a`. The shape is `Need k finish | Halt a`:
+produces an `a`.
+
+**rio-aff** spells the sink as a `Need k finish | Halt a` ADT:
 
 ```purescript
 data Step r e i a
@@ -286,6 +288,25 @@ runSink :: forall r e i a. Sink r e i a -> Stream r e i -> RIO r e a
 on end-of-stream". `Halt a` finalises the sink early; the runner
 stops pulling and any `scoped` finalizers in the stream still
 release.
+
+**rio-fiber** spells the same idea as a callback-record loop
+rather than an ADT:
+
+```purescript
+type SinkLoop r e i o =
+  { step :: i -> RIO r e (Maybe o)
+  , done :: RIO r e o
+  }
+
+newtype Sink r e i o = Sink (RIO r e (SinkLoop r e i o))
+
+runSink :: forall r e i o. Stream r e i -> Sink r e i o -> RIO r e o
+```
+
+`step i` returns `Just o` to halt early with that value or
+`Nothing` to keep consuming; `done` is the end-of-stream
+finaliser. The `runSink` argument order also flips: rio-aff is
+`runSink sink stream`, rio-fiber is `runSink stream sink`.
 
 Primitives:
 
