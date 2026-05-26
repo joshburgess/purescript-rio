@@ -308,31 +308,32 @@ runSink :: forall r e i o. Stream r e i -> Sink r e i o -> RIO r e o
 finaliser. The `runSink` argument order also flips: rio-aff is
 `runSink sink stream`, rio-fiber is `runSink stream sink`.
 
-Primitives:
+Primitives (rio-aff names; rio-fiber renames in parentheses):
 
 ```purescript
-drain   :: Sink r e i Unit
-head    :: Sink r e i (Maybe i)
-last    :: Sink r e i (Maybe i)
-count   :: Sink r e i Int
-collect :: Sink r e i (Array i)
-foldL   :: a -> (a -> i -> a) -> Sink r e i a
-foldM   :: a -> (a -> i -> RIO r e a) -> Sink r e i a
-take    :: Int -> Sink r e i (Array i)
-find    :: (i -> Boolean) -> Sink r e i (Maybe i)
-any     :: (i -> Boolean) -> Sink r e i Boolean
-all     :: (i -> Boolean) -> Sink r e i Boolean
+drain    :: Sink r e i Unit
+head     :: Sink r e i (Maybe i)
+last     :: Sink r e i (Maybe i)
+count    :: Sink r e i Int
+collect  :: Sink r e i (Array i)         -- rio-fiber: collectAll
+foldL    :: a -> (a -> i -> a) -> Sink r e i a   -- rio-fiber: fold
+foldM    :: a -> (a -> i -> RIO r e a) -> Sink r e i a   -- rio-fiber: foldRIO
+take     :: Int -> Sink r e i (Array i)   -- rio-fiber: takeN
+find     :: (i -> Boolean) -> Sink r e i (Maybe i)
+any      :: (i -> Boolean) -> Sink r e i Boolean
+all      :: (i -> Boolean) -> Sink r e i Boolean
 ```
 
-Combinators:
+Combinators (rio-aff names; rio-fiber renames in parentheses):
 
 ```purescript
-mapResult  :: (a -> b) -> Sink r e i a -> Sink r e i b
+mapResult  :: (a -> b) -> Sink r e i a -> Sink r e i b   -- rio-fiber: map
 mapInput   :: (j -> i) -> Sink r e i a -> Sink r e j a
 filterIn   :: (i -> Boolean) -> Sink r e i a -> Sink r e i a
 andThen    :: Sink r e i a -> (a -> Sink r e i b) -> Sink r e i b
 zipPar     :: Sink r e i a -> Sink r e i b -> Sink r e i (Tuple a b)
 zipParWith :: (a -> b -> c) -> Sink r e i a -> Sink r e i b -> Sink r e i c
+                                                          -- rio-fiber: zipWithPar
 ```
 
 `take`, `find`, `any`, and `all` short-circuit through `Halt`, so

@@ -46,9 +46,13 @@ distinguished from a defect cause. The `RIO.Fiber.Cause` module
 ships predicates (`isEmpty`, `isInterrupted`, `hasDefect`,
 `hasFailure`), accessors (`failures`, `defects`, `interrupters`,
 `firstFailure`, `firstDefect`, `interruptCount`), strippers
-(`stripInterrupts`, `stripFailures`, `stripDefects`), and a
-`fold` for cause-shaped recursion. `RIO.Fiber.Error.attemptCause`
-reifies an `RIO` outcome into `Either (Cause e) a`.
+(`stripInterrupts`, `stripFailures`, `stripDefects`), a
+collapsing reducer `flatten :: Cause e -> { failures, defects,
+interrupted }`, a single-`Error` projection `squash`, and a
+`fold` for cause-shaped recursion that takes a named-fields
+record (`{ empty, fail, die, interrupt, then_, both }`).
+`RIO.Fiber.Error.attemptCause` reifies an `RIO` outcome into
+`Either (Cause e) a`.
 
 ### rio-aff
 
@@ -66,6 +70,21 @@ lands as an exception too, so the user-visible cause tree
 doesn't track interruption as a distinct case. The names
 `Parallel` and `Sequential` are exposed where rio-fiber uses
 `Both` and `Then`; they mean the same thing.
+
+The aff `RIO.Aff.Cause` surface mirrors the fiber set with two
+notable shape differences:
+
+- `flatten :: Cause e -> { failures :: Array (Variant e),
+  defects :: Array Error }` returns two fields; rio-fiber's
+  also includes `interrupted :: Boolean`. Code that pattern-
+  matches on the record needs the extra field on the fiber
+  side.
+- The structural recursor is `foldCause :: (Variant e -> b) ->
+  (Error -> b) -> (b -> b -> b) -> (b -> b -> b) -> Cause e ->
+  b` (four positional arguments: `onFail`, `onDie`, `onPar`,
+  `onSeq`) rather than fiber's named-fields `fold` record.
+  There is no `Empty` or `Interrupt` arm because aff's cause
+  algebra has no such constructors.
 
 Atomic causes (`Fail`, `Die`, and on rio-fiber `Interrupt`) are
 the atoms the corresponding `Error` modules already expose;

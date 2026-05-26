@@ -158,28 +158,45 @@ rio-fiber + rio-fiber-otel.
 ## Metrics
 
 A `Metrics` service lets you record counters, gauges, and
-histograms. `rio-fiber` exposes the primitives directly:
+histograms. `rio-fiber` exposes the primitives directly as
+stateful objects you allocate once and then mutate:
 
 ```purescript
 import RIO.Fiber.Metrics
-  ( newCounter, incr
-  , newGauge, set
-  , newHistogram, record
+  ( Counter, Gauge, Histogram
+  , newCounter             -- :: Effect Counter            (no args)
+  , incr                   -- :: Counter -> RIO r e Unit
+  , newGauge               -- :: Number -> Effect Gauge    (initial value)
+  , set                    -- :: Gauge -> Number -> RIO r e Unit
+  , newHistogram           -- :: Int -> Effect Histogram   (reservoir capacity)
+  , record                 -- :: Histogram -> Number -> RIO r e Unit
   )
 ```
 
-The `rio-aff` package uses a service-shaped form (the same
-operations behind an `(metrics :: Metrics | r)` row through the
-environment).
+`newGauge` takes the initial gauge value; `newHistogram` takes
+the reservoir capacity (the number of samples retained for
+quantile / summary reads); only `newCounter` is zero-argument.
+
+The `rio-aff` package uses a service-shaped form instead: the
+same operations behind an `(metrics :: Metrics | r)` row,
+keyed by `String` name rather than by allocated object
+(`recordCounter name delta`, `recordGauge name value`,
+`recordHistogram name value`).
 
 ### Backends
 
 - `RIO.Fiber.Test.Metrics.newRecordingMetrics`: returns a
-  `RecordingMetrics` record (`recordCounter`, `recordGauge`,
-  `recordHistogram`, and a `snapshot :: Effect (Array
-  MetricRecord)` action). Tests call the `record*` actions at
-  the same sites that production code calls `incr` / `set` /
-  `record` on the `RIO.Fiber.Metrics` primitives. Each captured
+  `RecordingMetrics` record (`recordCounter :: String -> Number
+  -> Effect Unit`, `recordGauge`, `recordHistogram`, and a
+  `snapshot :: Effect (Array MetricRecord)` action). The
+  recording backend is name-keyed, not object-keyed: it does
+  *not* drop in at the same call site as production
+  `incr counter` / `set gauge` / `record histogram`. To exercise
+  it from a test, either wire your service layer through a
+  metrics-service indirection that swaps between the production
+  primitives and `recordCounter name value` writes, or call the
+  recording actions directly from the test body at the points
+  where production code mutates a primitive. Each captured
   record carries the kind (`Counter` / `Gauge` / `Histogram`),
   the name, and the value.
 - `RIO.Fiber.Metric.OTel.exportMetrics` / `renderOTLP`: pure

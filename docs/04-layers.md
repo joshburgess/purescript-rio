@@ -30,9 +30,11 @@
 > `RIO r () Unit` finalizer and `addFinalizerExit` for a
 > cause-aware finalizer.
 
-A `Layer rIn e rOut` is a recipe for constructing a record of
-services `rOut` from a record of services `rIn`, possibly
-failing with a typed error in `Variant e`. Layers compose
+A `Layer rIn e rOut` (rio-aff order; rio-fiber spells it
+`Layer e rIn rOut` with the error row first) is a recipe for
+constructing a record of services `rOut` from a record of
+services `rIn`, possibly failing with a typed error in
+`Variant e`. Layers compose
 vertically (`andThen`, infix `>>>`) and horizontally (`combine`,
 infix `<+>`); they may register finalizers in the surrounding
 scope so resources are released when the providing scope exits.
