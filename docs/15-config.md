@@ -256,9 +256,9 @@ program = do
 suitable for printing to stderr at startup. Sample output:
 
 ```
-Configuration errors:
-  - PORT: not an integer: abc
-  - DATABASE_URL: missing
+config failed to load:
+  - could not parse config key PORT: not an integer: abc
+  - missing required config key: DATABASE_URL
 ```
 
 ## Refreshable configs

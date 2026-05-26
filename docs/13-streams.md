@@ -26,7 +26,10 @@ from it.
 > effectful-callback variants with an `M` suffix; rio-fiber
 > spells them with a `RIO` suffix: `mapM` / `unfoldM` /
 > `repeatM` in rio-aff become `mapRIO` / `unfoldRIO` /
-> `repeatRIO` in rio-fiber. The single-element constructor is
+> `repeatRIO` in rio-fiber (rio-fiber also keeps `mapM` as a
+> compatibility alias for `mapRIO`, so that one spelling
+> compiles under both prefixes; `unfoldM` / `repeatM` have no
+> such alias). The single-element constructor is
 > also renamed: rio-aff's `single` is rio-fiber's `emit`. Two
 > stream runners also diverge in name: rio-aff's `runDrain` and
 > `runFold` are rio-fiber's `run` and `fold` (`runFoldM` keeps
