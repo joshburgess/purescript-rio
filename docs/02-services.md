@@ -40,6 +40,13 @@ type Logger =
   }
 ```
 
+This `Logger` shape is a pedagogical illustration of the service
+pattern; the real `RIO.Aff.Logger.Logger` is structurally richer
+(it carries scoped annotations and its `log` field returns
+`Effect Unit`). See `docs/12-logging.md` for the production
+shape; the rest of this section uses the simpler form above to
+keep the example small.
+
 The smart constructors that callers actually use are `RIO`-valued. They
 `ask` the record out of the environment and `liftAff` the chosen
 operation back into `RIO`:

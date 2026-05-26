@@ -11,6 +11,13 @@ either commits every staged write at once or applies none.
 > `RIO.Fiber.STM.*` (rio-fiber). The names mostly line up, but
 > a few categories of rename are worth knowing up front:
 >
+> - **TRef / TVar.** rio-aff's primary transactional cell is
+>   `TRef` (`newTRef` / `readTRef` / `writeTRef` / `modifyTRef`);
+>   rio-fiber spells it `TVar` (`newTVar` / `readTVar` /
+>   `writeTVar` / `modifyTVar`). rio-aff also exports `TVar` /
+>   `newTVar` / etc. as straight aliases for `TRef`, so cross-
+>   package code can settle on the `TVar` spelling without
+>   penalty.
 > - **TQueue.** `newTQueue` (rio-aff, unbounded, STM-valued) is
 >   `new n` in rio-fiber (bounded, takes capacity, `Effect`-
 >   valued). rio-fiber also exports `newSTM n` for the STM-

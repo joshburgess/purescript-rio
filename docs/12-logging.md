@@ -226,7 +226,7 @@ private cell), or move to rio-fiber's `annotateLogs`. See
 
 | Concept                | rio-aff                             | rio-fiber                                  | ZIO                                  | Effect                          |
 | ---------------------- | ----------------------------------- | ------------------------------------------ | ------------------------------------ | ---------------------------------- |
-| Emit at a level        | `logInfo "msg"`                     | `info "msg"` (or `logInfo`, an alias)      | `ZIO.logInfo("msg")`                 | `Effect.logInfo("msg")`            |
+| Emit at a level        | `logInfo "msg"`                     | `info "msg"` (only `trace` has a `logTrace` alias) | `ZIO.logInfo("msg")`                 | `Effect.logInfo("msg")`            |
 | Scoped fields          | `withFields [ ... ] action`         | `annotateLogs [ ... ] action`              | `ZIO.logAnnotate("k", "v") *> ...`   | `Effect.annotateLogs("k", "v")`    |
 | Backend                | a `Logger` value in the env row     | a `Logger` value in a module-level `FiberRef` | a `ZLogger` registered on the runtime | a `Logger` layer                |
 | In-memory capture      | `newRecordingLogger`                | `newRecordingLogger`                       | `ZTestLogger`                        | `Logger.test`                      |

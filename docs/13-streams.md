@@ -242,6 +242,24 @@ kill. If `acquire` itself fails, the finalizer is never
 registered (there is nothing to release) and the failure
 propagates unchanged.
 
+rio-fiber does not ship the 2-arg `bracketStream`. Use
+`RIO.Fiber.Stream.acquireReleaseStream` instead, which takes
+the scope as an explicit argument, a `RIO r e Unit` release
+(not `Aff Unit`), and the `use` continuation directly:
+
+```purescript
+acquireReleaseStream
+  :: forall r e a b
+   . Scope
+  -> RIO r e a
+  -> (a -> RIO r e Unit)
+  -> (a -> Stream r e b)
+  -> Stream r e b
+```
+
+rio-aff exports the same 4-arg `acquireReleaseStream` (with
+`Aff Unit` release) alongside `bracketStream`.
+
 This is the scope-as-lifetime model ZIO uses; `ZStream`
 requires `Scope` in its environment row when the stream owns
 resources.
@@ -265,7 +283,7 @@ The shape is intentionally smaller than ZIO's `ZStream`:
 | `ZStream.flatMapPar`          | `RIO.Stream.Par.mergeMap`     |
 | `ZStream.broadcast`           | `RIO.Stream.Par.broadcast`    |
 | `ZStream.partition`           | `RIO.Stream.Par.partition`    |
-| `ZStream.scoped`              | `RIO.Stream.Resource.bracketStream` |
+| `ZStream.scoped`              | `RIO.Stream.Resource.bracketStream` (rio-aff) / `RIO.Fiber.Stream.acquireReleaseStream` (rio-fiber) |
 | `ZSink` (subset)              | `RIO.Sink`                    |
 
 ## Composable consumers (`RIO.Sink`)
