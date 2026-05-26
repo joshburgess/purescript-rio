@@ -140,10 +140,13 @@ argument (`scoped \scope -> ...`). The layer combinators
 `>>>` (`andThen`) and `<+>` (`combine`) used in the Layers
 section are rio-aff infix aliases; rio-fiber spells them
 `chainLayer` and `mergeLayers` with no infix forms. The
-defect-recovery primitive `sandbox` used in the "Lifting
-values" section is rio-aff-only; rio-fiber spells the
-equivalent `causeOf` (it returns `Either (Cause e) a` rather
-than `Either Error a`). Both
+layer runner `provideLayer` from `RIO.Aff.Layer` is `provide`
+in `RIO.Fiber.Layer`, and the `Layer` type's first two
+parameters swap order: aff's `Layer rIn e rOut` becomes
+fiber's `Layer e rIn rOut`. The defect-recovery primitive
+`sandbox` used in the "Lifting values" section is rio-aff-
+only; rio-fiber spells the equivalent `causeOf` (it returns
+`Either (Cause e) a` rather than `Either Error a`). Both
 designs check at the type level that the
 service is present somewhere upstream. Effect uses a
 `Context.Tag` and intersection in `R`; RIO uses a `Proxy`
@@ -214,10 +217,11 @@ scoped do
 
 The release runs on every termination path: success,
 typed-failure, defect, interruption. This is the same guarantee
-Effect provides, implemented on top of `Effect.Aff.bracket`.
-See `docs/05-resources.md` and
-`spikes/aff-interruption/FINDINGS.md` for the underlying `Aff`
-guarantees.
+Effect provides; rio-aff implements it on top of
+`Effect.Aff.bracket`, while rio-fiber uses its own native
+`bracket` in the fiber runtime. See `docs/05-resources.md`
+and `spikes/aff-interruption/FINDINGS.md` for the underlying
+`Aff` guarantees.
 
 ## Concurrency
 
@@ -303,9 +307,10 @@ itRIO_ "greets" { greeter: mockGreeter, console: testConsole } do
 ```
 
 `itRIO` and `itRIO_` are `purescript-spec` adapters that run
-an `RIO` program as a test body. `RIO.Test.recording` is a
-small "record every call into a `Ref`" helper for assertions
-on service interactions. The virtual-time test clock is
+an `RIO` program as a test body. `RIO.Aff.Test.recording`
+(rio-fiber: `RIO.Fiber.Test.recording`) is a small "record
+every call into a `Ref`" helper for assertions on service
+interactions. The virtual-time test clock is
 `RIO.Aff.Test.Clock.newTestClock` (rio-aff) or
 `RIO.Fiber.TestClock.make initial` (rio-fiber, takes an
 initial `Milliseconds` timestamp). Both are the direct
