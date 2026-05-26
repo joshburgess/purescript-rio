@@ -356,7 +356,9 @@ pub/sub hubs. Both are part of the current surface.
   cooperative-cancellation caveat.
 - Worked example:
   [`examples/worker-pool/`](../examples/worker-pool/) fans work
-  out over a fixed `Semaphore`-bounded pool, drives it with
-  `parTraverseCause` for multi-failure (cause-collecting)
-  accumulation, and pairs a `fork`/`join` producer fiber with
-  a `Queue.shutdown` end-of-input signal.
+  out over a fixed `Semaphore`-bounded pool (the pool itself
+  spins up its workers with `traverse fork` and waits on them
+  with `traverse_ join`), pairs a `fork`/`join` producer fiber
+  with a `Queue.shutdown` end-of-input signal, and includes a
+  separate `causeDemo` that uses `parTraverseCause` for
+  multi-failure (cause-collecting) validation.

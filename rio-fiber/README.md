@@ -61,7 +61,8 @@ main = launchAff_ do
 `RIO.Fiber.Core` re-exports the small set of primitives every
 program needs: `pure`, `bind`, `liftEffect`, `ask`, `asks`,
 `fail`, `catchAll`, `async`, `fork`, `forkInline`, `forkAll`,
-`join`, `joinAll`, `interrupt`, `uninterruptible`, `bracket`,
+`forkAllInline`, `join`, `joinAll`, `interrupt`,
+`uninterruptible`, `bracket`,
 `ensuring`, `race`, `raceAll`, `parTraverse`, `zipPar`,
 `validatePar`, `timeout`, and the runners (`runRIO`, `runRIO'`,
 `runRIOCallback`).
@@ -113,8 +114,9 @@ sibling fibers are left alone. On the workspace benchmarks
 - **`RIO.Fiber.Deferred`**: one-shot write-once cell.
   `succeed` / `fail` / `await` / `poll`.
 - **`RIO.Fiber.Semaphore`**, **`RIO.Fiber.Latch`**: counting
-  semaphore (`withPermit`, `parTraverseN` for bounded-concurrency
-  parallel traversal) and one-shot count-down latch.
+  semaphore (`withPermit`, `parTraverseN` for fail-fast
+  bounded-concurrency traversal, `validateParN` for the
+  error-accumulating variant) and one-shot count-down latch.
 - **`RIO.Fiber.Queue`**, **`RIO.Fiber.Hub`**: bounded /
   unbounded async queue, and a pub/sub hub.
 - **`RIO.Fiber.STM`** plus `STM.TArray`, `STM.TChan`,
@@ -176,7 +178,7 @@ sibling fibers are left alone. On the workspace benchmarks
 | STM atomicity | One commit per event-loop turn; `retry` parks on `TVar` change via the fiber scheduler (no busy loop, no `AVar` hop) | Same atomicity and `retry`-on-`TRef`-change semantics, but parking is simulated via an `AVar` waiter against each read `TRef` rather than scheduler-native park |
 | Bind hot path | About 10 ns per `bind` (BIND fuses common leaf ops in the step loop) | About 90 ns per `bind` in the workspace bench |
 | Fork hot path | At parity with `forkAff` on `fork x16 + join each` once V8 is warm | About the same as `forkAff` |
-| Array fan-out | `forkAll` / `joinAll` are specialised ops; `forkAll x16 + joinAll` runs at roughly 5x the speed of `forkAff x16 + joinFiber` | `traverse forkAff` builds a per-element bind chain |
+| Array fan-out | `forkAll` / `joinAll` are specialised ops; `forkAll x16 + joinAll` runs at roughly 5x the speed of `forkAff x16 + joinFiber` | `forkAll` / `joinAll` exist but are `traverse`-based wrappers, so each fork still builds a per-element bind chain (no single-op dispatch) |
 
 Pick `rio-fiber` unless you have a specific reason to stay on
 `Aff`. Pick `rio-aff` when the host program is already on `Aff`,

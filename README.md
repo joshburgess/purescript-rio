@@ -274,7 +274,8 @@ Programs are written against `RIO.Fiber.*`.
 - **`RIO.Fiber.Core`**: the entry point. `RIO r e a` plus the
   primitives every program needs (`pure`, `bind`, `liftEffect`,
   `ask`, `asks`, `fail`, `catchAll`, `async`, `fork`,
-  `forkInline`, `forkAll`, `join`, `joinAll`, `interrupt`,
+  `forkInline`, `forkAll`, `forkAllInline`, `join`, `joinAll`,
+  `interrupt`,
   `uninterruptible`, `bracket`, `ensuring`, `race`, `raceAll`,
   `parTraverse`, `zipPar`, `validatePar`, `timeout`) and three
   runners (`runRIO`, `runRIO'`, `runRIOCallback`).
