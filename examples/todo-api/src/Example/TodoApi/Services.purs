@@ -1,6 +1,6 @@
 -- | Service interfaces for the todo-api example.
 -- |
--- | The persistence story is `rio-postgres`: handlers call
+-- | The persistence story is `rio-aff-postgres`: handlers call
 -- | `query` / `execParams` directly against the `Postgres` service
 -- | in the environment, so this module no longer carries a
 -- | `TodoStore` indirection.

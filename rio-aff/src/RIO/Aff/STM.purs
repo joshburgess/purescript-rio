@@ -22,8 +22,10 @@
 -- | error rows.
 -- |
 -- | Derived structures built on top of `TRef` plus the primitives
--- | here ship in sibling modules: `RIO.Aff.STM.TQueue`, `RIO.Aff.STM.THub`,
--- | `RIO.Aff.STM.TMap`, `RIO.Aff.STM.TArray`, `RIO.Aff.STM.TSemaphore`, and
+-- | here ship in sibling modules: `RIO.Aff.STM.TQueue`,
+-- | `RIO.Aff.STM.THub`, `RIO.Aff.STM.TChan`, `RIO.Aff.STM.TMap`,
+-- | `RIO.Aff.STM.TArray`, `RIO.Aff.STM.TSemaphore`,
+-- | `RIO.Aff.STM.TMVar`, `RIO.Aff.STM.TSet`, and
 -- | `RIO.Aff.STM.TDeferred`.
 module RIO.Aff.STM
   ( STM

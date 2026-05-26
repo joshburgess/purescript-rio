@@ -1,5 +1,5 @@
--- | Integration tests for `rio-postgres-json`. Driven by the same
--- | `PG_CONNECTION_STRING` env var as `rio-postgres`.
+-- | Integration tests for `rio-aff-postgres-json`. Driven by the
+-- | same `PG_CONNECTION_STRING` env var as `rio-aff-postgres`.
 module Test.RioPostgresJson.Main where
 
 import Prelude
@@ -19,4 +19,4 @@ main = do
   runSpecAndExitProcess [ consoleReporter ] case mConn of
     Just conn -> JsonSpec.spec conn
     Nothing -> pending
-      "rio-postgres-json integration tests: set PG_CONNECTION_STRING to run"
+      "rio-aff-postgres-json integration tests: set PG_CONNECTION_STRING to run"

@@ -6,7 +6,7 @@
 -- | row; the bridging function in `Main.purs` runs each handler
 -- | with `runRIO` and turns its result into an HTTP `Response`.
 -- |
--- | Persistence is `rio-postgres` directly: handlers call `query`,
+-- | Persistence is `rio-aff-postgres` directly: handlers call `query`,
 -- | `queryParams`, and `execParams` against the pool service held
 -- | in the env under `postgres`. The chosen typed-failure tag for
 -- | driver errors is `db`.

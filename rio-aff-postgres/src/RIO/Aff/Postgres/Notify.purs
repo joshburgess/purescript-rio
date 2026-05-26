@@ -1,4 +1,4 @@
--- | LISTEN / NOTIFY adapter for `rio-postgres`.
+-- | LISTEN / NOTIFY adapter for `rio-aff-postgres`.
 -- |
 -- | Postgres lets a client subscribe to a named channel and
 -- | receive asynchronous payloads any time another connection runs

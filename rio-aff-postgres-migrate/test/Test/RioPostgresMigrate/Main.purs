@@ -1,5 +1,5 @@
--- | Integration tests for `rio-postgres-migrate`. Driven by the
--- | same `PG_CONNECTION_STRING` env var as `rio-postgres`.
+-- | Integration tests for `rio-aff-postgres-migrate`. Driven by
+-- | the same `PG_CONNECTION_STRING` env var as `rio-aff-postgres`.
 module Test.RioPostgresMigrate.Main where
 
 import Prelude
@@ -19,4 +19,4 @@ main = do
   runSpecAndExitProcess [ consoleReporter ] case mConn of
     Just conn -> MigrateSpec.spec conn
     Nothing -> pending
-      "rio-postgres-migrate integration tests: set PG_CONNECTION_STRING to run"
+      "rio-aff-postgres-migrate integration tests: set PG_CONNECTION_STRING to run"

@@ -1,16 +1,16 @@
--- | Integration tests for `rio-postgres`.
+-- | Integration tests for `rio-aff-postgres`.
 -- |
 -- | Reads the target connection string from the
 -- | `PG_CONNECTION_STRING` env var. The repo's `docker-compose.yml`
 -- | and the CI Postgres service-container job both expose
 -- | `postgres://rio:rio@localhost:5432/rio_test`; export that
 -- | value (or run via `docker compose up -d postgres`) before
--- | invoking `npx spago test -p rio-postgres`.
+-- | invoking `npx spago test -p rio-aff-postgres`.
 -- |
 -- | If `PG_CONNECTION_STRING` is unset the suite is skipped
 -- | (printed as a pending case) so contributors who don't have
 -- | Postgres handy can still run the rest of the workspace.
-module Test.RioPostgres.Main where
+module Test.RioAffPostgres.Main where
 
 import Prelude
 
@@ -34,4 +34,4 @@ main = do
       NotifySpec.spec conn
       PoolSpec.spec conn
     Nothing -> pending
-      "rio-postgres integration tests: set PG_CONNECTION_STRING (e.g. via `docker compose up -d postgres`) to run"
+      "rio-aff-postgres integration tests: set PG_CONNECTION_STRING (e.g. via `docker compose up -d postgres`) to run"
