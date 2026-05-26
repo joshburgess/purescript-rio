@@ -63,7 +63,7 @@ service:
 
 ```sh
 docker compose up -d postgres
-export PG_CONNECTION_STRING=postgres://rio:rio@localhost:5432/rio_test
+export PG_CONNECTION_STRING=postgres://rio:rio@localhost:55432/rio_test
 npx spago test -p rio-aff-postgres
 ```
 

@@ -44,9 +44,14 @@ to be unworkable inside `Aff`'s canceler protocol. The full
 analysis is in [`docs/aff-constraints.md`](../docs/aff-constraints.md);
 the summary:
 
-- **No fiber identity.** `Aff` has no stable id per fiber, so
-  tracing, metrics, and structured logging cannot correlate a
-  span to "the fiber it ran on".
+- **No fiber Supervisor registration surface.** `rio-aff` does
+  give every fiber a stable numeric `FiberId` (`forkAff` is
+  wrapped to assign one), but there is no `Supervisor`
+  registration point like `rio-fiber`'s, so a cross-cutting
+  observer of fiber start/end/link events has to instrument
+  call sites rather than hook one surface. You can correlate a
+  span to a known `FiberId`, but nothing watches every fiber
+  for you.
 - **`FiberRef` is opt-in, not native.** `RIO.Aff.FiberRef`
   provides true per-fiber state (snapshot-on-fork: the child
   inherits a full eager copy at fork time, and subsequent
@@ -133,11 +138,12 @@ prefix `RIO.Aff.*` rather than `RIO.Fiber.*`:
 - `RIO.Aff.Resource`, `RIO.Aff.Layer`: `acquireRelease`,
   `Scope` with LIFO finalisers, and the `Layer rIn e rOut`
   algebra with `>>>` / `<+>` composition.
-- `RIO.Aff.Concurrency`: `fork`, `forkScoped`, `join`,
-  `interrupt`, `uninterruptible`, `timeout`, `parTraverse`,
-  `parTraverseN`, `parSequence`, `zipPar`, `race`, `raceAll`.
-- `RIO.Aff.Deferred`, `RIO.Aff.Semaphore`, `RIO.Aff.Queue`,
-  `RIO.Aff.Hub`: async coordination primitives.
+- `RIO.Aff.Concurrency`: `fork`, `forkScoped`, `forkSupervised`,
+  `forkAll`, `join`, `joinAll`, `interrupt`, `uninterruptible`,
+  `timeout`, `parTraverse`, `parTraverseN`, `parSequence`,
+  `validatePar`, `zipPar`, `race`, `raceAll`.
+- `RIO.Aff.Deferred`, `RIO.Aff.Semaphore`, `RIO.Aff.Latch`,
+  `RIO.Aff.Queue`, `RIO.Aff.Hub`: async coordination primitives.
 - `RIO.Aff.STM` (with `TVar` / `TRef`) plus `STM.TArray`,
   `STM.TChan`, `STM.TDeferred`, `STM.THub`, `STM.TMap`,
   `STM.TMVar`, `STM.TQueue`, `STM.TSemaphore`, and `STM.TSet`:

@@ -35,10 +35,10 @@ differs is how `RIO r e a` is interpreted at the bottom.
 
 `rio-fiber` is the default because it owns the runtime end-to-end
 and unlocks behaviour the `Aff` foundation structurally cannot
-give us (fiber identity, native FiberRef baked into every fork,
-full `Cause` tree, a TestClock that actually wakes parked
-fibers, and structured concurrency in
-the proper sense). `rio-aff` exists for codebases that want the
+give us (a fiber Supervisor registration surface, native
+FiberRef baked into every fork, full `Cause` tree, a TestClock
+that actually wakes parked fibers, and structured concurrency
+in the proper sense). `rio-aff` exists for codebases that want the
 three-channel design without leaving the `Effect.Aff` ecosystem,
 and for the interop story: an `Aff` program can call into a
 `rio-fiber` subroutine at the boundary via
@@ -238,8 +238,9 @@ right pick when:
 What you give up by staying on `Aff` is documented in detail in
 [`docs/aff-constraints.md`](./docs/aff-constraints.md); the
 short version is the column on the right of the table at the
-top of this README. Specifically: no fiber identity, no
-per-fiber state, no full `Cause` tree, no test clock that wakes
+top of this README. Specifically: no fiber Supervisor
+registration surface, no native per-fiber state, no full
+`Cause` tree, no test clock that wakes
 sleeping fibers, no first-class structured concurrency, and a
 ~9x bind hot path overhead relative to `rio-fiber`.
 
@@ -347,13 +348,14 @@ Programs are written against `RIO.Aff.*`.
   with LIFO finalizers.
 - `RIO.Aff.Layer`: `Layer rIn e rOut` with sequential (`>>>`)
   and horizontal (`<+>`) composition.
-- `RIO.Aff.Concurrency`: `fork`, `forkScoped`, `join`,
-  `interrupt`, `uninterruptible`, `timeout`, `parTraverse`,
-  `parTraverseN`, `parSequence`, `zipPar`, `race`, `raceAll`.
+- `RIO.Aff.Concurrency`: `fork`, `forkScoped`, `forkSupervised`,
+  `forkAll`, `join`, `joinAll`, `interrupt`, `uninterruptible`,
+  `timeout`, `parTraverse`, `parTraverseN`, `parSequence`,
+  `validatePar`, `zipPar`, `race`, `raceAll`.
   Cancellation is cooperative (`Aff`-style).
-- `RIO.Aff.Deferred`, `RIO.Aff.Semaphore`, `RIO.Aff.Queue`,
-  `RIO.Aff.Hub`: async coordination primitives over
-  `Effect.Aff.AVar` and `Effect.Ref`.
+- `RIO.Aff.Deferred`, `RIO.Aff.Semaphore`, `RIO.Aff.Latch`,
+  `RIO.Aff.Queue`, `RIO.Aff.Hub`: async coordination primitives
+  over `Effect.Aff.AVar` and `Effect.Ref`.
 - `RIO.Aff.Clock`, `RIO.Aff.Random`: the service shapes plus
   live and seeded backends.
 - `RIO.Aff.Config` plus `RIO.Aff.Config.Rotating`: the Config
