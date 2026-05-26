@@ -49,7 +49,7 @@ arbitrary `a`. The result was a foreign import smell for what
 should be a tidy combinator.
 
 (The aff names `count`, `foldL`, `find`, `take` used in this
-paragraph are spelled `count`, `fold`, `find`, `take` in
+paragraph are spelled `count`, `fold`, `find`, `takeN` in
 rio-fiber.)
 
 Switching `finish` from `a` to `RIO r e a` removes the problem

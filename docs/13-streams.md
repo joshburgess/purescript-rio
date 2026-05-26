@@ -24,24 +24,26 @@ from it.
 > The combinator names are mostly the same in both, with a few
 > consistent renames worth knowing about. rio-aff spells the
 > effectful-callback variants with an `M` suffix; rio-fiber
-> spells them with a `RIO` suffix: `mapM` / `foldM` / `findM` /
-> `unfoldM` / `repeatM` in rio-aff become `mapRIO` / `foldRIO` /
-> `findRIO` / `unfoldRIO` / `repeatRIO` in rio-fiber. The
-> single-element constructor is also renamed: rio-aff's `single`
-> is rio-fiber's `emit`. Two stream runners also diverge in
-> name: rio-aff's `runDrain` and `runFold` are rio-fiber's `run`
-> and `fold` (`runFoldM` keeps the same name in both). The
-> `runFold` / `fold` rename also flips argument order: rio-aff
-> takes `seed` first and `step` second (`runFold seed step
-> stream`), rio-fiber takes `step` first and `seed` second
-> (`fold step seed stream`). A handful of `RIO.Sink` primitives
-> also diverge: rio-aff's `collect`, `foldL`, `foldM`,
-> `mapResult`, and `zipParWith` are rio-fiber's `collectAll`,
-> `fold`, `foldRIO`, `map`, and `zipWithPar`; the `foldM` /
-> `foldRIO` Sink rename has the same `seed`-first vs `step`-
-> first argument flip as the stream-runner pair. Where a code
-> sample below uses an rio-aff name, rio-fiber readers should
-> substitute the matching name from this list.
+> spells them with a `RIO` suffix: `mapM` / `unfoldM` /
+> `repeatM` in rio-aff become `mapRIO` / `unfoldRIO` /
+> `repeatRIO` in rio-fiber. The single-element constructor is
+> also renamed: rio-aff's `single` is rio-fiber's `emit`. Two
+> stream runners also diverge in name: rio-aff's `runDrain` and
+> `runFold` are rio-fiber's `run` and `fold` (`runFoldM` keeps
+> the same name in both). The `runFold` / `fold` rename also
+> flips argument order: rio-aff takes `seed` first and `step`
+> second (`runFold seed step stream`), rio-fiber takes `step`
+> first and `seed` second (`fold step seed stream`).
+> `flatMap`'s argument order also flips: rio-aff is `flatMap
+> stream f`, rio-fiber is `flatMap f stream`. A handful of
+> `RIO.Sink` primitives also diverge: rio-aff's `collect`,
+> `foldL`, `foldM`, `findM`, `mapResult`, and `zipParWith` are
+> rio-fiber's `collectAll`, `fold`, `foldRIO`, `findRIO`,
+> `map`, and `zipWithPar`; the `foldM` / `foldRIO` Sink rename
+> has the same `seed`-first vs `step`-first argument flip as
+> the stream-runner pair. Where a code sample below uses an
+> rio-aff name, rio-fiber readers should substitute the
+> matching name from this list.
 
 ```purescript
 data Step r e a
