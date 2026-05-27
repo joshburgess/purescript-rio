@@ -5,8 +5,8 @@ Postgres adapter for [`rio-aff`](../rio-aff/README.md), built on top of
 (the `node-postgres` / `pg` driver).
 
 ```purescript
-import RIO.Aff.Core (RIO, runRIO', provideAll)
-import RIO.Aff.Postgres (Postgres, query)
+import RIO.Aff.Core (RIO, runRIO)
+import RIO.Aff.Postgres (Postgres, PgError, query)
 import RIO.Aff.Postgres.Layer (postgresLayer)
 import RIO.Aff.Layer (provideLayer)
 import Type.Proxy (Proxy(..))
@@ -20,7 +20,7 @@ countTodos = query (Proxy :: Proxy "db") "select count(*) from todo"
 
 main = launchAff_ do
   let layer = postgresLayer { connectionString: "postgres://..." }
-  result <- runRIO' (provideLayer layer countTodos)
+  result <- runRIO (provideLayer layer countTodos)
   ...
 ```
 
