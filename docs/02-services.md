@@ -207,7 +207,7 @@ exercised by the spike.
   [`rio-aff/test/Test/RIO/Aff/EnvSpec.purs`](../rio-aff/test/Test/RIO/Aff/EnvSpec.purs)
   pins `ask` / `asks` / `provide` / `provideAll` against
   several row shapes.
-- Layers (`Layer r r' e`, the unit of service wiring at the
+- Layers (`Layer rIn e rOut`, the unit of service wiring at the
   top of `main`): [`docs/04-layers.md`](./04-layers.md).
 - Worked example:
   [`examples/logger/`](../examples/logger/) is the minimum

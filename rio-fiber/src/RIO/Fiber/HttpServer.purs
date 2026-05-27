@@ -25,7 +25,7 @@
 -- | a handler. `router` chains a list of routes and produces a
 -- | fallback `404` for misses. Middleware is plain handler
 -- | composition (`Handler -> Handler`), so `Tracer.withSpan`,
--- | `Logger.withFields`, and so on layer in by wrapping the
+-- | `Logger.annotateLogs`, and so on layer in by wrapping the
 -- | inner handler.
 -- |
 -- | Bodies are typed (`NoBody`, `TextBody`, `JsonBody`); a
