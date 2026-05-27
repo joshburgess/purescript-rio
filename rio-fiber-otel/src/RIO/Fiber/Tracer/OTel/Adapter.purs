@@ -125,7 +125,7 @@ type SpanRec =
 -- | ```purescript
 -- | main = do
 -- |   tracer <- makeOTelTracer "my-service"
--- |   runAffThrow (RIO.Fiber.Tracer.withTracer tracer program)
+-- |   runRIO' (RIO.Fiber.Tracer.withTracer tracer program)
 -- | ```
 makeOTelTracer :: String -> Effect Tracer
 makeOTelTracer name = do
