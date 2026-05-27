@@ -40,22 +40,32 @@ jobs:
           npx purs-tidy --version
 
       - name: Format check
-        run: npx purs-tidy check src test spikes examples benchmarks rio-config-file rio-http rio-node rio-otel rio-postgres rio-postgres-json rio-postgres-migrate
+        run: npx purs-tidy check rio-aff rio-fiber rio-aff-config-file rio-aff-http rio-aff-node rio-aff-otel rio-aff-postgres rio-aff-postgres-json rio-aff-postgres-migrate rio-fiber-config-file rio-fiber-http rio-fiber-node rio-fiber-otel rio-fiber-postgres rio-fiber-postgres-json rio-fiber-postgres-migrate spikes examples benchmarks
 
-      - name: Build (main package)
-        run: npx spago build -p rio
+      - name: Build (rio-aff core)
+        run: npx spago build -p rio-aff
 
-      # `spago test -p rio` invokes `purs graph` across the entire workspace,
+      - name: Build (rio-fiber core)
+        run: npx spago build -p rio-fiber
+
+      # `spago test -p <pkg>` invokes `purs graph` across the entire workspace,
       # so every workspace sibling's transitive deps must be present in
       # .spago/p before the test step runs. Fetch them all upfront.
       - name: Fetch deps for all workspace packages
         run: |
-          for p in rio-http rio-node rio-otel rio-postgres rio-postgres-json rio-postgres-migrate rio-config-file; do
+          for p in rio-aff rio-fiber \
+                   rio-aff-config-file rio-aff-http rio-aff-node rio-aff-otel \
+                   rio-aff-postgres rio-aff-postgres-json rio-aff-postgres-migrate \
+                   rio-fiber-config-file rio-fiber-http rio-fiber-node rio-fiber-otel \
+                   rio-fiber-postgres rio-fiber-postgres-json rio-fiber-postgres-migrate; do
             npx spago install -p "$p"
           done
 
-      - name: Test (main package)
-        run: npx spago test -p rio
+      - name: Test (rio-aff core)
+        run: npx spago test -p rio-aff
+
+      - name: Test (rio-fiber core)
+        run: npx spago test -p rio-fiber
 
       - name: Build (spike-row-inference)
         run: npx spago build -p spike-row-inference
@@ -108,41 +118,74 @@ jobs:
       - name: Build and run logger example
         run: npx spago run -p rio-example-logger
 
-      - name: Build rio-http adapter
-        run: npx spago build -p rio-http
+      - name: Build rio-aff-http adapter
+        run: npx spago build -p rio-aff-http
 
-      - name: Test rio-http adapter
-        run: npx spago test -p rio-http
+      - name: Test rio-aff-http adapter
+        run: npx spago test -p rio-aff-http
 
-      - name: Build rio-node adapter
-        run: npx spago build -p rio-node
+      - name: Build rio-fiber-http adapter
+        run: npx spago build -p rio-fiber-http
 
-      - name: Test rio-node adapter
-        run: npx spago test -p rio-node
+      - name: Test rio-fiber-http adapter
+        run: npx spago test -p rio-fiber-http
 
-      - name: Build rio-config-file adapter
-        run: npx spago build -p rio-config-file
+      - name: Build rio-aff-node adapter
+        run: npx spago build -p rio-aff-node
 
-      - name: Test rio-config-file adapter
-        run: npx spago test -p rio-config-file
+      - name: Test rio-aff-node adapter
+        run: npx spago test -p rio-aff-node
 
-      - name: Build rio-postgres adapter
-        run: npx spago build -p rio-postgres
+      - name: Build rio-fiber-node adapter
+        run: npx spago build -p rio-fiber-node
 
-      - name: Build rio-postgres-json adapter
-        run: npx spago build -p rio-postgres-json
+      - name: Test rio-fiber-node adapter
+        run: npx spago test -p rio-fiber-node
 
-      - name: Build rio-postgres-migrate adapter
-        run: npx spago build -p rio-postgres-migrate
+      - name: Build rio-aff-config-file adapter
+        run: npx spago build -p rio-aff-config-file
+
+      - name: Test rio-aff-config-file adapter
+        run: npx spago test -p rio-aff-config-file
+
+      - name: Build rio-fiber-config-file adapter
+        run: npx spago build -p rio-fiber-config-file
+
+      - name: Test rio-fiber-config-file adapter
+        run: npx spago test -p rio-fiber-config-file
+
+      - name: Build rio-aff-postgres adapter
+        run: npx spago build -p rio-aff-postgres
+
+      - name: Build rio-fiber-postgres adapter
+        run: npx spago build -p rio-fiber-postgres
+
+      - name: Build rio-aff-postgres-json adapter
+        run: npx spago build -p rio-aff-postgres-json
+
+      - name: Build rio-fiber-postgres-json adapter
+        run: npx spago build -p rio-fiber-postgres-json
+
+      - name: Build rio-aff-postgres-migrate adapter
+        run: npx spago build -p rio-aff-postgres-migrate
+
+      - name: Build rio-fiber-postgres-migrate adapter
+        run: npx spago build -p rio-fiber-postgres-migrate
 
       - name: Build todo-api example
         run: npx spago build -p rio-example-todo-api
 
-      - name: Build rio-otel adapter
-        run: npx spago build -p rio-otel
+      - name: Build rio-aff-otel adapter
+        run: npx spago build -p rio-aff-otel
 
-      - name: Test rio-otel adapter
-        run: npx spago test -p rio-otel
+      - name: Test rio-aff-otel adapter
+        run: npx spago test -p rio-aff-otel
+
+      - name: Build rio-fiber-otel adapter
+        run: npx spago build -p rio-fiber-otel
+
+      - name: Test rio-fiber-otel adapter
+        run: npx spago test -p rio-fiber-otel
 
       - name: Build and run otel-demo example
         run: npx spago run -p rio-example-otel-demo
@@ -185,7 +228,7 @@ jobs:
         run: bash compile-fail/run.sh
 
   postgres-integration:
-    name: rio-postgres integration / node 20
+    name: postgres integration / node 20
     runs-on: ubuntu-latest
 
     services:
@@ -220,24 +263,43 @@ jobs:
       # so every sibling's transitive deps must be present in .spago/p first.
       - name: Fetch deps for all workspace packages
         run: |
-          for p in rio rio-http rio-node rio-otel rio-postgres rio-postgres-json rio-postgres-migrate rio-config-file; do
+          for p in rio-aff rio-fiber \
+                   rio-aff-config-file rio-aff-http rio-aff-node rio-aff-otel \
+                   rio-aff-postgres rio-aff-postgres-json rio-aff-postgres-migrate \
+                   rio-fiber-config-file rio-fiber-http rio-fiber-node rio-fiber-otel \
+                   rio-fiber-postgres rio-fiber-postgres-json rio-fiber-postgres-migrate; do
             npx spago install -p "$p"
           done
 
-      - name: Run rio-postgres integration tests
+      - name: Run rio-aff-postgres integration tests
         env:
           PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
-        run: npx spago test -p rio-postgres
+        run: npx spago test -p rio-aff-postgres
 
-      - name: Run rio-postgres-json integration tests
+      - name: Run rio-fiber-postgres integration tests
         env:
           PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
-        run: npx spago test -p rio-postgres-json
+        run: npx spago test -p rio-fiber-postgres
 
-      - name: Run rio-postgres-migrate integration tests
+      - name: Run rio-aff-postgres-json integration tests
         env:
           PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
-        run: npx spago test -p rio-postgres-migrate
+        run: npx spago test -p rio-aff-postgres-json
+
+      - name: Run rio-fiber-postgres-json integration tests
+        env:
+          PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
+        run: npx spago test -p rio-fiber-postgres-json
+
+      - name: Run rio-aff-postgres-migrate integration tests
+        env:
+          PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
+        run: npx spago test -p rio-aff-postgres-migrate
+
+      - name: Run rio-fiber-postgres-migrate integration tests
+        env:
+          PG_CONNECTION_STRING: postgres://rio:rio@localhost:5432/rio_test
+        run: npx spago test -p rio-fiber-postgres-migrate
 
       - name: Run notify example against the service container
         env:
