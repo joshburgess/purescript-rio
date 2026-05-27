@@ -144,6 +144,9 @@ sibling fibers are left alone. On the workspace benchmarks
   `identity`, `map`, `filter`, `mapAccum`, `take`, `chunked`,
   plus `andThen` for end-to-end composition. Splice into a Stream
   with `Stream.via`.
+- **`RIO.Fiber.Channel`**: the minimal pull-based `Channel r e i o
+  d` primitive that both Stream and Sink specialise. `done`,
+  `emit`, `read_`, `fromStream`, `fromSink`, `pipe`, `run`.
 - **`RIO.Fiber.Layer`**, **`RIO.Fiber.Pool`**: layered service
   composition (`chainLayer` and `mergeLayers`; rio-fiber defines
   no infix-operator aliases) and a fixed-size object pool with

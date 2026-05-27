@@ -13,7 +13,7 @@ finaliser machinery instead of shipping its own.
 
 Programs are written against `RIO.Aff.*`. The top-level entry
 points are `RIO.Aff.Core.runRIO`, `RIO.Aff.Core.runRIO'`, and
-`RIO.Aff.Core.unRIO`, all of which produce an `Aff` action you
+`RIO.Aff.Core.unsafeRunRIO`, all of which produce an `Aff` action you
 can `launchAff_` or hand to any host that already speaks `Aff`.
 
 ## When to pick `rio-aff` over `rio-fiber`
@@ -150,9 +150,10 @@ prefix `RIO.Aff.*` rather than `RIO.Fiber.*`:
   software transactional memory.
 - `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
   `RIO.Aff.Stream.Concurrent`, `RIO.Aff.Stream.Resource`,
-  `RIO.Aff.Stream.Timed`, `RIO.Aff.Sink`, `RIO.Aff.Channel`:
-  pull-based effectful streams, parallel combinators, composable
-  sinks, and the unified Channel primitive.
+  `RIO.Aff.Stream.Timed`, `RIO.Aff.Pipe`, `RIO.Aff.Sink`,
+  `RIO.Aff.Channel`: pull-based effectful streams, parallel
+  combinators, stream-to-stream transducers, composable sinks, and
+  the unified Channel primitive.
 - `RIO.Aff.Clock`, `RIO.Aff.Random`, `RIO.Aff.Config`,
   `RIO.Aff.Config.Rotating`, `RIO.Aff.Schedule`: service types
   plus live and seeded backends.

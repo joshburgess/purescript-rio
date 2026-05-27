@@ -369,9 +369,10 @@ Programs are written against `RIO.Aff.*`.
   derived from single-event-loop atomicity.
 - `RIO.Aff.Stream`, `RIO.Aff.Stream.Par`,
   `RIO.Aff.Stream.Concurrent`, `RIO.Aff.Stream.Resource`,
-  `RIO.Aff.Stream.Timed`, `RIO.Aff.Sink`, `RIO.Aff.Channel`:
-  pull-based effectful streams, parallel stream combinators,
-  composable sinks, and the unified Channel primitive.
+  `RIO.Aff.Stream.Timed`, `RIO.Aff.Pipe`, `RIO.Aff.Sink`,
+  `RIO.Aff.Channel`: pull-based effectful streams, parallel stream
+  combinators, stream-to-stream transducers, composable sinks, and
+  the unified Channel primitive.
 - `RIO.Aff.Tracer`, `RIO.Aff.Metrics`, `RIO.Aff.Logger`:
   observability services (each with noop, live, and recording
   backends).
