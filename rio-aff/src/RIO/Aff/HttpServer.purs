@@ -6,7 +6,7 @@
 -- | runs handlers in-process for tests.
 -- |
 -- | The application defines a `Handler :: ServerRequest -> RIO
--- | ... ServerResponse`. A driver (`rio-node`'s Node http
+-- | ... ServerResponse`. A driver (`rio-aff-node`'s Node http
 -- | wrapper, an edge-runtime adapter, a Cloudflare Worker shim)
 -- | is responsible for translating between its native request
 -- | type and `ServerRequest`, calling the handler, and rendering

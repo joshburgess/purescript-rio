@@ -1,4 +1,4 @@
--- | Unit tests for the rio-otel adapter.
+-- | Unit tests for the rio-aff-otel adapter.
 -- |
 -- | These tests run against the no-op tracer that
 -- | `@opentelemetry/api` returns when no SDK is registered. Span

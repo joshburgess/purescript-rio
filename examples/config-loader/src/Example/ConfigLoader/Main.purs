@@ -1,5 +1,5 @@
 -- | Loads typed configuration from a `.env` file via
--- | `rio-config-file`, demonstrating the full path from source
+-- | `rio-aff-config-file`, demonstrating the full path from source
 -- | adapter to a rendered `ConfigError` on the failure path.
 -- |
 -- | Reads `examples/config-loader/.env` (relative to the project

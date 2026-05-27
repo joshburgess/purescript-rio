@@ -40,7 +40,7 @@
 -- |   decodeBody userSchema resp
 -- | ```
 -- |
--- | A concrete backend (e.g. Node `https`) lives in `rio-node`
+-- | A concrete backend (e.g. Node `https`) lives in `rio-aff-node`
 -- | once added; this module ships only the shape, smart
 -- | constructors, and `mockHttpClient` for tests.
 module RIO.Aff.HttpClient
@@ -224,7 +224,7 @@ type HttpClient =
 -- | intended use is testing: thread a `Ref` of canned responses
 -- | (or an `Object` keyed by URL) through the handler and assert
 -- | on requests and responses. Production backends should be
--- | constructed by a dedicated module (e.g. `rio-node`).
+-- | constructed by a dedicated module (e.g. `rio-aff-node`).
 mockHttpClient :: (Request -> Aff (Either HttpError Response)) -> HttpClient
 mockHttpClient handler = { sendRequest: handler }
 

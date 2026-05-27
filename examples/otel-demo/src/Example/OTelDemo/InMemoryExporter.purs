@@ -1,5 +1,5 @@
 -- | Demo-only wiring around `@opentelemetry/sdk-trace-base`'s
--- | `InMemorySpanExporter`. This is not part of the `rio-otel`
+-- | `InMemorySpanExporter`. This is not part of the `rio-aff-otel`
 -- | public surface; it exists so the example can run end-to-end
 -- | without a network exporter.
 module Example.OTelDemo.InMemoryExporter
