@@ -21,7 +21,7 @@ they should be checked off in the relevant section, not deleted.
 | 6 | Stream JS interop (`fromAsyncIterable`, `from/toReadableStream`) | M | High | partial (`fromAsyncIterable` done; `ReadableStream` interop pending) |
 | 7 | Metrics labels + `Frequency` + `timer` shorthand | M | High | open |
 | 8 | `Pool.invalidate` + `Pool.makeWithTTL` | M | High | done |
-| 9 | Logger annotations + JSON formatter | M | High | open |
+| 9 | Logger annotations + JSON formatter | M | High | partial (`annotateLogs` done; JSON formatter pending) |
 | 10 | Stream `peel` / `transduce` / `changes` | S | Med | done |
 
 ### #1 `asyncAbortable`
@@ -269,6 +269,12 @@ resources past their TTL.
 
 ### #9 Logger annotations + JSON formatter
 
+**Status:** Annotations shipped in `RIO.Fiber.Logger` as
+`annotateLogs`, which prepends `key=value` pairs by swapping the
+active logger in the module-level `FiberRef`, so they propagate
+to child fibers on fork. The JSON formatter half is still open.
+The original proposal is preserved below.
+
 **Problem.** Logger has no contextual annotations
 (`request-id`, `user-id`) that propagate to child fibers. No
 structured output format.
@@ -393,10 +399,11 @@ most of the everyday-ergonomics gap.
 (streaming surface; `fromAsyncIterable` shipped, `ReadableStream`
 interop pending).
 
-**Batch 3 (#8 done; #7 and #9 still open).** Items #7
+**Batch 3 (#8 done; #7 open, #9 partial).** Items #7
 (metrics labels / `Frequency` / `timer`), #8
 (`Pool.invalidate` / `Pool.makeWithTTL`, shipped), #9
-(logger annotations / JSON formatter, still open).
+(logger annotations shipped as `annotateLogs`; JSON formatter
+still open).
 
 **Batch 4 (separate effort).** Runtime-level items
 (`forkDaemon`).
