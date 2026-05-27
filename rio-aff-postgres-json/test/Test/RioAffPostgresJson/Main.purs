@@ -1,6 +1,6 @@
 -- | Integration tests for `rio-aff-postgres-json`. Driven by the
 -- | same `PG_CONNECTION_STRING` env var as `rio-aff-postgres`.
-module Test.RioPostgresJson.Main where
+module Test.RioAffPostgresJson.Main where
 
 import Prelude
 

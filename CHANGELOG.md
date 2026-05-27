@@ -77,24 +77,21 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 - Per-adapter test entry points renamed from the colliding
   `Test.Main` to a package-namespaced module so a workspace-root
   `spago build` no longer fails with duplicate-module errors.
-  Each adapter's colliding `Test.Main` is now a
-  package-namespaced module with a matching file path. The
-  rio-fiber adapters carry `Fiber` in the name; the rio-aff
-  adapters keep the shorter pre-split names (except
-  `rio-aff-postgres`):
-  - `rio-aff-http` -> `Test.RioHttp.Main` (rio-fiber:
+  Each adapter's `Test.Main` is now `Test.<Pkg>.Main` with a
+  matching file path:
+  - `rio-aff-http` -> `Test.RioAffHttp.Main` (rio-fiber:
     `Test.RioFiberHttp.Main`)
-  - `rio-aff-config-file` -> `Test.RioConfigFile.Main`
+  - `rio-aff-config-file` -> `Test.RioAffConfigFile.Main`
     (rio-fiber: `Test.RioFiberConfigFile.Main`)
-  - `rio-aff-otel` -> `Test.RioOtel.Main` (rio-fiber:
+  - `rio-aff-otel` -> `Test.RioAffOtel.Main` (rio-fiber:
     `Test.RioFiberOtel.Main`)
   - `rio-aff-postgres` -> `Test.RioAffPostgres.Main` (rio-fiber:
     `Test.RioFiberPostgres.Main`)
-  - `rio-aff-postgres-migrate` -> `Test.RioPostgresMigrate.Main`
+  - `rio-aff-postgres-migrate` -> `Test.RioAffPostgresMigrate.Main`
     (rio-fiber: `Test.RioFiberPostgresMigrate.Main`)
-  - `rio-aff-postgres-json` -> `Test.RioPostgresJson.Main`
+  - `rio-aff-postgres-json` -> `Test.RioAffPostgresJson.Main`
     (rio-fiber: `Test.RioFiberPostgresJson.Main`)
-  - `rio-aff-node` -> `Test.RioNode.Main` (rio-fiber:
+  - `rio-aff-node` -> `Test.RioAffNode.Main` (rio-fiber:
     `Test.RioFiberNode.Main`)
   The `spago.yaml` `test.main` field for each adapter is
   updated to match.

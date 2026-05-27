@@ -45,7 +45,7 @@ package:
     - unsafe-coerce
     - variant
   test:
-    main: Test.RioNode.Main
+    main: Test.RioAffNode.Main
     dependencies:
       - aff
       - arrays

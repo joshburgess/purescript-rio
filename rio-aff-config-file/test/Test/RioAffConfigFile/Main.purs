@@ -1,4 +1,4 @@
-module Test.RioConfigFile.Main where
+module Test.RioAffConfigFile.Main where
 
 import Prelude
 

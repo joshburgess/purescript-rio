@@ -1,4 +1,4 @@
-module Test.RioHttp.Main where
+module Test.RioAffHttp.Main where
 
 import Prelude
 

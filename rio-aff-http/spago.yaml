@@ -15,7 +15,7 @@ package:
     - tuples
     - variant
   test:
-    main: Test.RioHttp.Main
+    main: Test.RioAffHttp.Main
     dependencies:
       - aff
       - arrays

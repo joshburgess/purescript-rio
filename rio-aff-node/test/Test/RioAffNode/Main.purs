@@ -1,4 +1,4 @@
-module Test.RioNode.Main where
+module Test.RioAffNode.Main where
 
 import Prelude
 

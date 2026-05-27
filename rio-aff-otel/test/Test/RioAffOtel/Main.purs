@@ -1,4 +1,4 @@
-module Test.RioOtel.Main where
+module Test.RioAffOtel.Main where
 
 import Prelude
 

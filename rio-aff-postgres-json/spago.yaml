@@ -15,7 +15,7 @@ package:
     - prelude
     - transformers
   test:
-    main: Test.RioPostgresJson.Main
+    main: Test.RioAffPostgresJson.Main
     dependencies:
       - aff
       - argonaut-codecs

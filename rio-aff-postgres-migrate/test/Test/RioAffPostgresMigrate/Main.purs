@@ -1,6 +1,6 @@
 -- | Integration tests for `rio-aff-postgres-migrate`. Driven by
 -- | the same `PG_CONNECTION_STRING` env var as `rio-aff-postgres`.
-module Test.RioPostgresMigrate.Main where
+module Test.RioAffPostgresMigrate.Main where
 
 import Prelude
 
