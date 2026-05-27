@@ -15,7 +15,7 @@ event-comparison plumbing.
 ## Method
 
 A workspace sub-package, `spike-phase-7-review`, depends on the
-real `rio` package and ports the Phase 5 review's layered
+real `rio-aff` package and ports the Phase 5 review's layered
 application to a `Test.Spec` suite. The same three layers
 (`loggerLayer`, `dataLayer`, `userServiceLayer`) compose into
 the same `appLayer`; the differences are:

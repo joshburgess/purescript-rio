@@ -4,7 +4,7 @@
 
 Try out PureScript's qualified-do syntax as ergonomic sugar over
 `RIO` patterns. The question was whether any of it earns its
-keep enough to ship as a sibling module in `rio` proper.
+keep enough to ship as a sibling module in `rio-aff` proper.
 
 ## What worked
 

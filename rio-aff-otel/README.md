@@ -1,6 +1,6 @@
 # rio-aff-otel
 
-OpenTelemetry adapter for [`rio`](../README.md)'s `RIO.Aff.Tracer`
+OpenTelemetry adapter for [`rio-aff`](../rio-aff/README.md)'s `RIO.Aff.Tracer`
 service.
 
 ```purescript

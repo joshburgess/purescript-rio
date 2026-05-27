@@ -16,7 +16,7 @@ The build plan asks for "a property-based test suite that runs each
 combinator under random scheduling delays and asserts no leaks, no
 deadlocks, no lost errors over 10,000 runs." We exercise that contract
 with a workspace sub-package, `spike-phase-6-review`, depending on
-the production `rio` API only. Every scenario shares the same shape:
+the production `rio-aff` API only. Every scenario shares the same shape:
 
 1. Allocate a `Ref Int` counter, the harness's resource bookkeeping.
 2. Run the combinator under test against actions that increment the

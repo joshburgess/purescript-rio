@@ -21,7 +21,7 @@ documented behaviour.
 
 We follow the same shape as the Phase 6 review's harness: one
 workspace sub-package (`spike-phase-9-review`) depending on the
-production `rio` API only, with each scenario exposing a single
+production `rio-aff` API only, with each scenario exposing a single
 load-bearing invariant per iteration. Random parameters come from
 `Effect.Random.randomInt`. The four scenarios:
 

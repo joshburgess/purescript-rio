@@ -1,7 +1,7 @@
 # todo-api
 
 A small HTTP service built with [HTTPurple](https://pursuit.purescript.org/packages/purescript-httpurple/4.0.0)
-and `rio`, backed by a real Postgres instance via `rio-aff-postgres`.
+and `rio-aff`, backed by a real Postgres instance via `rio-aff-postgres`.
 Listens on `localhost:8080`.
 
 The example covers the production-relevant slice of the library

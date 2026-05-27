@@ -14,7 +14,7 @@ that asks different services on each side of an `if`) infers cleanly.
 ## Method
 
 A workspace sub-package, `spike-phase-2-review`, depends on the real
-`rio` package and contains 10 top-level bindings, **all unannotated**,
+`rio-aff` package and contains 10 top-level bindings, **all unannotated**,
 covering single ask, projection, multi-service composition, structured
 failures, `provide`, `provideAll`, smart-constructor style, the kitchen
 sink, branching, and helper reuse.

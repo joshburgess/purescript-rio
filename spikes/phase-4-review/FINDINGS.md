@@ -12,7 +12,7 @@ byte-identical to the expected LIFO sequence in every case.
 ## Method
 
 A workspace sub-package, `spike-phase-4-review`, depends on the real
-`rio` package and exposes a single `main` that exercises two
+`rio-aff` package and exposes a single `main` that exercises two
 scenarios:
 
 1. **Deep nested scopes.** Recursively open `target = 1000` scopes;

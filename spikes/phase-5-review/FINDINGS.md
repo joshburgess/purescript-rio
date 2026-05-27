@@ -12,7 +12,7 @@ as DX-1 with a recommended fix for a future phase.
 ## Method
 
 A workspace sub-package, `spike-phase-5-review`, depends on the real
-`rio` package and exercises a six-service layered application
+`rio-aff` package and exercises a six-service layered application
 against the production API only. No internal modules are reached
 into; everything goes through `RIO.Aff.Core` (plus the `<+>` / `>>>`
 operators from `RIO.Aff.Layer`, which `RIO.Aff.Core` deliberately does not

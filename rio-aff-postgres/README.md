@@ -1,6 +1,6 @@
 # rio-aff-postgres
 
-Postgres adapter for [`rio`](../README.md), built on top of
+Postgres adapter for [`rio-aff`](../rio-aff/README.md), built on top of
 [`purescript-postgresql`](https://pursuit.purescript.org/packages/purescript-postgresql)
 (the `node-postgres` / `pg` driver).
 

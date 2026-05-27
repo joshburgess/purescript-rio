@@ -199,7 +199,7 @@ pipelines, see [`docs/ecosystem.md`](./docs/ecosystem.md).
 
 ## Build
 
-This package lives in the same workspace as `rio`. From the
+This package lives in the same workspace as `rio-aff`. From the
 repository root:
 
 ```sh
