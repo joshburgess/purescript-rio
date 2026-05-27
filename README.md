@@ -29,7 +29,7 @@ differs is how `RIO r e a` is interpreted at the bottom.
 | Per-fiber state | `FiberRef` baked into the runtime; eager snapshot-on-fork | `RIO.Aff.FiberRef` with the same snapshot-on-fork semantics, opt-in via a `fiberRefs` env service and `forkFiber`; `RIO.Aff.Local` is the simpler shared-`Effect.Ref` model |
 | Failure model | First-class `Cause e` everywhere | Single `Variant e` (or `Cause` reified at boundaries) |
 | Virtual time | `TestClock` wakes sleeping fibers directly | Discipline-based via `Clock` service |
-| STM semantics | Event-loop atomicity; `retry` parks on `TVar` change via the fiber scheduler | Same atomicity model; `retry` parks on `TRef` change via an `AVar` waiter (same observable semantics, different mechanism) |
+| STM semantics | Optimistic concurrency: version-checked commits under a global commit lock; `retry` parks on `TVar` change via the fiber scheduler | Event-loop atomicity: the whole transaction commits in one synchronous step (no version checks); `retry` parks on `TRef` change via an `AVar` waiter |
 | Bind hot path | ~10 ns per `bind` (BIND fuses common leaf ops) | ~90 ns per `bind` |
 | Array fan-out | `forkAll x16 + joinAll` runs ~5x faster than `forkAff x16 + joinFiber` | Same as `Aff` |
 
@@ -169,14 +169,14 @@ inside `Aff`'s canceler protocol.
   out for free. An `Aff`-style simulated clock cannot wake a
   fiber that is parked inside `Aff.delay`; the harness has to
   fake the parked state itself.
-- **STM with event-loop atomicity *and* `TVar`-park retry.**
+- **STM with version-checked commits *and* `TVar`-park retry.**
   `TVar` / `TMVar` / `TChan` / `TQueue` / `TArray` with
-  `atomically`, `retry`, `orElse`, `check`. Commits are atomic
-  across an entire event-loop turn, so a transaction never
-  observes another fiber's half-write. `retry` parks the fiber
-  on the set of `TVar`s it read and resumes only when one of
-  them changes; there is no version check, no spinning, and no
-  per-`TVar` lock.
+  `atomically`, `retry`, `orElse`, `check`. A transaction stages
+  its writes and, at commit time, briefly takes a global commit
+  lock to validate that no `TVar` it read has changed, re-running
+  on a conflict, so a transaction never observes another fiber's
+  half-write. `retry` parks the fiber on the set of `TVar`s it
+  read and resumes only when one of them changes.
 - **Bounded-concurrency parallel traversal.** `parTraverseN n`
   via `Semaphore`, plus `Hub`, `Queue`, `Latch`, `Deferred`,
   `Layer`, and `Pool` as proper first-class concurrent
@@ -226,9 +226,10 @@ right pick when:
   graph homogeneous: no boundary conversions, no `runAffThrow`
   bridges, no two-runtime composition story.
 - **You want the smallest possible surface to learn first.**
-  `rio-aff` is roughly half the module count of `rio-fiber` and
-  shares its vocabulary with the `purescript-aff` mental model
-  many users already have.
+  `rio-aff` is backed by `Effect.Aff`, so it shares its
+  vocabulary and mental model with the `purescript-aff` many
+  users already know; you can lean on that familiarity instead
+  of learning a custom fiber runtime first.
 - **You're embedding into a host that hands you `Aff`.** Some
   PureScript HTTP servers, GraphQL frameworks, and SDKs accept
   an `Aff a` handler. `rio-aff` lets you write that handler in
@@ -412,7 +413,7 @@ but the concepts apply to both):
   repeat policies, combinators, and how to drive them
   deterministically in tests.
 - [`docs/09-stm.md`](./docs/09-stm.md): STM primitives,
-  atomicity on the JS event loop, `retry` / `orElse`.
+  transactional atomicity, `retry` / `orElse`.
 - [`docs/10-tracing.md`](./docs/10-tracing.md): tracing and
   metrics services.
 - [`docs/11-fiber-local.md`](./docs/11-fiber-local.md): ambient

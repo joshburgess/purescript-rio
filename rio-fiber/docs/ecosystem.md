@@ -116,13 +116,16 @@ every published value. `Stream.share` is a thin convenience over
 `Hub` for the "split this stream into N downstream consumers"
 case.
 
-## STM: event-loop atomicity
+## STM: optimistic concurrency
 
 `RIO.Fiber.STM` is software transactional memory built on the
-fiber event loop. Each STM block runs atomically with respect to
-all other STM blocks because the runtime's step loop is
-single-threaded: there's no preemption inside an STM commit, so
-no version check or retry loop is needed.
+fiber runtime. A transaction body runs without holding any lock,
+recording the version of every `TVar` it reads and staging its
+writes; at commit time the runner briefly acquires a global
+commit lock, validates that every read `TVar`'s version is
+unchanged, and either applies the staged writes or re-runs on a
+conflict. `retry` parks the fiber on its read-set and wakes when
+a watched `TVar` changes.
 
 The user-facing API is small:
 
@@ -201,8 +204,8 @@ example = do
   Stream.runCollect (Stream.take 100 (Stream.fromTQueue q))
 ```
 
-The producer's `STM.atomically` step is a single event-loop
-turn; the consumer's pull is another. Between them the queue
+The producer's `STM.atomically` step commits independently; the
+consumer's pull is a separate transaction. Between them the queue
 is the only synchronization point, and it composes with any
 other STM transaction the producer or consumer wants to
 combine.

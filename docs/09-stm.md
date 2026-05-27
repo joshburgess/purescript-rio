@@ -117,12 +117,22 @@ so the picture is simpler:
 3. Therefore no other fiber can observe (or change) the
    transaction's intermediate writes.
 
-The `STM` implementation in `RIO.Aff.STM` / `RIO.Fiber.STM`
-exploits that directly. A
-transaction accumulates writes in a log; the commit phase applies
-them to the underlying `Ref`s in a single `Effect` block, then
-fires the waiters registered on each written `TRef`. No version
-numbers, no rollback machinery, no spinning.
+`RIO.Aff.STM` exploits that directly. A transaction accumulates
+writes in a log; the commit phase applies them to the underlying
+`Ref`s in a single `Effect` block, then fires the waiters
+registered on each written `TRef`. No version numbers, no
+rollback machinery, no spinning.
+
+`RIO.Fiber.STM` cannot lean on that property the same way:
+rio-fiber runs on its own interpreter, where the commit step is a
+scheduled action rather than one uninterruptible `Effect` block,
+so two fibers' commits *can* interleave. It therefore uses
+optimistic concurrency. Each `TVar` carries a version counter; a
+transaction records the version of every `TVar` it reads, and the
+commit step briefly acquires a global commit lock to validate
+that those versions are unchanged before applying its staged
+writes (bumping versions and waking waiters). On a conflict the
+transaction re-runs.
 
 The trade-off is the same one PureScript's runtime makes
 everywhere: an STM body that allocates a fiber, awaits an `Aff`,
@@ -261,11 +271,13 @@ fall-through behaviour on failure.
 
 ## Concurrent updates
 
-Because `atomically` is synchronous, two fibers calling
-`atomically (modifyTRef counter (_ + 1))` cannot interleave: one
-runs to completion, then the other runs. No counter race, no
-lost update. This is the property STM is most often reached for,
-and it falls out of the JS event-loop model for free.
+Two fibers calling `atomically (modifyTRef counter (_ + 1))`
+cannot interleave at the transaction level: each commit is
+all-or-nothing, so one update lands and the other re-reads the
+committed value before it lands. No counter race, no lost update.
+This is the property STM is most often reached for; on rio-aff it
+falls out of the synchronous event-loop commit, and on rio-fiber
+the optimistic commit re-runs the loser of a write conflict.
 
 The fiber boundary matters: across two separate `atomically`
 calls a value *can* change. The test suite exercises 50 parallel
@@ -553,11 +565,12 @@ Surface: `newTSet`, `insertTSet`, `deleteTSet`, `memberTSet`,
   attempt commit?" Use the action's typed failure / success as
   the schedule's input as usual.
 - **Dead-waiter cleanup.** A transaction that retries registers
-  callbacks on every read `TRef`. When the transaction is
-  killed before a write fires those callbacks, the callbacks
-  stay in the waiters list until the next write to that `TRef`
-  clears them. This is a small leak under workloads with many
-  killed retrying transactions; it does not affect correctness.
+  a waiter on every read `TRef` (rio-aff) / `TVar` (rio-fiber).
+  When the transaction is killed before a write fires those
+  waiters, they stay in the cell's waiters list until the next
+  write to that cell clears them. This is a small leak under
+  workloads with many killed retrying transactions; it does not
+  affect correctness.
 
 ## Pointers
 
