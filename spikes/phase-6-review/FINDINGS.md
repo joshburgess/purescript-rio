@@ -35,7 +35,7 @@ Each scenario's parameter ranges are summarised below.
 
 | ID | Combinator           | Random parameters                                                                 | Stresses                                            |
 | -- | -------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------- |
-| A  | `parTraverse`        | count `[2, 8]`, maxDelayMs `[1, 10]`, failPct `[0, 60]`                           | All-branches-run-to-completion failure semantics    |
+| A  | `parTraverse`        | count `[2, 8]`, maxDelayMs `[1, 10]`, failPct `[0, 60]`                           | First-failure cancellation; cancelled branches release    |
 | B  | `zipPar`             | maxDelayMs `[1, 10]`, failPct `[0, 60]` on each side                              | Two-branch fanout with possible double-failure      |
 | C  | `raceAll`            | count `[2, 6]`, maxDelayMs `[2, 12]`                                              | Loser interruption + release on every loser         |
 | D  | `fork` / `interrupt` | depth `[1, 50]` nested scopes, sleepMs `[10, 30]`, killAfterMs `[1, sleepMs - 1]` | Kill-mid-flight with deep `scoped` finalizer stacks |
@@ -63,10 +63,12 @@ completion.
 
 ## What This Validates
 
-- **No leaks under failure.** Scenarios A and B run actions that
-  fail with a typed error 0 to 60 percent of the time. Even when
-  every branch fails, `acquireRelease`'s release phase still runs,
-  exactly as documented in the Phase 0.5 spike's S6.
+- **No leaks under failure or first-failure cancellation.**
+  Scenarios A and B run actions that fail with a typed error 0 to
+  60 percent of the time. `parTraverse` cancels every sibling on
+  the first typed failure, and `acquireRelease`'s release phase
+  still runs on both the failing branch and the cancelled
+  siblings, exactly as documented in the Phase 0.5 spike's S6.
 - **No leaks under racing.** Scenario C exercises `raceAll` over up
   to six concurrent actions. Aff's `parallel` / `<|>` machinery kills
   the losers, and `Aff.bracket`'s uninterruptible release runs every
@@ -85,13 +87,6 @@ completion.
 
 ## What This Does **Not** Validate
 
-- **First-failure cancellation for `parTraverse`.** The Phase 6.2
-  decision to ship applicative-shaped `parTraverse` (every branch
-  runs to completion regardless of failures) is preserved here:
-  scenario A's leak check works equally well under that semantics
-  because every branch reaches its release path. A future combinator
-  with first-failure-cancels-rest semantics would need a new
-  scenario that asserts the cancelled branches still release.
 - **Defects via `die`.** The harness uses typed failures only.
   `RIO.Aff.Resource.acquireRelease`'s defect path is covered by the
   Phase 4 review's `Defect` termination mode; that path goes

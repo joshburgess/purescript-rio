@@ -11,9 +11,11 @@ correctness, all four `RIO.Aff.STM.THub` back-pressure strategies
 (Unbounded fan-out, Bounded back-pressure, Sliding drop-oldest,
 Dropping drop-new with boolean return), and `RIO.Aff.STM.TSemaphore`
 permit-return under typed failures and mid-hold fiber kills. The
-`finally`-backed restore the documentation promises for
-`withFields`, `locally`, and `withTSemaphore` holds on every
-termination path, and STM's atomicity under contention does not
+restore the documentation promises for `withFields`, `locally`,
+and `withTSemaphore` holds on every termination path (`locally`
+via `Aff.finally`, `withTSemaphore` via `acquireRelease`, and
+`withFields` by swapping in a scoped logger that simply falls out
+of scope), and STM's atomicity under contention does not
 lose, duplicate, drop, or reorder values beyond each strategy's
 documented behaviour.
 
@@ -78,9 +80,12 @@ leaked semaphore permit.
   randomly throws a typed failure or forks-then-joins at each
   level. The harness reads `logger.getAnnotations` after the
   program returns and asserts the array is empty. Every iteration
-  passed: the `Aff.finally` wrapping `setAnnotations` runs whether
-  the body exits cleanly, via typed failure, or under a kill that
-  reaches the forked child's `finally` block.
+  passed: each `withFields` block swaps in a scoped logger record
+  backed by a private `Ref` and never writes the caller's logger,
+  so the original annotations reappear when the block's scoped
+  record falls out of scope, whether the body exits cleanly, via
+  typed failure, or under a kill (no `Aff.finally` or restoring
+  `setAnnotations` is involved).
 - **`Local.locally` restores on every termination path.** Scenario
   B is the same shape as A but on a single `Local Int` and with an
   additional `killPct`: when a fork happens and the parent kills
@@ -158,13 +163,16 @@ leaked semaphore permit.
 ### O-1: Logger annotation restore survives a forked sub-tree.
 
 Scenario A's `forkPct` branch forks the recursive call and joins
-it before returning. When the forked branch enters its own
-`withFields` block, it mutates the shared annotation Ref. The
-parent's later `setAnnotations` (run by the parent's `finally`)
-restores the parent's previous snapshot, which is what makes the
-post-return read empty. We did not observe a case where the
-child's annotations leaked past the parent's restore, even when
-the child itself failed mid-block.
+it before returning. Each `withFields` block swaps in a scoped
+logger record whose annotations live in a private `Ref`, and a
+fork inside the block captures that swapped record, so the child
+inherits its own private cell rather than sharing the parent's.
+The child's `withFields` activity mutates only its private cell,
+and when each block returns its scoped record falls out of scope
+and the caller sees the original logger again, which is what makes
+the post-return read empty. We did not observe a case where the
+child's annotations leaked into the parent, even when the child
+itself failed mid-block.
 
 ### O-2: Local restore survives a mid-block kill.
 
