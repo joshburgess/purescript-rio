@@ -22,7 +22,7 @@
 -- |
 -- | main = launchAff_ do
 -- |   src <- jsonFileSource "config.json"
--- |   runAffThrow (load (Proxy :: _ "config") src appConfig)
+-- |   runAffEither (load (Proxy :: _ "config") src appConfig) {}
 -- | ```
 module RIO.Fiber.Config.File
   ( dotenvFileSource
