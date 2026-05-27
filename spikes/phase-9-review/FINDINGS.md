@@ -200,9 +200,9 @@ granularity.
 
 - Harness:                `src/Spike/Phase9Review/Main.purs`
 - Scenarios:              `src/Spike/Phase9Review/Stress.purs`
-- Underlying primitives:  `src/RIO/Logger.purs`,
-  `src/RIO/Local.purs`, `src/RIO/STM/TQueue.purs`,
-  `src/RIO/STM/THub.purs`, `src/RIO/STM/TSemaphore.purs`
+- Underlying primitives:  `rio-aff/src/RIO/Aff/Logger.purs`,
+  `rio-aff/src/RIO/Aff/Local.purs`, `rio-aff/src/RIO/Aff/STM/TQueue.purs`,
+  `rio-aff/src/RIO/Aff/STM/THub.purs`, `rio-aff/src/RIO/Aff/STM/TSemaphore.purs`
 - Documentation:          `docs/09-stm.md`,
   `docs/11-fiber-local.md`, `docs/12-logging.md`
 - Earlier review precedent: `spikes/phase-6-review/FINDINGS.md`

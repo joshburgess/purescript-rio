@@ -142,7 +142,7 @@ appears deterministic at this granularity.
 
 - Harness:        `src/Spike/Phase6Review/Main.purs`
 - Scenarios:      `src/Spike/Phase6Review/Stress.purs`
-- Underlying primitives: `src/RIO/Concurrency.purs`,
-  `src/RIO/Resource.purs`
+- Underlying primitives: `rio-aff/src/RIO/Aff/Concurrency.purs`,
+  `rio-aff/src/RIO/Aff/Resource.purs`
 - Cancellation contract: `spikes/aff-interruption/FINDINGS.md`
 - Concurrency doc:       `docs/06-concurrency.md`

@@ -67,7 +67,7 @@ the actual stress work is well under a second.
 ## What This Validates
 
 - `acquireRelease` and `scoped` honour the release-runs-on-every-path
-  contract documented in `src/RIO/Resource.purs`. The contract holds
+  contract documented in `rio-aff/src/RIO/Aff/Resource.purs`. The contract holds
   at depth 1000, not just the depths used by the unit tests in
   `test/Test/RIO/ResourceSpec.purs`.
 - The `Effect.Aff.bracket` foundation's uninterruptible release phase
@@ -110,6 +110,6 @@ the actual stress work is well under a second.
 
 - Harness: `src/Spike/Phase4Review/Main.purs`
 - Recursive program: `src/Spike/Phase4Review/Stress.purs`
-- Underlying primitives: `src/RIO/Resource.purs`
+- Underlying primitives: `rio-aff/src/RIO/Aff/Resource.purs`
 - Cancellation contract source of truth: `spikes/aff-interruption/FINDINGS.md`
   scenario S6.

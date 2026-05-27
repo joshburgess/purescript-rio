@@ -148,7 +148,7 @@ reordering of `db-close` / `cache-flush` would fail the run.
   into a single `(dbConnect, progBoom)` output row, exactly the shape
   the Phase 0.4 row-inference spike predicted. The
   `unsafeCoerce`-based program-side expansion documented in
-  `src/RIO/Layer.purs` behaves correctly at runtime; no values are
+  `rio-aff/src/RIO/Aff/Layer.purs` behaves correctly at runtime; no values are
   lost or duplicated.
 - **Phase 5.4.** Layer-registered finalizers (`cache-flush`,
   `db-close`) run after the program on every observed termination
@@ -244,5 +244,5 @@ resources.
 - Harness:   `src/Spike/Phase5Review/Main.purs`
 - Layers:    `src/Spike/Phase5Review/Layers.purs`
 - Services:  `src/Spike/Phase5Review/Services.purs`
-- Underlying primitives: `src/RIO/Layer.purs`, `src/RIO/Resource.purs`
+- Underlying primitives: `rio-aff/src/RIO/Aff/Layer.purs`, `rio-aff/src/RIO/Aff/Resource.purs`
 - Row-inference contract: `spikes/row-inference/FINDINGS.md`
