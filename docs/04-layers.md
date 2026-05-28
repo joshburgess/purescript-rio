@@ -26,9 +26,11 @@
 > (see `docs/05-resources.md`). The `addFinalizer scope
 > closeFoo` calls in the layer-body examples take an `Aff Unit`
 > finalizer in rio-aff but `Effect Unit` in rio-fiber; both
-> packages also export `addFinalizerRIO` for a
-> `RIO r () Unit` finalizer and `addFinalizerExit` for a
-> cause-aware finalizer.
+> packages also export `addFinalizerRIO`, whose finalizer is
+> `RIO r () Unit` in rio-aff (error row pinned to `()`) and
+> `RIO r e Unit` in rio-fiber (the finalizer shares the
+> caller's `e`), plus `addFinalizerExit` for a cause-aware
+> finalizer.
 
 A `Layer rIn e rOut` (rio-aff order; rio-fiber spells it
 `Layer e rIn rOut` with the error row first) is a recipe for
