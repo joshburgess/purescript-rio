@@ -248,14 +248,17 @@ queued until release completes.
 
 ## Rendering: `prettyCause` (and rio-aff's `prettyCauseWithStack`)
 
-Both packages export both `prettyCause` and `prettyPrint`. The
-implementations are equivalent; rio-fiber defines `prettyPrint`
-as the primary and `prettyCause = prettyPrint` as an alias kept
-for rio-aff parity, while rio-aff defines both independently.
-Pick whichever name reads better for your call site. rio-aff
-also exports `prettyCauseWithStack` for defect stack-trace
-rendering; rio-fiber has no stack-trace-augmented variant
-because its `Die` constructors do not carry a captured stack.
+Both packages export both `prettyCause` and `prettyPrint`. In
+rio-fiber the two are equivalent: `prettyPrint` is the primary
+renderer (ASCII tree characters `|--` / `` `-- ``) and
+`prettyCause = prettyPrint` is an alias kept for rio-aff parity.
+In rio-aff the two are distinct renderers: `prettyCause` uses an
+indent-based layout while `prettyPrint` uses the same ASCII tree
+characters as rio-fiber. Pick whichever output format suits the
+destination. rio-aff also exports `prettyCauseWithStack` for
+defect stack-trace rendering; rio-fiber has no
+stack-trace-augmented variant because its `Die` constructors do
+not carry a captured stack.
 
 ```purescript
 prettyCause
