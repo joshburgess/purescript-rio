@@ -1,5 +1,5 @@
 -- | `withRequestContext`: the reusable HTTP request-wrapping
--- | combinator from the todo-api example.
+-- | combinator for the aff-backed stack.
 -- |
 -- | Wraps any `RIO` action so it runs inside a `RIO.Aff.Logger`
 -- | `withFields` block stamping `request.id` / `request.method`

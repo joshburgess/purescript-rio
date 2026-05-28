@@ -20,9 +20,10 @@
 -- |   )
 -- | ```
 -- |
--- | A migration is a `PG.Client -> RIO r e Unit` so each step runs
--- | on the same locked client; use `RIO.Aff.Postgres.execUsing` /
--- | `queryUsing` / `execParamsUsing` inside the callback.
+-- | A migration is a `PG.Client -> RIO (postgres :: Postgres | r) e Unit`
+-- | so each step runs on the same locked client; use
+-- | `RIO.Aff.Postgres.execUsing` / `queryUsing` / `execParamsUsing`
+-- | inside the callback.
 -- | Convenience helper `sqlMigration` builds a migration from a
 -- | single SQL string.
 -- |
