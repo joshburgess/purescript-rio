@@ -48,7 +48,7 @@ import RIO.Fiber.Postgres.Notify (Notify(..))
 -- | defect.
 -- |
 -- | ```purescript
--- | runAffThrow
+-- | runRIO'
 -- |   ( provideScoped
 -- |       (notifyLayer { connectionString: "postgres://..." })
 -- |       program

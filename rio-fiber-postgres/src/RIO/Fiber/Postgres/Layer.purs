@@ -44,7 +44,7 @@ import RIO.Fiber.Postgres (Postgres(..))
 -- |
 -- | ```purescript
 -- | -- in main:
--- | runAffThrow
+-- | runRIO'
 -- |   ( provideScoped
 -- |       (postgresLayer { connectionString: "postgres://..." })
 -- |       program

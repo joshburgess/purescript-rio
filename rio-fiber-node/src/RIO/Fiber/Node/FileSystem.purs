@@ -420,7 +420,7 @@ writeTextFile enc p s = withFs \fs -> fs.writeTextFile enc p s
 -- | `Layer`.
 -- |
 -- | ```purescript
--- | main = runAffThrow (provide (fromValue { fs: liveFileSystem }) program)
+-- | main = runRIO' (provide (fromValue { fs: liveFileSystem }) program)
 -- | ```
 liveFileSystem :: FileSystem
 liveFileSystem =
