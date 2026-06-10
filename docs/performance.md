@@ -137,8 +137,9 @@ appropriate unit (ns / μs / ms / s). The full source is in
 ## Regression gate
 
 `Benchmarks.Gate` is a developer-runnable check that exercises
-the same scenarios as `Benchmarks.Main` and compares each one's
-mean wall-clock per iteration against a hard-coded baseline.
+the core micro-benchmark scenarios behind the headline numbers
+table (a subset of what `Benchmarks.Main` runs) and compares each
+one's mean wall-clock per iteration against a hard-coded baseline.
 Run it before opening a PR that touches a hot path:
 
 ```

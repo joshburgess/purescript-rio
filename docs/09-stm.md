@@ -248,8 +248,10 @@ withdraw account amount = atomically do
 ## `orElse`: try one path, fall back to another
 
 `orElse left right` runs `left`; if `left` retries, it rolls back
-`left`'s log and runs `right`. A typed failure in `left` does
-*not* fall through:
+`left`'s log and runs `right`. (rio-aff restores both the read and
+write log; rio-fiber rolls back only `left`'s writes and keeps its
+reads, so the combined transaction still wakes on either branch's
+reads.) A typed failure in `left` does *not* fall through:
 
 ```purescript
 orElse :: forall e a. STM e a -> STM e a -> STM e a

@@ -288,7 +288,7 @@ Programs are written against `RIO.Fiber.*`.
 - **`RIO.Fiber.Cause`**: the failure algebra and its
   introspection set (`firstFailure`, `firstDefect`,
   `interruptCount`, `stripInterrupts`, `mapFailures`, `flatten`,
-  `squash`, `fold`, `prettyPrint`).
+  `squash`, `fold`, `prettyPrint` / `prettyCause`).
 - **`RIO.Fiber.Scope`**: resource scopes with LIFO finalizers,
   plus the structured-concurrency primitives `forkScoped` and
   `forkSupervised`.
@@ -345,8 +345,8 @@ Programs are written against `RIO.Aff.*`.
   `attemptCause`, `parTraverseCause`, `raceCause`,
   `acquireReleaseCause`, `prettyCause` / `prettyCauseWithStack`.
   Reified at boundaries rather than carried natively.
-- `RIO.Aff.Resource`: `acquireRelease`, `ensuring`, and `Scope`
-  with LIFO finalizers.
+- `RIO.Aff.Resource`: `acquireRelease`, `bracket`, `ensuring`, and
+  `Scope` with LIFO finalizers.
 - `RIO.Aff.Layer`: `Layer rIn e rOut` with sequential (`>>>`)
   and horizontal (`<+>`) composition.
 - `RIO.Aff.Concurrency`: `fork`, `forkScoped`, `forkSupervised`,

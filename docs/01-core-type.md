@@ -211,8 +211,9 @@ type-narrowing way inside the monad.
 - Source: [`rio-aff/src/RIO/Aff/Core.purs`](../rio-aff/src/RIO/Aff/Core.purs)
   (re-export surface) and
   [`rio-aff/src/RIO/Aff/Internal.purs`](../rio-aff/src/RIO/Aff/Internal.purs)
-  (the `RIO r e a` newtype and its `Functor` / `Apply` / `Bind`
-  / `Monad` / `MonadEffect` / `MonadAff` instances). rio-fiber
+  (the `RIO r e a` newtype and its `Functor` / `Apply` /
+  `Applicative` / `Bind` / `Monad` / `MonadEffect` / `MonadAff`
+  instances). rio-fiber
   ships the analogous
   [`rio-fiber/src/RIO/Fiber/Core.purs`](../rio-fiber/src/RIO/Fiber/Core.purs)
   with its own interpreter beneath.

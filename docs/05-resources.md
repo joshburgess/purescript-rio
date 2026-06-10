@@ -55,7 +55,7 @@ This document covers:
 1. `acquireRelease`: the bracket-style primitive.
 2. `ensuring`: the simpler "run a finalizer no matter what".
 3. `Scope` / `scoped` / `addFinalizer`: LIFO finalizer stacks.
-4. `RIO.Resource.Do`: qualified-do sugar that flattens nested
+4. `RIO.Aff.Resource.Do`: qualified-do sugar that flattens nested
    brackets.
 5. The failure model and the empty-row release.
 
@@ -165,7 +165,7 @@ program execution (`provideScoped` is a thin alias for
 so user code that reaches the library through those modules cannot
 construct a `Scope` directly.
 
-## `RIO.Resource.Do`: qualified-do sugar
+## `RIO.Aff.Resource.Do`: qualified-do sugar
 
 A computation that opens several resources before using them is
 a ladder of nested brackets:
@@ -177,10 +177,10 @@ example = acquireRelease openHandle closeHandle \h ->
       buildReport h conn pool
 ```
 
-`RIO.Resource.Do` flattens that with a qualified-do block:
+`RIO.Aff.Resource.Do` flattens that with a qualified-do block:
 
 ```purescript
-import RIO.Resource.Do as Resource
+import RIO.Aff.Resource.Do as Resource
 
 example :: forall r e. RIO r e Report
 example = Resource.do
@@ -269,7 +269,7 @@ were written to support.
 | Scope               | `Scope`                            | `Scope`                 | `Scope`              |
 | Scope introduction  | `ZIO.scoped`                       | `Effect.scoped`         | `scoped`             |
 | Register finalizer  | `Scope.addFinalizer`               | `Scope.addFinalizer`    | `addFinalizer`       |
-| Multi-acquire sugar | `for` in scoped block              | `Effect.gen`            | `RIO.Resource.Do`    |
+| Multi-acquire sugar | `for` in scoped block              | `Effect.gen`            | `RIO.Aff.Resource.Do`    |
 | Cause-aware release | `ZIO.acquireReleaseExitCause`      | `Effect.acquireExit`    | `Cause.acquireReleaseCause` |
 
 The interrupt guarantees in this library are weaker than ZIO's

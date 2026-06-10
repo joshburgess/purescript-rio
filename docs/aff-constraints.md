@@ -203,8 +203,9 @@ uninterruptible".
 `rio-aff` exposes `uninterruptible` and pairs `acquireRelease` with
 `Aff.bracket` so resources are always released, but:
 
-- `uninterruptible` is implemented by acquiring a guard around
-  the body. There is no nested restorable interrupt mask the
+- `uninterruptible` is implemented by wrapping the body in
+  `Aff.invincible`, which queues any kill signal until the body
+  completes. There is no nested restorable interrupt mask the
   way ZIO has (`ZIO.uninterruptibleMask`). If you need to
   switch interruptibility back on inside an uninterruptible
   region, you cannot.
@@ -221,7 +222,7 @@ uninterruptible".
 A custom runtime can publish interrupt status as an explicit
 machine state with proper masking. `Aff` cannot.
 
-### 4. Fibers have no identity or supervision
+### 4. Fibers have no runtime-native identity or supervision
 
 `Aff.Fiber` is opaque. It does not have a stable id, a printable
 name, or an inspectable parent / child relationship. You cannot:
@@ -232,8 +233,13 @@ name, or an inspectable parent / child relationship. You cannot:
 - Build a tree-view of the fiber forest in a debugger.
 
 ZIO's `FiberId`, `Fiber.Runtime#dump`, and `Supervisor` API are
-the obvious comparison. None of those have an analogue in `Aff`,
-so none has one in `rio-aff` either. The closest thing is `RIO.Aff.Tracer`
+the obvious comparison. `rio-aff` does mint a userland `FiberId`
+(a sequential `Int`, readable via `fiberId` on the `Fiber e a`
+wrapper), but it is not woven into the runtime the way ZIO's is:
+there is no fiber registry to enumerate, no stack dump, no
+supervisor hook, and interrupts do not carry it, so
+`Fiber.Runtime#dump` and `Supervisor` have no analogue in `Aff`
+and none in `rio-aff` either. The closest thing is `RIO.Aff.Tracer`
 spans, but those are an observability concern attached to the
 *logical* call tree, not the runtime fiber tree.
 
