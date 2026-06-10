@@ -434,11 +434,16 @@ additional items, not covered above. Same ranking convention
 
 ### #11 Bounded-concurrency `forEachParN` / `parTraverseN`
 
-**Status:** Shipped in `RIO.Fiber.Semaphore` and re-exported via
-`RIO.Fiber.Concurrency` as `parTraverseN`. Only the
-`parTraverseN` name shipped; `forEachParN` was not added (the
-two were proposed as aliases). The original proposal is
-preserved below.
+**Status:** Shipped, in two distinct forms (not a shared
+implementation). `RIO.Fiber.Semaphore.parTraverseN` builds an
+internal semaphore that keeps exactly N fibers in flight at
+once (a slot frees the instant any task finishes).
+`RIO.Fiber.Concurrency.parTraverseN` is a separate function that
+splits the input into chunks of N and `parTraverse`s each chunk
+in turn, so the next chunk waits for the whole previous chunk to
+finish. Only the `parTraverseN` name shipped; `forEachParN` was
+not added (the two were proposed as aliases). The original
+proposal is preserved below.
 
 **Problem.** `Core.parTraverse` runs every element in parallel
 with no cap. Real workloads doing fan-out (HTTP, DB queries,

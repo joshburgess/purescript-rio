@@ -80,9 +80,10 @@ specific points:
   their pulls happen to resolve.
 - `Stream.zipPar` zips two streams in parallel: both upstream
   pulls run concurrently before the zipper sees them.
-- `Stream.broadcast n s` returns `n` streams that each receive
-  every element. `Stream.share` is the dynamic-fanout variant
-  built on `Hub`.
+- `Stream.broadcast n capacity s` returns `n` streams (each fed
+  by a `capacity`-bounded buffer) that each receive every
+  element. `Stream.share` is the dynamic-fanout variant built on
+  `Hub`.
 
 These all live on the producer side. The consumer side stays
 single-threaded by construction; if you want parallel consumption,

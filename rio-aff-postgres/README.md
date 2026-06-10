@@ -51,8 +51,9 @@ the same way the
   `Effect.Aff.Postgres.Client.query` / `.exec`, lifting their
   `Except Aff` failures onto a typed-failure tag.
 - `withTransaction` issues `BEGIN`, runs the body, and either
-  `COMMIT`s on success or `ROLLBACK`s on a typed failure on
-  the chosen tag (then re-raises).
+  `COMMIT`s on success or `ROLLBACK`s on any typed failure (it
+  catches the whole error row, not just the chosen tag) then
+  re-raises. Defects (Aff exceptions) skip the rollback path.
 
 ## Testing
 

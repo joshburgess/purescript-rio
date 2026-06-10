@@ -150,7 +150,7 @@ sibling fibers are left alone. On the workspace benchmarks
 - **`RIO.Fiber.Layer`**, **`RIO.Fiber.Pool`**: layered service
   composition (`chainLayer` and `mergeLayers`; rio-fiber defines
   no infix-operator aliases) and a fixed-size object pool with
-  `withPooled` bracketing.
+  `withResource` / `withResource'` bracketing.
 - **`RIO.Fiber.Schedule`**: recursion policies (`recurs`,
   `spaced`, `exponential`, `jittered`, `intersect`, `andThen`,
   `whileInput`) with `repeat` / `retry` runners that sleep via
