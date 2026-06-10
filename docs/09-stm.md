@@ -462,8 +462,13 @@ losing messages, and `Unbounded` if buffer growth is fine.
 
 ### `RIO.STM.TArray`
 
-A fixed-length transactional array. Reads and writes are
-indexed and stay atomic at the per-cell granularity.
+A fixed-length transactional array with indexed reads and
+writes. The atomicity granularity differs by family: rio-fiber
+backs each cell with its own `TVar`, so disjoint-index writes
+commit independently (true per-cell granularity); rio-aff backs
+the whole array with a single `TRef (Array a)`, so a write to
+any index conflicts with a transaction that read any part of the
+array.
 
 ```purescript
 -- rio-aff:

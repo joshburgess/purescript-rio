@@ -331,6 +331,8 @@ the "collect everything" default in 2.x.
 - Spec coverage:
   [`rio-aff/test/Test/RIO/Aff/ConfigSpec.purs`](../rio-aff/test/Test/RIO/Aff/ConfigSpec.purs),
   [`rio-aff/test/Test/RIO/Aff/Config/RotatingSpec.purs`](../rio-aff/test/Test/RIO/Aff/Config/RotatingSpec.purs),
+  [`rio-fiber/test/Test/RIO/Fiber/ConfigSpec.purs`](../rio-fiber/test/Test/RIO/Fiber/ConfigSpec.purs),
+  [`rio-fiber/test/Test/RIO/Fiber/Config/RotatingSpec.purs`](../rio-fiber/test/Test/RIO/Fiber/Config/RotatingSpec.purs),
   and the in-package tests under
   [`rio-aff-config-file/test/`](../rio-aff-config-file/test/)
   and

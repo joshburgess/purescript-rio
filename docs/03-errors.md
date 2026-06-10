@@ -206,7 +206,7 @@ add to it). It also ignores the rest of the row, the environment, and
 any pending continuations:
 
 ```purescript
-program :: RIO () (notFound :: NotFound) Int
+program :: RIO () (notFound :: { id :: Int }) Int
 program = die (error "this should never happen")
 ```
 

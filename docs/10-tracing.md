@@ -16,7 +16,7 @@ the same surface without touching call sites.
 > rio-fiber-shaped code samples: the `Span` is passed
 > explicitly to `addAttribute` / `addEvent` / `addLink`, and
 > the parent / child story is described in `FiberRef` terms.
-> rio-aff's tracer surface differs in two ways worth knowing
+> rio-aff's tracer surface differs in three ways worth knowing
 > up front: (1) `addAttribute :: String -> String -> RIO
 > (tracer :: Tracer | r) e Unit` takes no explicit `Span`
 > argument and operates on the currently-active span via the
@@ -24,7 +24,12 @@ the same surface without touching call sites.
 > uses a shared `Ref` rather than a copy-on-fork `FiberRef`,
 > so a `withSpan` inside one forked fiber does not affect a
 > sibling fiber only because the swap is scoped to the body,
-> not because the two fibers see independent cells.
+> not because the two fibers see independent cells; (3) the aff
+> `withSpan :: String -> RIO (tracer :: Tracer | r) e a -> RIO
+> (tracer :: Tracer | r) e a` takes only a name, with no
+> attributes array and no `Span` callback, and there is no
+> `withSpanWith` or `SpanKind` on the aff side, so the
+> explicit-`Span` and `SpanKind` samples below are rio-fiber-only.
 
 ## Tracing
 
@@ -228,7 +233,8 @@ OTel metrics exporter) implements the same record.
 
 - `rio-fiber/src/RIO/Fiber/Tracer.purs`,
   `rio-fiber/src/RIO/Fiber/Test/Tracer.purs`: the tracer
-  surface, opaque `Span` newtype, `SpanId`, `SpanKind`,
+  surface, the `Span` newtype (constructor exported as
+  `Span(..)`), `SpanId`, `SpanKind`,
   `SpanStatus`, and the recording backend.
 - `rio-fiber/src/RIO/Fiber/Tracer/OTel.purs`,
   `rio-fiber-otel/src/RIO/Fiber/Tracer/OTel/Adapter.purs`: pure
