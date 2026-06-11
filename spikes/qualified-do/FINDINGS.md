@@ -135,6 +135,10 @@ replacement for the missing language feature.
     perfectly. Document the no-short-circuit semantics and point
     at `parPair`/`parTuple` for the short-circuiting case.
 
+    **Update (2026-06):** the short-circuiting two-branch combinator
+    shipped as `zipPar` / `zipWithPar` in `RIO.Aff.Concurrency`; the
+    `parPair` / `parTuple` names were never used.
+
   * **Don't try** to fake direct-style or generator syntax with
     qualified-do. The pieces aren't there, and any attempt
     produces a leaky abstraction that will surprise users worse

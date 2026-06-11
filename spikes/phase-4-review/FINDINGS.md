@@ -69,7 +69,7 @@ the actual stress work is well under a second.
 - `acquireRelease` and `scoped` honour the release-runs-on-every-path
   contract documented in `rio-aff/src/RIO/Aff/Resource.purs`. The contract holds
   at depth 1000, not just the depths used by the unit tests in
-  `test/Test/RIO/ResourceSpec.purs`.
+  `rio-aff/test/Test/RIO/Aff/ResourceSpec.purs`.
 - The `Effect.Aff.bracket` foundation's uninterruptible release phase
   (Phase 0.5 spike, scenario S6) propagates correctly through
   recursive `scoped` calls. A `killFiber` at any depth still drains

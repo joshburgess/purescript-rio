@@ -162,7 +162,7 @@ reordering of `db-close` / `cache-flush` would fail the run.
 ## What This Does **Not** Validate
 
 - Defect (`die`) program paths under `provideLayer`. Phase 5.4's unit
-  test in `test/Test/RIO/LayerSpec.purs` covers this. The review
+  test in `rio-aff/test/Test/RIO/Aff/LayerSpec.purs` covers this. The review
   harness exercises the layer-level failure and the program-level
   typed-failure paths only; the defect path is intentionally left to
   the unit test because adding a `die` scenario here would have to
@@ -202,6 +202,12 @@ inputs and the original output. Sequential composition with the
 downstream layer then sees both. We are not adding this in Phase 5
 because the build plan defers it; tracking as a candidate for a
 later phase (most likely a 5.5 follow-up or a Phase 6 utility).
+
+**Update (2026-06):** Shipped. `passthrough` is exported from
+`RIO.Aff.Layer` (and re-exported from `RIO.Aff.Core`). The shipped
+signature is `passthrough :: forall rIn e rOut rPassed. Row.Union
+rOut rIn rPassed => Layer rIn e rOut -> Layer rIn e rPassed`, so the
+manual re-emit boilerplate described above is no longer required.
 
 ### DX-2: `forall e.` on every closed layer signature.
 

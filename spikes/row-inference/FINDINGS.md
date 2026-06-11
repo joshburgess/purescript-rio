@@ -319,6 +319,12 @@ the docs.
    `Record r -> Aff (Either (Variant e) a)` produces excellent inference
    in all surveyed patterns.
 
+   **Update (2026-06):** the public `RIO r e a` shape is unchanged, but
+   the internal representation is now `RIO (Op r e a)` (an interpreter
+   instruction tree in `RIO.Aff.Internal`); the `Record r -> Aff (Either
+   (Variant e) a)` form survives as the `unRIO` boundary function. The
+   inference conclusions still hold.
+
 2. **Drop the `Lacks` constraint from `provide`.** (Originally LE-1 above.)
    This propagates to the revised Phase 2.2 item, which already flagged
    the same redundancy.
@@ -337,6 +343,11 @@ the docs.
    ```
 
    No revision required for Phase 3.1.
+
+   **Update (2026-06):** the shipped `catchTag` carries one extra
+   constraint, `CatchableErrorTag sym a e` (alongside `Row.Cons sym a e'
+   e`), added to drive the friendly missing-tag error message (see item
+   6 below). The term-level shape is otherwise as written.
 
 4. **`fail` final type signature** (informing Phase 1.3, which is now
    final in Phase 1, not revisited in Phase 3):
@@ -359,9 +370,18 @@ the docs.
 6. **Backlog for v0.2:** custom `Fail` instances to improve NEG-2 and NEG-3
    error messages.
 
+   **Update (2026-06):** done for NEG-2: `catchTag` now routes a
+   missing tag through a `CatchableErrorTag` constraint whose `Fail`
+   instance emits a friendly message (`RIO.Aff.Error`). NEG-3 still
+   produces the raw `Prim.Row.Cons` message.
+
 7. **No need for a custom runtime layer for inference reasons.** The
    `Record r -> Aff (...)` representation cooperates with `Cons`/`Lacks`
    exactly as needed.
+
+   **Update (2026-06):** a custom interpreter runtime (the `Op` tree)
+   was later adopted for performance, not inference; the inference
+   properties described here are unchanged.
 
 ## Reproducing the Findings
 

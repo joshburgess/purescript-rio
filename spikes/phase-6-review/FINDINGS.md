@@ -97,7 +97,11 @@ completion.
   parent-kills-child semantics in Phase 6 (documented in
   `docs/06-concurrency.md`). The harness deliberately does not
   exercise that pattern; the orphan-fiber case is a known
-  non-guarantee, not a bug.
+  non-guarantee, not a bug. **Update (2026-06):** opt-in
+  parent-kills-child semantics later shipped via `forkScoped` and
+  `supervised` / `forkSupervised` in `RIO.Aff.Concurrency`; plain
+  `fork` remains unscoped (there is still no implicit global
+  supervisor tree).
 - **Cooperative cancellation under tight CPU loops.** Scenario D
   uses `Aff.delay` for the sleep, which yields. A tight synchronous
   loop would not yield, and the kill would not land until the loop
@@ -113,6 +117,11 @@ Over 250 iterations with up to six branches per race, every branch
 index won at least once, and no branch dominated. The `foldl race`
 implementation does not introduce a directional bias that would
 matter at the wall-clock scales the harness uses.
+
+**Update (2026-06):** `raceAll` is now implemented with
+`Control.Parallel.parOneOfMap` (a single parallel choice over all
+branches), not a `foldl race`. The unbiased-in-practice observation
+still holds.
 
 ### O-2: Nested `scoped` plus `fork` plus `interrupt` is stable up
 to depth 50.
