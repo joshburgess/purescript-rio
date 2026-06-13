@@ -1,11 +1,12 @@
 -- | A one-shot, write-once cell that fiber `A` can `await` on and
--- | fiber `B` can complete with a `succeed` or `fail`. Building
+-- | fiber `B` can complete with a `succeedDeferred` or
+-- | `failDeferred`. Building
 -- | block for higher-level concurrency: handshakes, promise-style
 -- | "the worker is ready" signals, and STM-free coordination.
 -- |
 -- | Implemented over `Effect.Aff.AVar` so multiple `await`ers all
 -- | wake when the cell is filled; once filled it stays filled (the
--- | `succeed` / `fail` family use `tryPut`, returning `False` on a
+-- | `succeedDeferred` / `failDeferred` family use `tryPut`, returning `False` on a
 -- | second attempt rather than overwriting).
 -- |
 -- | `Deferred e a` carries the same `Either (Variant e) a` shape as

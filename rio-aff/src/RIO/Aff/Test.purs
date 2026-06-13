@@ -3,7 +3,8 @@
 -- | capturing every call to a function-shaped service.
 -- |
 -- | The rest of the testing surface lives next to its subject:
--- | `RIO.Aff.Test.Clock` (`TestClock`), `RIO.Aff.Test.Random`, `RIO.Aff.Test.HTTP`,
+-- | `RIO.Aff.Test.Clock` (`TestClock`), `RIO.Aff.Test.Random`,
+-- | `RIO.Aff.Test.HttpClient`, `RIO.Aff.Test.HttpServer`,
 -- | `RIO.Aff.Test.WebSocket`, `RIO.Aff.Test.Property` (`forAllRIO`), and
 -- | `RIO.Aff.Spec` (`itRIO` and the `purescript-spec` integration).
 module RIO.Aff.Test

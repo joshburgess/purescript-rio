@@ -6,8 +6,8 @@
 -- | writes performed earlier in the transaction.
 -- |
 -- | Like `TMap`, the implementation stores the entire set inside one
--- | TVar. Writes to disjoint elements still conflict at the version-
--- | vector level. For low-to-moderate contention this is the right
+-- | TVar. Writes to disjoint elements still conflict because they all
+-- | share that one TVar. For low-to-moderate contention this is the right
 -- | shape; for very high concurrent writes to disjoint elements,
 -- | partition the set across multiple `TVar`s.
 module RIO.Aff.STM.TSet

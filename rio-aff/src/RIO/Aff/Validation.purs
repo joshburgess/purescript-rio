@@ -74,10 +74,9 @@ fromEither = case _ of
   Right a -> Success a
   Left v -> failure v
 
--- | Project a `Validation` back into `Either`. If multiple
--- | failures were accumulated, only the first is surfaced (the
--- | rest are dropped); use `toEither` only when you've already
--- | observed the full list via pattern-matching on `Failure`.
+-- | Project a `Validation` back into `Either`. Every accumulated
+-- | failure is preserved on the `Left` as the full
+-- | `NonEmptyArray (Variant e)`.
 toEither
   :: forall e a
    . Validation e a

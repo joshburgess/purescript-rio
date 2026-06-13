@@ -8,8 +8,8 @@
 -- |
 -- | The implementation stores the entire map inside one TVar. That
 -- | makes every write read-modify-write the whole map's reference
--- | (not its contents), so writes to disjoint keys still conflict at
--- | the version-vector level. For a hot path with high concurrent
+-- | (not its contents), so writes to disjoint keys still conflict
+-- | because they all share that one TVar. For a hot path with high concurrent
 -- | writes to different keys, prefer keying multiple `TVar`s with a
 -- | constant outer index. For typical low-to-moderate contention this
 -- | is the right shape.
@@ -112,9 +112,10 @@ update k f (TMap tv) = STM.modifyTVar tv (Map.update (Just <<< f) k)
 clear :: forall k v. TMap k v -> STM Unit
 clear (TMap tv) = STM.writeTVar tv Map.empty
 
--- | Block until `k` has an entry, then return its value. Repeated
--- | inserts re-evaluate this transaction; an insert of `k` wakes a
--- | parked fiber on this call.
+-- | Block until `k` has an entry, then return its value. Wakes on
+-- | any write to the underlying map `TVar` (so an insert or delete
+-- | of a different key will re-check; this is the standard STM
+-- | wakeup model, not an indexed one).
 awaitKey :: forall k v. Ord k => k -> TMap k v -> STM v
 awaitKey k (TMap tv) = do
   m <- STM.readTVar tv

@@ -258,7 +258,7 @@ parSequence = F.parTraverse identity
 -- | run concurrently; the input array is split into chunks of size
 -- | `n` and each chunk is `parTraverse`d in turn.
 -- |
--- | `n <= 0` is treated as `1` (sequential). Short-circuit semantics
+-- | `n <= 1` is treated as `1` (sequential). Short-circuit semantics
 -- | match `parTraverse`: the first typed failure inside a chunk
 -- | cancels its siblings and aborts the remaining chunks.
 parTraverseN

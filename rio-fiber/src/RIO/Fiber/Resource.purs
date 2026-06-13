@@ -22,11 +22,12 @@
 -- |   * `onInterrupt` fires the finalizer if and only if the
 -- |     action's cause contains an interrupt, leaving success,
 -- |     typed failure, and pure-defect paths untouched.
--- |   * `scoped` and `supervised` from `RIO.Fiber.Scope` are
--- |     *callback-shaped* (`Scope -> RIO r e a`) rather than
--- |     row-label-shaped (`(scope :: Scope | r)`) as in aff.
--- |     The callback form is what the fiber runtime exposes
--- |     natively and avoids a row-extension dance for each block.
+-- |   * `scoped` from `RIO.Fiber.Scope` is *callback-shaped*
+-- |     (`Scope -> RIO r e a`) rather than row-label-shaped
+-- |     (`(scope :: Scope | r)`) as in aff. The callback form is
+-- |     what the fiber runtime exposes natively and avoids a
+-- |     row-extension dance for each block. (`supervised` takes a
+-- |     plain `RIO r e a` and tracks its scope implicitly.)
 module RIO.Fiber.Resource
   ( module Exports
   , acquireRelease

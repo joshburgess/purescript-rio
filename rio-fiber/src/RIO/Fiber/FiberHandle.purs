@@ -55,7 +55,7 @@ make scope = do
 
 -- | Fork `action` and store the fiber in the handle. If the handle
 -- | already held a fiber, that fiber is interrupted first. The
--- | returned fiber handle can be observed, joined, or interrupted
+-- | returned fiber can be observed, joined, or interrupted
 -- | manually; it also auto-clears from the slot on its own
 -- | completion.
 -- |

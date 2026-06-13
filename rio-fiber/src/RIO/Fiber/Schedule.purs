@@ -6,9 +6,10 @@
 -- | output to expose. Schedules are immutable; each step yields the
 -- | next schedule to consult.
 -- |
--- | The MVP ships the standard library: `recurs`, `spaced`,
--- | `exponential`, `forever`, plus the obvious combinators
--- | `andThen` and `bothS`. Apply them with `repeat` (drive a
+-- | The standard library includes `recurs`, `spaced`,
+-- | `exponential`, `forever`, and `andThen` / `bothS`, plus a
+-- | broader set of derived combinators (see the export list).
+-- | Apply them with `repeat` (drive a
 -- | successful action) or `retry` (re-run a failing action).
 module RIO.Fiber.Schedule
   ( Schedule(..)
@@ -121,12 +122,11 @@ fibonacci (Milliseconds unitMs) = go 1 unitMs unitMs
   go n a b = Schedule \_ -> pure
     (Step n (Milliseconds a) (go (n + 1) b (a + b)))
 
--- | Step forever at a fixed interval. Unlike `spaced`, the delay
--- | between iteration *starts* is held constant: the schedule
--- | tracks wall time elapsed since the last step and shortens the
--- | next sleep accordingly. (In this MVP we approximate it as
--- | `spaced delay`; tightening to true fixed-rate scheduling is a
--- | follow-up once we expose monotonic time.)
+-- | Step forever at a fixed interval. In this MVP `fixed` is an
+-- | alias for `spaced delay` (the gap between iterations is held
+-- | constant). True fixed-rate scheduling, which would track wall
+-- | time elapsed since the last step and shorten the next sleep
+-- | accordingly, is a follow-up once we expose monotonic time.
 fixed :: forall a. Milliseconds -> Schedule a Int
 fixed = spaced
 

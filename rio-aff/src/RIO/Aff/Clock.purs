@@ -110,11 +110,11 @@ now = do
 
 -- | Read the current wall-clock time, decomposed into UTC parts.
 -- |
--- | Convenience for `now` followed by `partsFromMs`. Defects with
--- | a defect (rather than returning a `Maybe`) if the timestamp
--- | cannot be represented as a `DateTime`, which is only possible
--- | with a mock clock whose `now` returns values outside the
--- | range of the host's `Date`.
+-- | Convenience for `now` followed by `partsFromMs`. Falls back to
+-- | the Unix epoch (1970-01-01T00:00:00Z) rather than returning a
+-- | `Maybe` if the timestamp cannot be represented as a `DateTime`,
+-- | which is only possible with a mock clock whose `now` returns
+-- | values outside the range of the host's `Date`.
 nowParts
   :: forall r e
    . RIO (clock :: Clock | r) e ClockParts

@@ -25,7 +25,7 @@
 -- |
 -- | This is purely sugar over `RIO.Fiber.Core.fail`. It does not
 -- | introduce a new failure channel, so it composes cleanly with
--- | `catchTag`, `catchAll`, `mapError`, and `sandbox`.
+-- | `catchTag`, `catchAll`, `mapError`, and `causeOf`.
 module RIO.Fiber.Fail
   ( class FailWith
   , failWith

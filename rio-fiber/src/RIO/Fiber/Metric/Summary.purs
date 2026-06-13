@@ -84,7 +84,7 @@ observe v (Summary s) = liftEffect do
 -- | `[0, 1]`.
 -- |
 -- | Uses the "nearest-rank" definition: sort the samples,
--- | compute `ceil(q * count)` (with at least index 0), and
+-- | compute `floor(q * count)` (clamped to the last index), and
 -- | return that element. No interpolation, so the returned
 -- | value is always one of the observed samples.
 quantile :: forall r e. Number -> Summary -> RIO r e (Maybe Number)

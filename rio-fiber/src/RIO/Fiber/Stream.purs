@@ -519,9 +519,11 @@ haltWhen signal source = Stream do
 -- | semantics) and the stream emits `Done`; if the sentinel
 -- | fails, that failure is raised on the error row.
 -- |
--- | The difference from `haltWhen`: `interruptWhen` will
--- | terminate a pull that has already started; `haltWhen` will
--- | only observe the halt between pulls.
+-- | The difference from `haltWhen`: both race the sentinel against
+-- | each in-flight pull, but `interruptWhen` raises a sentinel
+-- | *failure* on the stream's error row, whereas `haltWhen` treats
+-- | its signal purely as a completion trigger (a failed signal
+-- | neither halts nor fails the stream).
 -- |
 -- | Mirrors ZIO `ZStream.interruptWhen` and Effect-TS
 -- | `Stream.interruptWhen`.

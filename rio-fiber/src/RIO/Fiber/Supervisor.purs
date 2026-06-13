@@ -22,7 +22,7 @@ import Prelude
 import Effect (Effect)
 import RIO.Fiber.Internal (_registerSupervisor) as Internal
 
--- | An opaque integer assigned to each fiber at construction time.
+-- | A plain integer assigned to each fiber at construction time.
 -- | Stable for the lifetime of the fiber.
 type FiberId = Int
 

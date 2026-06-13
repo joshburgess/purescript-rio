@@ -1,8 +1,8 @@
 -- | Time-driven `Stream` combinators that depend on the `Clock`
 -- | service.
 -- |
--- | Where the temporal combinators in `RIO.Aff.Stream` are content with
--- | wall-clock waits (none today), the combinators here all read
+-- | Like the `Clock`-based combinators already in `RIO.Aff.Stream`
+-- | (`tick`, `throttle`), the combinators here all read
 -- | virtual time from `RIO.Aff.Clock` so they are deterministic against
 -- | `RIO.Aff.Test.Clock`.
 -- |

@@ -30,14 +30,14 @@
 -- | ## Concurrency and fork inheritance
 -- |
 -- | Annotations are stored in an `Effect.Ref` inside the
--- | `Logger` record. A forked fiber that emits a log line reads
--- | whatever annotations are current at emission time; writes
--- | from any fiber are visible to every fiber. This is the
--- | same trade-off `RIO.Aff.Tracer` and `RIO.Aff.Local` document: it
--- | works correctly for the common pattern (snapshot at the
--- | top, await children before `withFields` exits) and is not
--- | the per-fiber isolation that ZIO's runtime provides. See
--- | `docs/11-fiber-local.md` for the longer discussion.
+-- | `Logger` record. A direct `setAnnotations` writes to that
+-- | shared cell, so it is visible to every fiber holding the
+-- | same logger record. `withField` / `withFields`, however,
+-- | swap in a fresh logger record backed by a per-block `Ref`,
+-- | so a fiber forked inside such a block captures a private
+-- | annotation cell: the parent's later changes do not bleed
+-- | into the child and vice versa. See `docs/11-fiber-local.md`
+-- | and the `withFields` doc below for the longer discussion.
 -- |
 -- | ## Backends
 -- |

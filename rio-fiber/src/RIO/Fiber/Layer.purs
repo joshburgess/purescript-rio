@@ -76,10 +76,11 @@ scoped
   -> Layer e rIn rOut
 scoped = Layer
 
--- | Sequential composition: build `rOut` from `rMid`, then run the
--- | first layer against `rIn` to produce `rMid`. The result needs
--- | only `rIn`. Both layers share the same scope, so finalizers from
--- | either side run when `provide` exits.
+-- | Sequential composition: run the first layer against `rIn` to
+-- | produce `rMid`, then run the second layer against `rMid` to
+-- | produce `rOut`. The result needs only `rIn`. Both layers share
+-- | the same scope, so finalizers from either side run when
+-- | `provide` exits.
 chainLayer
   :: forall e rIn rMid rOut
    . Layer e rIn rMid

@@ -11,8 +11,9 @@
 -- | subscriber sees only messages published after it subscribes, and
 -- | a slow consumer is isolated to its own queue. `publish`
 -- | backpressures (retries) on the slowest subscriber when its queue
--- | is full; `tryPublish` writes nothing and returns `false` if any
--- | subscriber's queue cannot accept.
+-- | is full; `tryPublish` writes to every subscriber queue that has
+-- | room and returns `false` if any subscriber's queue was full (so a
+-- | `false` result may still have delivered to some subscribers).
 module RIO.Fiber.STM.TPubSub
   ( TPubSub
   , Subscription

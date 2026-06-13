@@ -16,7 +16,7 @@
 -- | "read, compute, write" sequence to be observed atomically by
 -- | other fibers. For pure updates, prefer `Effect.Ref` directly;
 -- | for transactional composition with other shared state, prefer
--- | `RIO.Fiber.STM`'s `TRef`.
+-- | `RIO.Fiber.STM`'s `TVar`.
 -- |
 -- | ```purescript
 -- | -- Increment a counter while reading from a service inside the

@@ -526,8 +526,7 @@ mapSchedule f (Schedule s) = Schedule \i -> mkRIO \env -> do
     Continue o d next ->
       pure (Continue (f o) d (mapSchedule f next))
 
--- | Alias for `mapSchedule`, named to match the rio-fiber and ZIO
--- | spelling.
+-- | Alias for `mapSchedule`, named to match the rio-fiber spelling.
 mapOutput
   :: forall r i o o'
    . (o -> o')

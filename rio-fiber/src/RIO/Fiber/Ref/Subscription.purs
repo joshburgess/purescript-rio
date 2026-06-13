@@ -14,7 +14,7 @@
 -- | ```purescript
 -- | -- Mirror a config value into a UI as it updates.
 -- | program = do
--- |   cfg <- Sub.new defaultConfig
+-- |   cfg <- Sub.make 16 defaultConfig
 -- |   _ <- F.fork (Sub.set cfg newConfig)
 -- |   Scope.scoped \scope ->
 -- |     Sub.changes scope cfg

@@ -21,8 +21,10 @@
 -- | Transactions are implemented at the RIO layer (`BEGIN` /
 -- | `COMMIT` / `ROLLBACK` issued through `execute`) so they work
 -- | against any driver without needing a separate
--- | `withTransaction` hook on the service record. Rollback runs
--- | on success, typed failure, and defect paths alike.
+-- | `withTransaction` hook on the service record. It `COMMIT`s on
+-- | success and `ROLLBACK`s on any typed failure (via `catchAll`);
+-- | defects (JS exceptions) bypass the handler, so rollback may not
+-- | run on a defect.
 module RIO.Fiber.Sql
   ( Sql
   , Statement

@@ -16,7 +16,7 @@
 -- | -- wait until both the worker is ready and an item is queued
 -- | item <- atomically do
 -- |   _ <- awaitTDeferred ready
--- |   takeTQueue queue
+-- |   readTQueue queue
 -- | ```
 -- |
 -- | A `TDeferred e a` carries the same `Either (Variant e) a` shape
@@ -85,7 +85,7 @@ failTDeferred (TDeferred ref) v = do
 -- | error row.
 -- |
 -- | This is the STM-native handshake: combine with `readTRef` /
--- | `takeTQueue` / `awaitKey` / etc. inside one `atomically` block
+-- | `readTQueue` / `awaitKey` / etc. inside one `atomically` block
 -- | for atomic multi-source coordination.
 awaitTDeferred :: forall e a. TDeferred e a -> STM e a
 awaitTDeferred (TDeferred ref) = do

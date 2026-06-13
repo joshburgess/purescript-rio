@@ -5,9 +5,10 @@
 -- | `RIO.Aff.Test.Random` and gives you a seedable, deterministic
 -- | sequence for replayable tests.
 -- |
--- | The service exposes three operations: a uniform `Number` in
--- | `[0, 1)`, a uniform `Int` in a closed range, and a fair
--- | `Boolean`. Range checks (high less than low) are not
+-- | The service exposes four operations: a uniform `Number` in
+-- | `[0, 1)`, a uniform `Int` in a closed range, a uniform `Number`
+-- | in a half-open range, and a fair `Boolean`. Range checks (high
+-- | less than low) are not
 -- | enforced; the result is unspecified in that case, matching
 -- | `Effect.Random.randomInt`.
 -- |

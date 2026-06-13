@@ -3,7 +3,7 @@
 -- | capturing every call to a function-shaped service.
 -- |
 -- | The rest of the testing surface lives next to its subject:
--- | `RIO.Fiber.Test.Clock` (`TestClock`), `RIO.Fiber.Test.Random`,
+-- | `RIO.Fiber.TestClock` (`TestClock`), `RIO.Fiber.Test.Random`,
 -- | `RIO.Fiber.Test.Property` (`forAllRIO`), and `RIO.Fiber.Spec`
 -- | (`itRIO` and the `purescript-spec` integration).
 module RIO.Fiber.Test
