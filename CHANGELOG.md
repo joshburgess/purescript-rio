@@ -98,10 +98,11 @@ breaking changes (see `CONTRIBUTING.md`, "Versioning Policy").
 
 ### Added
 
-- `RIO.Aff.STM` (and `RIO.Fiber.STM`) exports `TVar` as a type
-  alias for `TRef`, with matching `newTVar` / `readTVar` /
-  `writeTVar` / `modifyTVar` aliases. Same value, two spellings,
-  for callers coming from ZIO or Haskell `stm`.
+- `RIO.Aff.STM` exports `TVar` as a type alias for `TRef`, with
+  matching `newTVar` / `readTVar` / `writeTVar` / `modifyTVar`
+  aliases (`RIO.Fiber.STM` already uses `TVar` as its primary
+  type). Same value, two spellings, for callers coming from ZIO
+  or Haskell `stm`.
 - Three more `compile-fail` cases extending coverage to the
   Stream / Sink / STM / Channel surfaces:
   - **10** `stm-op-outside-atomically`: a `readTRef` bound

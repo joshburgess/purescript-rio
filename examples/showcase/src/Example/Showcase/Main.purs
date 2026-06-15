@@ -293,9 +293,9 @@ listHandler = do
 
 -- | Streaming SSE: hand `eventStreamResponse` a `BodyStream`
 -- | built from three pre-formatted SSE frames. A real handler
--- | would build the stream lazily (e.g. through `fromChunks`
--- | over a polled queue, or a custom `BodyStream` that pulls
--- | from a `Channel`).
+-- | would build the stream lazily with a custom `BodyStream`
+-- | (`Aff (Maybe String)`) that pulls from a `Channel` or a
+-- | polled `Queue`. (`fromChunks` here just wraps a fixed array.)
 eventsHandler :: RIO AppEnv AppErr ServerResponse
 eventsHandler = do
   stream <- liftAff

@@ -1,7 +1,8 @@
 -- | App-specific bindings on top of `rio-aff-http`.
 -- |
--- | `withRequestContext` and the `RequestContext` type are
--- | re-exported verbatim. `requireAuth` is a pre-application of
+-- | The `RequestContext` type is re-exported verbatim;
+-- | `withRequestContext` is re-exported with its env/error rows
+-- | pinned to this example's `Env` / `ApiError`. `requireAuth` is a pre-application of
 -- | `RIO.Aff.HTTPurple.Auth.requireAuth` that pins the typed-failure
 -- | tag to this example's `ApiError` row (`unauthorized :: Unit`)
 -- | so call sites can ignore the tag/payload pair.
