@@ -418,7 +418,7 @@ spec = describe "rio-fiber: Sink" do
         other -> fail ("expected Success, got " <> describeOutcome other)
 
     it "one side terminating early keeps the other side consuming" do
-      -- head terminates on the first element; sum keeps going for the rest
+      -- head terminates on the first element; sum still sees every element (both sinks step on each input)
       let
         prog :: F.RIO () () (Tuple (Maybe Int) Int)
         prog = S.runSink (S.fromArray [ 5, 10, 20, 40 ])

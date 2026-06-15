@@ -58,8 +58,8 @@ spec = describe "RIO.Aff.Hub (property tests)" do
     forAll smallNat \n -> do
       hub <- liftEffect (make :: _ (_ Int))
       let
-        -- `Array.range 1 0` returns `[1]` (it's an inclusive
-        -- range with at-least-one element). Use an explicit empty
+        -- `Array.range 1 0` returns `[1, 0]` (it counts downward
+        -- when start > end). Use an explicit empty
         -- list for `n == 0` so the subscribe traversal stays
         -- faithful to the requested count.
         ixs = if n <= 0 then [] else Array.range 1 n

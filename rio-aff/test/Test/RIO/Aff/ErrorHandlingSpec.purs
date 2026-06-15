@@ -165,7 +165,7 @@ spec = do
 
     describe "rethrow" do
       it "wraps an already-constructed Variant back into a Left" do
-        -- The `rethrow` docstring promises it is the "dual of `fail`"
+        -- The `rethrow` docstring promises it is the "dual of `catchAll`"
         -- at the Variant level: it takes an existing `Variant e` (not
         -- a tag + payload) and re-raises it as `Left v` in the same
         -- row. `catchAll rethrow ≡ identity` already exercises it in

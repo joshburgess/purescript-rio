@@ -20,7 +20,7 @@
 -- |   * No short-circuit: if one branch fails with a typed error,
 -- |     the other branches still run to completion. The final
 -- |     result is the leftmost typed failure. (Compare
--- |     `RIO.Aff.Concurrency.parPair`, which short-circuits via Aff
+-- |     `RIO.Aff.Concurrency.zipPar`, which short-circuits via Aff
 -- |     interruption.)
 -- |
 -- |   * Defects (`Aff` exceptions) propagate from whichever branch

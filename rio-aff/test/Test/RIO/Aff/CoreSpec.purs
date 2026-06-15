@@ -122,10 +122,10 @@ spec = do
             (runRIO (u <*> (v <*> pureInt n)))
 
       it "Apply short-circuits: a failing left side skips the right side's effect" do
-        -- The Apply instance docstring (`src/RIO/Internal.purs`)
-        -- promises: "If the function side produces `Left`, the
-        -- argument side is not run; this matches the monadic
-        -- short-circuit semantics of the error channel."
+        -- The `Apply` instance (`src/RIO/Aff/Internal.purs`) is
+        -- defined via `opBind`, so if the function side produces
+        -- `Left`, the argument side is not run -- matching the
+        -- monadic short-circuit semantics of the error channel.
         -- The Applicative laws above all use `pureFn` / `pureInt`,
         -- which have no observable side effects, so a regression
         -- that ran both sides and threaded the Left at the end

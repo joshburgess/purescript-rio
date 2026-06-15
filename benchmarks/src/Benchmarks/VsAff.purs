@@ -6,13 +6,15 @@
 -- | raw `Aff`, so the per-effect overhead is directly visible in the
 -- | output.
 -- |
--- | Three workloads:
+-- | Five workloads:
 -- |
 -- |   1. Tight bind loop (10 000 iterations). Stresses monadic bind.
 -- |   2. Parallel mapM over a 32-element array of pure work. Stresses
 -- |      the parallel applicative machinery.
 -- |   3. Fan-out / fan-in: fork 16 children, await every one, collect
 -- |      the results. Stresses fork + join.
+-- |   4. Sequential traverse over a 32-element array of pure work.
+-- |   5. Pure map / apply chains stacked on a single value.
 -- |
 -- | Numbers are wall-clock per iteration via `process.hrtime()`. The
 -- | RIO and Aff figures are printed back-to-back so a reader can

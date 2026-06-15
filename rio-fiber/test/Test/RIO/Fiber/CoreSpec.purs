@@ -1426,8 +1426,9 @@ spec = describe "rio-fiber: Core" do
 
   describe "runRIOCallback" do
     let
-      -- Bridge `runRIOCallback`'s `Outcome e a` callback into Aff's
-      -- `Either Error (Outcome e a)` callback.
+      -- Bridge `runRIOCallback`'s `Outcome e a` callback into Aff:
+      -- capture the outcome, then complete the `makeAff` callback
+      -- (`Either Error Unit`) with `Right unit`.
       runViaCallback
         :: forall e a
          . F.RIO () e a

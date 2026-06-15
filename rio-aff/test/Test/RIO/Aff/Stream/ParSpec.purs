@@ -479,8 +479,8 @@ spec = do
         -- bounded queue of size `bufferSize` (clamped to at
         -- least 1)". The parallel claim for `broadcast` is
         -- pinned above; `partition` makes the identical
-        -- promise via `let cap = max 1 bufferSize` (line 188
-        -- of `Stream/Par.purs`) and is otherwise untested:
+        -- promise via `let cap = max 1 bufferSize` in
+        -- `Stream/Par.purs` and is otherwise untested:
         -- every existing `partition` test passes bufferSize 4.
         -- A regression that dropped the clamp and forwarded a
         -- raw 0 to `Queue.bounded` would deadlock the

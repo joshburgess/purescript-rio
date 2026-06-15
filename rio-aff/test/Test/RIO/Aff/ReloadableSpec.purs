@@ -50,7 +50,7 @@ spec = describe "RIO.Aff.Reloadable" do
       program :: RIO (clock :: Clock) () { before :: Int, after :: Int, calls :: Int }
       program = scoped do
         scope <- ask (Proxy :: Proxy "scope")
-        -- recurs 0 emits Continue with delay 0 once, then Done.
+        -- recurs 0 returns Done immediately (zero Continue steps).
         -- The forked loop completes immediately; manual reload drives
         -- the only observable re-acquire here.
         slot <- Reloadable.make scope (recurs 0) acquire

@@ -627,7 +627,7 @@ spec = do
         peakSeen `shouldEqual` 1
 
       it "n = 0 is treated as 1 (sequential), not as zero-size chunks" do
-        -- Docstring promise: "`n <= 0` is treated as `1`
+        -- Docstring promise: "`n <= 1` is treated as `1`
         -- (sequential)." The pinned `n <= 1` test only covers
         -- the upper bound (`n = 1`) of that interval; the
         -- zero/negative half is unpinned. The implementation
