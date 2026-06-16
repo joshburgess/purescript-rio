@@ -220,7 +220,7 @@ spec = do
         result <- runRIO parent
         result `shouldEqual` (Right 22 :: Either _ Int)
 
-    describe "parent kill does not finalize child's pre-interrupt state" do
+    describe "parent kill runs the child scope's finalizer" do
       it "interrupting between acquire and delay releases the resource" do
         events <- liftEffect (Ref.new [])
         let

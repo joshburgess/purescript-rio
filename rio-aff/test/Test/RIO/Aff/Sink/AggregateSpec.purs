@@ -46,7 +46,7 @@ spec = describe "RIO.Aff.Sink (aggregate / transduce)" do
           (Sink.aggregate Sink.count (Stream.fromArray [ 10, 20, 30, 40 ]))
       result `shouldEqual` [ 4 ]
 
-    it "emits one chunk for an exhausted stream when count is the sink" do
+    it "emits no chunks when the input stream is empty" do
       result <- runRIO' do
         Stream.runCollect
           (Sink.aggregate Sink.count (Stream.fromArray ([] :: Array Int)))

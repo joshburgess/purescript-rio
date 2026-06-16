@@ -205,7 +205,7 @@ spec = describe "rio-fiber: Cache" do
         r.runs `shouldEqual` 1
       _ -> fail "expected Success"
 
-  it "evicts on typed failure: next get retries the lookup" do
+  it "evicts on defect: next get retries the lookup" do
     state <- liftEffect (Ref.new 0)
     let
       program :: RIO () () Int

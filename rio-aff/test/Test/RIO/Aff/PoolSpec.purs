@@ -137,12 +137,10 @@ spec = describe "RIO.Aff.Pool" do
     log <- liftEffect (ERef.read releaseLog)
     Array.sort log `shouldEqual` [ 1, 2, 3 ]
 
-  it "in-flight resources are released (not pooled) after shutdown" do
-    -- Acquire-then-shutdown timing: a fiber borrows a resource,
-    -- the scope exits while the borrow is in flight, the
-    -- borrowing block's `finally` observes the shutdown flag
-    -- and routes the resource to `release` rather than back to
-    -- the idle stack.
+  it "idle resources are released by the scope finalizer on exit" do
+    -- Mint a resource and return it (so it sits idle in the
+    -- pool), then let the scope exit: the scope-exit finalizer
+    -- drains idle resources through `release`.
     releaseLog <- liftEffect (ERef.new ([] :: Array Int))
     counter <- liftEffect (ERef.new 0)
     -- Manually build the pool outside `scoped` so we can

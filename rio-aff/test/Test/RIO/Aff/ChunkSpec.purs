@@ -67,7 +67,7 @@ spec = describe "RIO.Aff.Chunk" do
         c = fromArray [ 4, 5, 6 ]
       toArray ((a <> b) <> c) `shouldEqual` toArray (a <> (b <> c))
 
-    it "concatenation caches length without re-walking" do
+    it "length of a concatenated chunk is the sum of its parts" do
       let
         big = fromArray (Array.replicate 1000 0)
         joined = big <> big <> big <> big
